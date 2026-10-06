@@ -20,6 +20,19 @@
 export const SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT = 30.42
 
 /**
+ * VLRH-H1790812613753: metros de holgura alrededor de la zona autorizada que
+ * absorben el error de ubicación del teléfono. Fuente única del valor base: la
+ * siembra del alta automática, el alta manual (`assignManualContent`) y el
+ * respaldo de la comprobación de zona cuando el margen de la empresa no se puede
+ * leer. La migración repite el literal 50 en el `DEFAULT` de la columna.
+ */
+export const SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT = 50
+
+/** Límites del margen de tolerancia de zona, en metros enteros. */
+export const SYSTEM_SETTING_ZONE_TOLERANCE_METERS_MIN = 0
+export const SYSTEM_SETTING_ZONE_TOLERANCE_METERS_MAX = 200
+
+/**
  * Contenido que se siembra en la fila del tenant nuevo. Excluye `businessUnitId`
  * y `systemSettingBusinessUnits` (los resuelve el call-site con los datos del
  * tenant destino) y `systemSettingTradeName` (lo aporta `tenantDefaultContent`
@@ -42,6 +55,7 @@ const SYSTEM_SETTING_TENANT_DEFAULTS = {
   systemSettingPeriodAbsencesBeforeAttendanceLock: 'monthly',
   systemSettingPeriodLateArrivalsBeforeAttendanceLock: 'monthly',
   systemSettingMonthlyConversionFactor: SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT,
+  systemSettingZoneToleranceMeters: SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT,
 } as const
 
 export type SystemSettingTenantDefaults = typeof SYSTEM_SETTING_TENANT_DEFAULTS & {

@@ -71,6 +71,12 @@ import BusinessUnit from './business_unit.js'
  *          systemSettingMonthlyConversionFactor:
  *            type: number
  *            description: Factor días/mes para convertir salario diario a mensual en UI (default 30.4, consistente con IMSS). Solo para display, no afecta cálculos de negocio.
+ *          systemSettingZoneToleranceMeters:
+ *            type: integer
+ *            minimum: 0
+ *            maximum: 200
+ *            default: 50
+ *            description: Margen de tolerancia de la zona de asistencia en metros enteros; absorbe el error de ubicación del teléfono. 0 exige registrar estrictamente dentro del área.
  *          systemSettingUpdatedAt:
  *            type: string
  *          systemSettingDeletedAt:
@@ -139,6 +145,9 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare systemSettingMonthlyConversionFactor: number
+
+  @column()
+  declare systemSettingZoneToleranceMeters: number
 
   @column.dateTime({ autoCreate: true })
   declare systemSettingCreatedAt: DateTime

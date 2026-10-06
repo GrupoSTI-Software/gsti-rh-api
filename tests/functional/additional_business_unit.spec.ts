@@ -6,6 +6,9 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import SystemSetting from '#models/system_setting'
+import Tolerance from '#models/tolerance'
+import Role from '#models/role'
+import RoleSystemPermission from '#models/role_system_permission'
 import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingVolumeTier from '#models/billing_volume_tier'
@@ -19,6 +22,9 @@ import { BillingSubscriptionServiceError } from '#exceptions/billing_subscriptio
 import { MAX_LIVE_BUSINESS_UNITS_PER_USER } from '#constants/business_unit'
 import { toBusinessDateString } from '#utils/business_date'
 import { ensureRole } from '#tests/helpers/ensure_role'
+import { SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT } from '#constants/system_setting_defaults'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 
 /**
  * Tests funcionales — alta de empresa adicional (USRH1787932877001).
@@ -100,10 +106,35 @@ async function cleanupUser(user: User, person: Person) {
 }
 
 async function cleanupBusinessUnit(businessUnitId: number) {
-  await BillingSubscription.query().where('business_unit_id', businessUnitId).delete()
-  await SystemSetting.query().where('business_unit_id', businessUnitId).delete()
-  await BusinessUnitUser.query().where('business_unit_id', businessUnitId).delete()
-  await BusinessUnit.query().where('business_unit_id', businessUnitId).delete()
+  await TenantContext.runUnscoped(async () => {
+    await db.from('branch_offices').where('business_unit_id', businessUnitId).delete()
+    await BillingSubscription.query().where('business_unit_id', businessUnitId).delete()
+    // El alta siembra tolerancias que referencian la configuración: van antes.
+    const tenantSettings = await SystemSetting.query()
+      .withTrashed()
+      .where('business_unit_id', businessUnitId)
+    if (tenantSettings.length > 0) {
+      await Tolerance.query()
+        .whereIn(
+          'system_setting_id',
+          tenantSettings.map((setting) => setting.systemSettingId)
+        )
+        .delete()
+    }
+    await SystemSetting.query().withTrashed().where('business_unit_id', businessUnitId).delete()
+    await BusinessUnitUser.query().where('business_unit_id', businessUnitId).delete()
+    const tenantRoles = await Role.query().withTrashed().where('business_unit_id', businessUnitId)
+    if (tenantRoles.length > 0) {
+      await RoleSystemPermission.query()
+        .whereIn(
+          'role_id',
+          tenantRoles.map((role) => role.roleId)
+        )
+        .delete()
+      await Role.query().withTrashed().where('business_unit_id', businessUnitId).delete()
+    }
+    await BusinessUnit.query().where('business_unit_id', businessUnitId).delete()
+  }, TENANT_UNSCOPED_REASON.TEST_FIXTURE)
 }
 
 // ---------------------------------------------------------------------------
@@ -157,6 +188,32 @@ test.group(
       assert.equal(result.businessUnit.businessUnitName, 'Sucursal Norte CA-1')
       assert.equal(result.businessUnit.businessUnitActive, 1)
       assert.equal(result.businessUnit.businessUnitOrigin, 'self_service')
+    })
+
+    test('la empresa nueva nace con el margen de tolerancia de zona base (VLRH-H1790812613753)', async ({
+      assert,
+    }) => {
+      const service = new AdditionalBusinessUnitService()
+      const result = await service.createAdditionalBusinessUnit({
+        businessUnitName: 'Sucursal Norte CA-1 margen',
+        billingPlanId: planId,
+        contractedEmployees: 10,
+        user: ownerUser,
+      })
+
+      const bu = await BusinessUnit.query()
+        .where('business_unit_public_id', result.businessUnit.businessUnitPublicId)
+        .firstOrFail()
+
+      try {
+        const settings = await SystemSetting.query()
+          .where('business_unit_id', bu.businessUnitId)
+          .firstOrFail()
+        assert.equal(settings.systemSettingZoneToleranceMeters, SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT)
+        assert.equal(settings.systemSettingZoneToleranceMeters, 50)
+      } finally {
+        await cleanupBusinessUnit(bu.businessUnitId)
+      }
     })
 
     test('businessUnitLegalName copia el nombre cuando no se envía', async ({ assert }) => {

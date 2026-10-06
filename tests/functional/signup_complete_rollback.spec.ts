@@ -10,6 +10,9 @@ import BillingPlanPrice from '#models/billing_plan_price'
 import BillingVolumeTier from '#models/billing_volume_tier'
 import BillingCatalogService from '#services/billing_catalog_service'
 import SignupDraftService from '#services/signup_draft_service'
+import { blindIndexOrNull } from '#utils/blind_index'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 
 /**
  * Errores tipados y rollback en `complete()`. Los casos que no prueban el
@@ -178,7 +181,14 @@ test.group('SignupDraftService.complete() — rollback y errores tipados (CA-5, 
       assert.notEqual(result.errorCode, 'SIGNUP.SYS_UNHANDLED')
 
       assert.isNull(await User.query().where('user_email', email).first())
-      assert.isNull(await Person.query().where('person_email', email).first())
+      // `people` está filtrada por empresa y `person_email` va cifrado: la
+      // búsqueda de huérfanos es global y por índice ciego.
+      const orphanPerson = await TenantContext.runUnscoped(
+        async () =>
+          Person.query().where('person_email_hash', blindIndexOrNull(email) ?? '').first(),
+        TENANT_UNSCOPED_REASON.TEST_FIXTURE
+      )
+      assert.isNull(orphanPerson)
 
       const survivingDraft = await SignupDraft.query()
         .where('signup_draft_id', draft.signupDraftId)

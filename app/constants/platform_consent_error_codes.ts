@@ -14,6 +14,10 @@ export const PLATFORM_CONSENT_ERROR_CODES = {
   TENANT_NOT_FOUND: 'CONSENT.PLATFORM.010',
   /** `page`/`perPage` fuera de contrato en el historial por tenant (422). */
   INVALID_HISTORY_PARAMS: 'CONSENT.PLATFORM.011',
+  /** Aceptación de otra empresa, biométrica, inexistente o de cuenta de plataforma (404). */
+  ACCEPTANCE_NOT_FOUND: 'CONSENT.PLATFORM.012',
+  /** Falla el registro en bitácora o la lectura en claro en la misma transacción (500). */
+  REVEAL_FAILED: 'CONSENT.PLATFORM.013',
 } as const
 
 export type PlatformConsentErrorCode =
@@ -30,4 +34,6 @@ export const PLATFORM_CONSENT_ERROR_CODES_BY_KEY: Record<
   'filtros-de-aceptaciones-invalidos': PLATFORM_CONSENT_ERROR_CODES.INVALID_FILTERS,
   'empresa-no-encontrada': PLATFORM_CONSENT_ERROR_CODES.TENANT_NOT_FOUND,
   'parametros-de-historial-invalidos': PLATFORM_CONSENT_ERROR_CODES.INVALID_HISTORY_PARAMS,
+  'aceptacion-no-encontrada': PLATFORM_CONSENT_ERROR_CODES.ACCEPTANCE_NOT_FOUND,
+  'no-fue-posible-revelar-la-evidencia': PLATFORM_CONSENT_ERROR_CODES.REVEAL_FAILED,
 }

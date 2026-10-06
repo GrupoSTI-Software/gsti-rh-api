@@ -12,6 +12,8 @@ export interface EvidenceFilters {
   legalDocumentId?: number
   /** Historial de un usuario puntual. NO encuentra asientos físicos de empleados sin usuario (limitación documentada, USRH1784146205513 §11.2). */
   userId?: number
+  /** Acota a una sola aceptación por su PK (`user_consents.user_consent_id`); combinable con `businessUnitId`. */
+  userConsentId?: number
   /** Acota a una sola empresa (tenant); ausente = global (todas las empresas). */
   businessUnitId?: number
   /** `'digital'` o `'physical'` — ausente = ambos canales (USRH1784146205513). */

@@ -1,6 +1,8 @@
 /**
  * Catálogo estable de códigos de error del dominio de asistencia (checadas).
  * Gramática `AST.<BUCKET>.NNN`. Reservas de USRH1786566437097 y USRH1787157820192.
+ * Bucket `GEO`: rechazos por la ubicación de la checada frente a las zonas
+ * autorizadas (VLRH-H1790812613754). La ubicación simulada no rechaza y no tiene código.
  */
 export const ASSIST_ERROR_CODES = {
   /** Contexto tenant no resuelto (USRH1786566437097). */
@@ -48,6 +50,14 @@ export const ASSIST_ERROR_CODES = {
   VAL_NO_LOCATION: 'AST.VAL.012',
   /** El servicio de direcciones no respondió; el cliente puede reintentar. */
   SYS_ADDRESS_UNAVAILABLE: 'AST.SYS.001',
+  /** Coordenadas a medias, no finitas o fuera de rango (VLRH-H1790812613754). */
+  VAL_COORDINATES_INVALID: 'AST.VAL.013',
+  /** La checada cae fuera de toda zona evaluable del empleado, con holgura. */
+  GEO_OUTSIDE_ZONE: 'AST.GEO.001',
+  /** El empleado no tiene zonas asignadas en su empresa ni "cualquier zona". */
+  GEO_NO_AUTHORIZED_ZONE: 'AST.GEO.002',
+  /** El empleado tiene zonas asignadas, pero ninguna se puede evaluar. */
+  GEO_ZONE_NOT_EVALUABLE: 'AST.GEO.003',
 } as const
 
 export type AssistErrorCode = (typeof ASSIST_ERROR_CODES)[keyof typeof ASSIST_ERROR_CODES]

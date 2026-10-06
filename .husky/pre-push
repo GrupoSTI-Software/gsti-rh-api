@@ -1,5 +1,10 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
+# Guardrails de catálogo y de nombres de migración (CLAUDE.md, "Verificación que
+# no es negociable"). No tocan base de datos y corren en segundos; van antes del
+# build para fallar rápido.
+node ace test unit --files="constants/" --files="migrations/"
+
 node ace build
 node scripts/lint-terminology.mjs

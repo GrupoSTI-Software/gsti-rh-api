@@ -138,3 +138,11 @@ export function getAssistPunchTimeFutureToleranceSeconds(): number {
     'ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS'
   )
 }
+
+/**
+ * Tope, en metros, del error de ubicación que reporta el teléfono y que se
+ * acepta como holgura alrededor de las zonas (VLRH-H1790812613754, regla 5).
+ * Sin tope, un aparato podría ensanchar la zona a voluntad declarando un error
+ * enorme.
+ */
+export const ASSIST_ZONE_PRECISION_CAP_METERS = 100
