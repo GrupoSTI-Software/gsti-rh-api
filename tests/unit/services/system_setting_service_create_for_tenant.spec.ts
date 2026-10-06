@@ -312,6 +312,7 @@ test.group('SystemSettingService.createForTenant — callers internos (CA-7)', (
       })
 
       assert.equal(created.businessUnitId, businessUnit.businessUnitId)
+      assert.equal(created.systemSettingZoneToleranceMeters, SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT)
     } finally {
       await cleanupTenantSettings(businessUnit.businessUnitId)
       await BusinessUnit.query().where('business_unit_id', businessUnit.businessUnitId).delete()
