@@ -33,6 +33,19 @@ test.group('platform_legal_acceptance_routes — guard de plataforma', () => {
     )
   })
 
+  test('declara GET /tenants/:businessUnitPublicId/legal-acceptances hacia tenantHistory', async ({
+    assert,
+  }) => {
+    const content = await readFile(join(process.cwd(), ROUTES_PATH), 'utf8')
+    // Prettier parte la llamada en varias líneas: se comparan sin espacios en blanco
+    // (mismo criterio de tolerancia que la prueba "ninguna ruta fuera del grupo").
+    const compact = content.replace(/\s+/g, '')
+    assert.include(
+      compact,
+      "router.get('/tenants/:businessUnitPublicId/legal-acceptances','#modules/consent/platform/platform_consent.controller.tenantHistory')"
+    )
+  })
+
   test('ninguna ruta fuera del grupo', async ({ assert }) => {
     const content = await readFile(join(process.cwd(), ROUTES_PATH), 'utf8')
     // Prettier parte la cadena en `router\n  .group(`: se tolera el salto de línea.
