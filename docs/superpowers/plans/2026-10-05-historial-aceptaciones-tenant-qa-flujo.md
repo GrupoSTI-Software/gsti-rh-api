@@ -1,5 +1,7 @@
 # Prueba manual — Ver el historial de aceptaciones de una empresa cliente
 
+**Estado: recorrido completo el 6 de octubre de 2026.** Los 13 escenarios y toda la checklist quedaron en verde, sin hallazgos.
+
 **Problema:** cuando alguien pregunta "¿quién aceptó los términos y el aviso de privacidad, cuándo y desde dónde?", la consola de plataforma solo mostraba, por empresa, la última vez que aceptó cada documento. No había dónde ver el detalle de cada aceptación: qué persona de la empresa la hizo, de qué versión se trataba, en qué momento y por qué vía —ni desde qué dirección o equipo entró quien aceptó—. Sin ese detalle no se puede armar una auditoría ni responder un requerimiento.
 
 **Solución:** una pantalla nueva, **de solo consulta**, que muestra el **expediente** de aceptaciones de una empresa cliente: todos y cada uno de sus registros de Términos y condiciones y de Aviso de privacidad, el más reciente primero. Cada renglón dice la persona, el documento, la versión, la fecha y hora (de Ciudad de México) y si se aceptó en línea o en papel; al desplegar un renglón se ve la dirección IP y el equipo de donde se aceptó, siempre **parcialmente ocultos**. Se llega a ella desde el botón **Ver historial** del listado de aceptaciones legales.
@@ -193,16 +195,18 @@ Objetivo: comprobar que desde el expediente no se puede cambiar, anular ni expor
 
 Cada casilla se marca contra el objetivo de su escenario, no contra "se hicieron los pasos":
 
-- [ ] 4.1 El botón **Ver historial** abre el expediente de esa empresa y no el de otra
-- [ ] 4.2 Las migas y la cabecera identifican de qué empresa es el expediente
-- [ ] 4.3 Cada renglón muestra persona (con **Propietario** solo en la dueña), documento, versión, fecha y hora de Ciudad de México y canal
-- [ ] 4.4 El orden es del más reciente al más antiguo
-- [ ] 4.5 La IP y el equipo se ven tapados con puntos, con guion cuando no hay dato, y sin ninguna opción de revelarlos
-- [ ] 4.6 El expediente no mezcla datos de otra empresa
-- [ ] 4.7 La aceptación biométrica nunca aparece
-- [ ] 4.8 El expediente se reparte en páginas y se puede avanzar y retroceder
-- [ ] 4.9 Una empresa sin aceptaciones muestra su aviso
-- [ ] 4.10 Una dirección con un identificador inexistente muestra **No encontramos esta empresa.** y **Volver a la lista**
-- [ ] 4.11 Con el servidor caído se avisa con **Reintentar** (nunca un expediente vacío) y al volver se recupera
-- [ ] 4.12 En 375 px la tabla se desplaza en horizontal sin desbordarse
-- [ ] 4.13 El expediente no permite editar, anular ni exportar
+**Recorrido: completado por la persona responsable el 6 de octubre de 2026 — los 13 escenarios quedaron en verde, sin hallazgos.**
+
+- [x] 4.1 El botón **Ver historial** abre el expediente de esa empresa y no el de otra
+- [x] 4.2 Las migas y la cabecera identifican de qué empresa es el expediente
+- [x] 4.3 Cada renglón muestra persona (con **Propietario** solo en la dueña), documento, versión, fecha y hora de Ciudad de México y canal
+- [x] 4.4 El orden es del más reciente al más antiguo
+- [x] 4.5 La IP y el equipo se ven tapados con puntos, con guion cuando no hay dato, y sin ninguna opción de revelarlos
+- [x] 4.6 El expediente no mezcla datos de otra empresa
+- [x] 4.7 La aceptación biométrica nunca aparece
+- [x] 4.8 El expediente se reparte en páginas y se puede avanzar y retroceder
+- [x] 4.9 Una empresa sin aceptaciones muestra su aviso
+- [x] 4.10 Una dirección con un identificador inexistente muestra **No encontramos esta empresa.** y **Volver a la lista**
+- [x] 4.11 Con el servidor caído se avisa con **Reintentar** (nunca un expediente vacío) y al volver se recupera
+- [x] 4.12 En 375 px la tabla se desplaza en horizontal sin desbordarse
+- [x] 4.13 El expediente no permite editar, anular ni exportar
