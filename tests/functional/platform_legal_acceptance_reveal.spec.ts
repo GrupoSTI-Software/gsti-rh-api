@@ -1,5 +1,4 @@
 import { test } from '@japa/runner'
-import db from '@adonisjs/lucid/services/db'
 import EvidenceRepositoryMysql from '#modules/consent/evidence/evidence.repository.mysql'
 import { PLATFORM_ACCEPTANCE_DOCUMENT_TYPES } from '#modules/consent/platform/platform_consent.constants'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
