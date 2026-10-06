@@ -24,6 +24,7 @@ import { SIGNUP_ERROR_CODES } from '#constants/signup_error_codes'
 import { ensureRole } from '#tests/helpers/ensure_role'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
+import { blindIndexOrNull } from '#utils/blind_index'
 
 /**
  * Tests de `SignupDraftService.complete()` — creación transaccional del
@@ -311,7 +312,10 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
       // en cualquiera, justamente para detectar la que no debió quedar.
       const orphans = await TenantContext.runUnscoped(
         async () => ({
-          person: await Person.query().where('person_email', email).first(),
+          // `person_email` va cifrado: se busca por su índice ciego.
+          person: await Person.query()
+            .where('person_email_hash', blindIndexOrNull(email) ?? '')
+            .first(),
           user: await User.query().where('user_email', email).first(),
           businessUnit: await BusinessUnit.query()
             .where('business_unit_name', businessUnitName)
