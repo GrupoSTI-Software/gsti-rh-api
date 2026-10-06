@@ -47,6 +47,17 @@ export interface ListTenantAcceptancesInput {
   limit: number
 }
 
+/**
+ * Referencia mínima a una empresa activa resuelta por su id público (§14, SEC-D-01).
+ * Solo lo que el historial necesita para acotar la evidencia y armar el `tenant` de
+ * la respuesta; no expone nada del detalle completo de la empresa.
+ */
+export interface PlatformTenantRef {
+  businessUnitId: number
+  businessUnitPublicId: string
+  businessUnitName: string
+}
+
 /** Puerto de datos para aceptaciones legales de plataforma por tenant (§4). */
 export interface PlatformConsentRepository {
   /** Documentos vigentes de términos y aviso (§4 regla 9). */
@@ -59,4 +70,16 @@ export interface PlatformConsentRepository {
   listTenantAcceptances(
     input: ListTenantAcceptancesInput
   ): Promise<{ rows: TenantAcceptanceRow[]; total: number }>
+
+  /**
+   * Resuelve la empresa activa (no borrada) por su `businessUnitPublicId` (§14).
+   * `null` si no existe: el 404 lo decide el servicio, el puerto no duplica la barrera.
+   */
+  findBusinessUnitByPublicId(publicId: string): Promise<PlatformTenantRef | null>
+
+  /**
+   * Ids de las cuentas que cuentan como aceptantes de la empresa (DA-1, §4 regla 1).
+   * La regla de quién cuenta vive en `ownerMembershipsQuery` del adaptador, no aquí.
+   */
+  findOwnerUserIds(businessUnitId: number): Promise<number[]>
 }

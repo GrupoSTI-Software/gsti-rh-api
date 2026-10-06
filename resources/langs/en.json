@@ -2877,6 +2877,14 @@
       "filtros-de-aceptaciones-invalidos": {
         "title": "Invalid acceptance filters",
         "detail": "Check the search (1 to 191 characters), the status (al-dia, pendiente or nunca), the page and the limit (maximum 100)."
+      },
+      "empresa-no-encontrada": {
+        "title": "Company not found",
+        "detail": "There is no active company with that identifier."
+      },
+      "parametros-de-historial-invalidos": {
+        "title": "Invalid history parameters",
+        "detail": "Check the company identifier (UUID), the page and the page size (maximum 100)."
       }
     }
   },
