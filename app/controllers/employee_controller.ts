@@ -90,7 +90,10 @@ import { TenantContext } from '#utils/tenant_context'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { getBusinessTimeZone, toCalendarIsoDate } from '#utils/business_date'
 import { EMPLOYEE_WORK_SCHEDULE, type EmployeeWorkSchedule } from '#constants/employee_work_schedule'
-import { isEmployeeTerminationRecordChanged } from '#helpers/employee_termination_record'
+import {
+  isEmployeeTerminationRecordChanged,
+  parseEmployeeTerminatedDate,
+} from '#helpers/employee_termination_record'
 import type { PersonReleaseContext } from '#helpers/person_release_guard'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { EMPLOYEES_TERMINATION_RECORD_PERMISSION } from '#constants/employees_write_permission_declarations'
@@ -253,6 +256,34 @@ export default class EmployeeController {
     return null
   }
 
+  /**
+   * 400 de fecha de baja no interpretable (VLRH-H1790812613821), para la baja
+   * y la edición. Texto fijo de i18n: nunca interpola el valor recibido ni
+   * devuelve `data`.
+   */
+  private invalidTerminatedDateResponse(i18n: I18n) {
+    return {
+      type: 'warning',
+      title: i18n.t('employee_terminated_date_invalid_title'),
+      message: i18n.t('employee_terminated_date_invalid_message'),
+      detail: i18n.t('employee_terminated_date_invalid_message'),
+      key: 'fecha-de-baja-invalida',
+    }
+  }
+
+  /**
+   * 404 de la baja: el colaborador no existe, es de otra empresa o ya está
+   * dado de baja — al leerlo o al obtener el candado (VLRH-H1790991852870).
+   * Un solo cuerpo para los dos sitios: no distingue un caso de otro.
+   */
+  private employeeNotFoundForTerminationResponse(employeeId: unknown) {
+    return {
+      type: 'warning',
+      title: 'The employee was not found',
+      message: 'The employee was not found with the entered ID',
+      data: { employeeId },
+    }
+  }
 
   /**
    * @swagger
@@ -1286,6 +1317,9 @@ export default class EmployeeController {
    *           The parameters entered are invalid or essential data is missing to process the request.
    *           Además de los rechazos existentes, responde 400 cuando el correo institucional ya lo usa
    *           otra cuenta de acceso viva (USR.MAIL.002). Ningún campo se guardó.
+   *           También responde 400 con key `fecha-de-baja-invalida` cuando `employeeTerminatedDate`
+   *           viene presente y no es un día real del calendario (VLRH-H1790812613821): no se lee ni
+   *           se escribe nada y el registro de baja queda como estaba.
    *         content:
    *           application/json:
    *             schema:
@@ -1300,6 +1334,12 @@ export default class EmployeeController {
    *                 message:
    *                   type: string
    *                   description: Message of response
+   *                 detail:
+   *                   type: string
+   *                   description: Mismo texto que message; presente en el rechazo de fecha de baja
+   *                 key:
+   *                   type: string
+   *                   description: Clave estable del rechazo (p. ej. fecha-de-baja-invalida)
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
@@ -1399,10 +1439,18 @@ export default class EmployeeController {
       const employeeIgnoreConsecutiveAbsences = request.input('employeeIgnoreConsecutiveAbsences')
       const employeeAuthorizeAnyZones = request.input('employeeAuthorizeAnyZones')
 
-      let employeeTerminatedDate = request.input('employeeTerminatedDate')
-      employeeTerminatedDate = employeeTerminatedDate
-        ? (employeeTerminatedDate.split('T')[0] + ' 00:000:00').replace('"', '')
-        : null
+      // Fecha de baja (VLRH-H1790812613821): se interpreta antes de leer o
+      // escribir nada. No interpretable = 400; vacía = quita el registro de
+      // baja, como siempre (regla 4).
+      const terminatedDateInput = parseEmployeeTerminatedDate(
+        request.input('employeeTerminatedDate')
+      )
+      if (terminatedDateInput.kind === 'invalid') {
+        response.status(400)
+        return this.invalidTerminatedDateResponse(i18n)
+      }
+      const employeeTerminatedDate =
+        terminatedDateInput.kind === 'valid' ? terminatedDateInput.sqlValue : null
 
       const employee = {
         employeeId: employeeId,
@@ -1821,7 +1869,11 @@ export default class EmployeeController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: >-
+   *           The parameters entered are invalid or essential data is missing to process the request.
+   *           Con key `fecha-de-baja-invalida` cuando `employeeTerminatedDate` viene presente y no es
+   *           un día real del calendario (VLRH-H1790812613821): no se da de baja, no se cancela ningún
+   *           cambio temporal de sucursal y no se abre expediente de salida.
    *         content:
    *           application/json:
    *             schema:
@@ -1836,6 +1888,12 @@ export default class EmployeeController {
    *                 message:
    *                   type: string
    *                   description: Message of response
+   *                 detail:
+   *                   type: string
+   *                   description: Mismo texto que message; presente en el rechazo de fecha de baja
+   *                 key:
+   *                   type: string
+   *                   description: Clave estable del rechazo (p. ej. fecha-de-baja-invalida)
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
@@ -1874,10 +1932,17 @@ export default class EmployeeController {
           data: { employeeId },
         }
       }
-      let employeeTerminatedDate = request.input('employeeTerminatedDate')
-      employeeTerminatedDate = employeeTerminatedDate
-        ? (String(employeeTerminatedDate).split('T')[0] + ' 00:000:00').replace('"', '')
-        : null
+      // Fecha de baja (VLRH-H1790812613821): no interpretable = 400 antes de
+      // leer o escribir nada; vacía sigue al aviso vigente de datos incompletos.
+      const terminatedDateInput = parseEmployeeTerminatedDate(
+        request.input('employeeTerminatedDate')
+      )
+      if (terminatedDateInput.kind === 'invalid') {
+        response.status(400)
+        return this.invalidTerminatedDateResponse(i18n)
+      }
+      const employeeTerminatedDate =
+        terminatedDateInput.kind === 'valid' ? terminatedDateInput.sqlValue : null
       const modality = this.normalizeTerminationInput(request.input('employeeTerminationModality'))
       const terminationType = this.normalizeTerminationInput(request.input('employeeTerminationType'))
 
@@ -1914,15 +1979,10 @@ export default class EmployeeController {
         .first()
       if (!currentEmployee) {
         response.status(404)
-        return {
-          type: 'warning',
-          title: 'The employee was not found',
-          message: 'The employee was not found with the entered ID',
-          data: { employeeId },
-        }
+        return this.employeeNotFoundForTerminationResponse(employeeId)
       }
       const employeeService = new EmployeeService(i18n)
-      const deleteEmployee = await employeeService.delete(
+      const result = await employeeService.delete(
         currentEmployee,
         {
           employeeTerminatedDate,
@@ -1932,14 +1992,18 @@ export default class EmployeeController {
         // Quién dio la baja: queda en el historial de la revocación en checadores.
         auth.user?.userId ?? null
       )
-      if (deleteEmployee) {
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Employees',
-          message: 'The employee was deleted successfully',
-          data: { employee: deleteEmployee },
-        }
+      // Otra confirmación registró la baja entre la lectura y el candado:
+      // mismo 404 que el reintento secuencial, sin escrituras (regla 4).
+      if (result.kind === 'already-terminated') {
+        response.status(404)
+        return this.employeeNotFoundForTerminationResponse(employeeId)
+      }
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'The employee was deleted successfully',
+        data: { employee: result.employee },
       }
     } catch (error) {
       const messageError =

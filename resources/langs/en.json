@@ -178,6 +178,8 @@
   "employee_department_required_message": "Department is required",
   "employee_position_required_title": "Position required",
   "employee_position_required_message": "Position is required",
+  "employee_terminated_date_invalid_title": "Invalid termination date",
+  "employee_terminated_date_invalid_message": "The termination date is not a valid calendar date. Check the day, month and year and try again.",
   "employee_badge_unexpected_error_message": "An unexpected error occurred while processing the employee badge.",
   "employee_import_val_file_title": "Invalid file",
   "employee_import_val_file_message": "The file must be a valid Excel workbook (.xlsx or .xls).",
