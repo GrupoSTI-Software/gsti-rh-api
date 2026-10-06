@@ -193,19 +193,13 @@ test.group(
     test('la empresa nueva nace con el margen de tolerancia de zona base (VLRH-H1790812613753)', async ({
       assert,
     }) => {
-      // Fuera de una petición HTTP no hay contexto de empresa; el alta se corre
-      // sin filtro para probar la siembra, no el contexto.
       const service = new AdditionalBusinessUnitService()
-      const result = await TenantContext.runUnscoped(
-        () =>
-          service.createAdditionalBusinessUnit({
-            businessUnitName: 'Sucursal Norte CA-1 margen',
-            billingPlanId: planId,
-            contractedEmployees: 10,
-            user: ownerUser,
-          }),
-        TENANT_UNSCOPED_REASON.TEST_FIXTURE
-      )
+      const result = await service.createAdditionalBusinessUnit({
+        businessUnitName: 'Sucursal Norte CA-1 margen',
+        billingPlanId: planId,
+        contractedEmployees: 10,
+        user: ownerUser,
+      })
 
       const bu = await BusinessUnit.query()
         .where('business_unit_public_id', result.businessUnit.businessUnitPublicId)
