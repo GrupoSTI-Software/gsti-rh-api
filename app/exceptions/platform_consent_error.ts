@@ -1,4 +1,7 @@
-export type PlatformConsentErrorKey = 'filtros-de-aceptaciones-invalidos'
+export type PlatformConsentErrorKey =
+  | 'filtros-de-aceptaciones-invalidos'
+  | 'empresa-no-encontrada'
+  | 'parametros-de-historial-invalidos'
 
 export default class PlatformConsentError extends Error {
   readonly key: PlatformConsentErrorKey

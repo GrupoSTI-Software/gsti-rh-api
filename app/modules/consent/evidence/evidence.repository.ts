@@ -16,6 +16,20 @@ export interface EvidenceFilters {
   businessUnitId?: number
   /** `'digital'` o `'physical'` — ausente = ambos canales (USRH1784146205513). */
   channel?: UserConsentChannel
+  /**
+   * Tipos de documento (`legal_documents.legal_document_type`) a incluir.
+   * Ausente = sin filtro por tipo. Un arreglo vacío es fail-closed: devuelve
+   * cero filas (NO significa "todos los tipos").
+   */
+  types?: LegalDocumentType[]
+  /**
+   * Excluye a las cuentas de plataforma de la evidencia (USRH1790610965466):
+   * `users.is_platform_admin = 1` o rol efectivo `root` en la empresa del filtro.
+   *
+   * Fail-closed: exige `businessUnitId`; sin empresa del filtro devuelve cero
+   * filas (NO degrada a "sin exclusión").
+   */
+  excludePlatformAccounts?: boolean
 }
 
 export interface EvidencePagination {
