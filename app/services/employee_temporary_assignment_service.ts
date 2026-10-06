@@ -1,4 +1,5 @@
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { DateTime } from 'luxon'
 import Employee from '#models/employee'
 import BranchOffice from '#models/branch_office'
@@ -589,14 +590,20 @@ export default class EmployeeTemporaryAssignmentService {
    * cancelación en D o antes se conserva y una posterior a D pasa a D. Por eso
    * no se filtra por `start_date`. Solo por `employee_id` del colaborador ya
    * resuelto por el servicio: nunca ids del cliente ni filtro por sucursal.
+   * Con `trx`, participa en la transacción de la baja (VLRH-H1790991852870).
    *
    * @param eventDate - Fecha de baja capturada, `yyyy-MM-dd`.
+   * @param trx - Transacción de la baja; sin ella, escribe por su cuenta.
    */
-  static async cancelActiveAssignmentsByEmployee(employeeId: number, eventDate: string) {
+  static async cancelActiveAssignmentsByEmployee(
+    employeeId: number,
+    eventDate: string,
+    trx?: TransactionClientContract
+  ) {
     const day = DateTime.fromISO(eventDate, { zone: ZONE }).startOf('day')
     if (!day.isValid) return
 
-    await EmployeeTemporaryAssignment.query()
+    await EmployeeTemporaryAssignment.query({ client: trx })
       .where('employee_id', employeeId)
       .where('end_date', '>=', day.toFormat('yyyy-MM-dd'))
       .where((query) => {

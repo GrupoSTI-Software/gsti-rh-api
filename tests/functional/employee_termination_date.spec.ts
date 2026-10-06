@@ -1,7 +1,9 @@
 import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
+import type { Assert } from '@japa/assert'
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import i18nManager from '@adonisjs/i18n/services/main'
 import User from '#models/user'
 import Role from '#models/role'
 import Person from '#models/person'
@@ -12,6 +14,9 @@ import Employee from '#models/employee'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import EmployeeService from '#services/employee_service'
+import OffboardingsService from '#modules/employee-offboarding/offboardings/offboardings.service'
+import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { todayInBusinessZone, toCalendarIsoDate } from '#utils/business_date'
 import { TenantContext } from '#utils/tenant_context'
@@ -282,6 +287,48 @@ function bodyFor(fixture: EmployeeFixture, overrides: Record<string, unknown> = 
   }
 }
 
+/**
+ * Borra lo que creó un grupo, por FK: expedientes (sus pendientes caen en
+ * cascada), préstamos, historial, colaboradores y personas; luego actores,
+ * sucursales (FK RESTRICT desde préstamos) y empresas.
+ */
+async function destroyFixtures(
+  fixtures: EmployeeFixture[],
+  actors: Actor[],
+  units: BusinessUnit[]
+): Promise<void> {
+  const employeeIds = fixtures.map((fixture) => fixture.employee.employeeId)
+  if (employeeIds.length > 0) {
+    // Por FK: expedientes (sus pendientes caen en cascada), préstamos, historial, colaboradores, personas
+    await db.from(OFFBOARDINGS_TABLE).whereIn('employee_id', employeeIds).delete()
+    await db.from(LOANS_TABLE).whereIn('employee_id', employeeIds).delete()
+    await db.from('employee_salary_history').whereIn('employee_id', employeeIds).delete()
+    await db.from('employees').whereIn('employee_id', employeeIds).delete()
+    await db
+      .from('people')
+      .whereIn(
+        'person_id',
+        fixtures.map((fixture) => fixture.person.personId)
+      )
+      .delete()
+  }
+  for (const actor of actors) {
+    await BusinessUnitUser.query().where('user_id', actor.user.userId).delete()
+    await db.from('api_tokens').where('tokenable_id', actor.user.userId).delete()
+    await User.query().where('user_id', actor.user.userId).delete()
+    await db.from('people').where('person_id', actor.person.personId).delete()
+    if (actor.role) {
+      await RoleSystemPermission.query().where('role_id', actor.role.roleId).delete()
+      await db.from('roles').where('role_id', actor.role.roleId).delete()
+    }
+  }
+  // Las sucursales van después de los préstamos (FK RESTRICT) y antes de las empresas
+  for (const current of units) {
+    await db.from('branch_offices').where('business_unit_id', current.businessUnitId).delete()
+    await BusinessUnit.query().where('business_unit_id', current.businessUnitId).delete()
+  }
+}
+
 test.group(
   'Baja con la fecha capturada — DELETE/PUT /api/employees/:id (VLRH-H1790812613821)',
   (group) => {
@@ -383,40 +430,7 @@ test.group(
       })
     })
 
-    const destroyFixtures = async (): Promise<void> => {
-      const employeeIds = fixtures.map((fixture) => fixture.employee.employeeId)
-      if (employeeIds.length > 0) {
-        // Por FK: expedientes (sus pendientes caen en cascada), préstamos, historial, colaboradores, personas
-        await db.from(OFFBOARDINGS_TABLE).whereIn('employee_id', employeeIds).delete()
-        await db.from(LOANS_TABLE).whereIn('employee_id', employeeIds).delete()
-        await db.from('employee_salary_history').whereIn('employee_id', employeeIds).delete()
-        await db.from('employees').whereIn('employee_id', employeeIds).delete()
-        await db
-          .from('people')
-          .whereIn(
-            'person_id',
-            fixtures.map((fixture) => fixture.person.personId)
-          )
-          .delete()
-      }
-      for (const actor of actors) {
-        await BusinessUnitUser.query().where('user_id', actor.user.userId).delete()
-        await db.from('api_tokens').where('tokenable_id', actor.user.userId).delete()
-        await User.query().where('user_id', actor.user.userId).delete()
-        await db.from('people').where('person_id', actor.person.personId).delete()
-        if (actor.role) {
-          await RoleSystemPermission.query().where('role_id', actor.role.roleId).delete()
-          await db.from('roles').where('role_id', actor.role.roleId).delete()
-        }
-      }
-      // Las sucursales van después de los préstamos (FK RESTRICT) y antes de las empresas
-      for (const current of [unit, foreignUnit]) {
-        await db.from('branch_offices').where('business_unit_id', current.businessUnitId).delete()
-        await BusinessUnit.query().where('business_unit_id', current.businessUnitId).delete()
-      }
-    }
-
-    group.teardown(() => asFixture(destroyFixtures))
+    group.teardown(() => asFixture(() => destroyFixtures(fixtures, actors, [unit, foreignUnit])))
 
     test('CA-1: la baja atrasada cancela con la fecha capturada todo préstamo no terminado antes y abre el expediente con esa fecha', async ({
       client,
@@ -676,3 +690,202 @@ test.group(
     })
   }
 )
+
+/**
+ * VLRH-H1790991852870 — la baja es un solo acto: los cambios temporales de
+ * sucursal se cancelan y el colaborador queda dado de baja, o no cambia nada.
+ * El expediente y los checadores corren después de registrada la baja y no la
+ * deshacen; una confirmación tardía no modifica nada.
+ */
+test.group('Baja todo-o-nada — DELETE /api/employees/:id (VLRH-H1790991852870)', (group) => {
+  let unit: BusinessUnit
+  let branches: { source: BranchOffice; target: BranchOffice }
+  let root: Actor
+  const fixtures: EmployeeFixture[] = []
+  const actors: Actor[] = []
+
+  /** Colaborador con V (vigente en D) y P (programado después de D), ambos sin cancelar. */
+  interface LoanedEmployee {
+    fixture: EmployeeFixture
+    current: number
+    planned: number
+  }
+
+  const createLoanedEmployee = async (label: string): Promise<LoanedEmployee> => {
+    const fixture = await asFixture(() => createEmployee(unit, label))
+    fixtures.push(fixture)
+    return {
+      fixture,
+      current: await createLoan(fixture, branches, { start: '2026-09-10', end: '2026-09-20' }),
+      planned: await createLoan(fixture, branches, { start: '2027-01-10', end: '2027-01-20' }),
+    }
+  }
+
+  const terminate = (client: ApiClient, fixture: EmployeeFixture) =>
+    client
+      .delete(`/api/employees/${fixture.employee.employeeId}`)
+      .loginAs(root.user)
+      .header('X-Business-Unit-Id', unit.businessUnitPublicId)
+      // El 500 del rollback es un caso de prueba, no un fallo del cliente
+      .setup((request) => {
+        request.request.ok(() => true)
+      })
+      .json({
+        employeeTerminatedDate: D,
+        employeeTerminationModality: MODALITY,
+        employeeTerminationType: TERMINATION_TYPE,
+      })
+
+  const assertTerminatedWithLoansCancelled = async (assert: Assert, loaned: LoanedEmployee) => {
+    const row = await employeeRow(loaned.fixture.employee.employeeId)
+    assert.isNotNull(row.employee_deleted_at)
+    assert.equal(row.terminated_date, `${D} 00:00:00`)
+    assert.lengthOf(String(row.employee_code).match(/-IN\d+/g) ?? [], 1)
+    assert.equal(await loanCancelledAt(loaned.current), D)
+    assert.equal(await loanCancelledAt(loaned.planned), D)
+  }
+
+  group.setup(async () => {
+    await asFixture(async () => {
+      unit = await createUnit('atomica')
+      branches = {
+        source: await createBranch(unit, 'Origen'),
+        target: await createBranch(unit, 'Destino'),
+      }
+      root = await createRootActor([unit])
+      actors.push(root)
+    })
+  })
+
+  group.teardown(() => asFixture(() => destroyFixtures(fixtures, actors, [unit])))
+
+  test('CA-1 y CA-2: si la baja falla a la mitad no queda nada registrado, y el reintento la registra completa', async ({
+    client,
+    assert,
+  }) => {
+    // Sin modo estricto MySQL truncaría el código en silencio y el caso pasaría en falso
+    const [modeRows] = await db.rawQuery('SELECT @@SESSION.sql_mode AS mode')
+    assert.include(String(modeRows[0].mode), 'STRICT_TRANS_TABLES')
+
+    const loaned = await createLoanedEmployee('Rollback')
+    const employeeId = loaned.fixture.employee.employeeId
+    // 190 + 13 del sufijo de baja = 203 > 200: el guardado falla con los préstamos ya cancelados en la transacción
+    const longCode = `RB${Date.now()}`.padEnd(190, 'X')
+    await db.from('employees').where('employee_id', employeeId).update({ employee_code: longCode })
+    const before = await employeeRow(employeeId)
+    assert.lengthOf(String(before.employee_code), 190)
+
+    const failed = await terminate(client, loaned.fixture)
+    failed.assertStatus(500)
+    assert.equal(failed.body().type, 'error')
+    // Regla 2: colaborador activo con sus datos y su código sin cambio, préstamos intactos, sin expediente
+    const afterFailure = await employeeRow(employeeId)
+    assert.deepEqual(afterFailure, before)
+    assert.equal(afterFailure.employee_code, longCode)
+    assert.isNull(await loanCancelledAt(loaned.current))
+    assert.isNull(await loanCancelledAt(loaned.planned))
+    assert.lengthOf(await offboardingRows(employeeId), 0)
+
+    // CA-2: corregida la causa (aquí, recortando el código directo en BD), el reintento converge
+    await db
+      .from('employees')
+      .where('employee_id', employeeId)
+      .update({ employee_code: longCode.slice(0, 20) })
+    const retried = await terminate(client, loaned.fixture)
+    retried.assertStatus(201)
+    await assertTerminatedWithLoansCancelled(assert, loaned)
+    const offboardings = await offboardingRows(employeeId)
+    assert.lengthOf(offboardings, 1)
+    assert.equal(toCalendarIsoDate(offboardings[0].employee_offboarding_planned_date), D)
+  })
+
+  test('CA-3: el expediente se abre después de registrada la baja y su fallo no la deshace', async ({
+    client,
+    assert,
+    cleanup,
+  }) => {
+    const loaned = await createLoanedEmployee('SinExpediente')
+    const employeeId = loaned.fixture.employee.employeeId
+    const original = OffboardingsService.prototype.openAutomatically
+    cleanup(() => {
+      OffboardingsService.prototype.openAutomatically = original
+    })
+    // Lee con otra conexión del pool: dentro de la transacción de la baja vería NULL
+    let deletedAtSeenByOpener: unknown = 'no-llamado'
+    OffboardingsService.prototype.openAutomatically = async () => {
+      const row = await db
+        .from('employees')
+        .where('employee_id', employeeId)
+        .select('employee_deleted_at')
+        .first()
+      deletedAtSeenByOpener = row.employee_deleted_at
+      throw new Error('fallo simulado')
+    }
+
+    const response = await terminate(client, loaned.fixture)
+    response.assertStatus(201)
+    assert.notEqual(deletedAtSeenByOpener, 'no-llamado')
+    assert.isNotNull(deletedAtSeenByOpener)
+    await assertTerminatedWithLoansCancelled(assert, loaned)
+    assert.lengthOf(await offboardingRows(employeeId), 0)
+  })
+
+  test('CA-3: el fallo de los checadores tampoco deshace la baja ni impide el expediente', async ({
+    client,
+    assert,
+    cleanup,
+  }) => {
+    const loaned = await createLoanedEmployee('SinChecador')
+    const original = EmployeeSyncService.prototype.revokeAll
+    cleanup(() => {
+      EmployeeSyncService.prototype.revokeAll = original
+    })
+    let revokeCalled = false
+    EmployeeSyncService.prototype.revokeAll = async () => {
+      revokeCalled = true
+      throw new Error('fallo simulado')
+    }
+
+    const response = await terminate(client, loaned.fixture)
+    response.assertStatus(201)
+    assert.isTrue(revokeCalled)
+    await assertTerminatedWithLoansCancelled(assert, loaned)
+    assert.lengthOf(await offboardingRows(loaned.fixture.employee.employeeId), 1)
+  })
+
+  test('CA-4: una confirmación tardía con otra fecha no modifica nada', async ({
+    client,
+    assert,
+  }) => {
+    const loaned = await createLoanedEmployee('Tardia')
+    const employeeId = loaned.fixture.employee.employeeId
+    // La segunda confirmación ya pasó la lectura del controller mientras el colaborador estaba activo
+    const stale = await TenantContext.run([unit.businessUnitId], () =>
+      Employee.query()
+        .whereNull('employee_deleted_at')
+        .where('employee_id', employeeId)
+        .firstOrFail()
+    )
+
+    const first = await terminate(client, loaned.fixture)
+    first.assertStatus(201)
+    const afterFirst = await employeeRow(employeeId)
+
+    const outcome = await TenantContext.run([unit.businessUnitId], () =>
+      new EmployeeService(i18nManager.locale(i18nManager.defaultLocale)).delete(
+        stale,
+        {
+          employeeTerminatedDate: '2027-02-01',
+          employeeTerminationModality: MODALITY,
+          employeeTerminationType: TERMINATION_TYPE,
+        },
+        null
+      )
+    )
+    assert.deepEqual(outcome, { kind: 'already-terminated' })
+    // Un solo sufijo, una sola fecha, un solo expediente: nada de la segunda confirmación quedó escrito
+    assert.deepEqual(await employeeRow(employeeId), afterFirst)
+    await assertTerminatedWithLoansCancelled(assert, loaned)
+    assert.lengthOf(await offboardingRows(employeeId), 1)
+  })
+})

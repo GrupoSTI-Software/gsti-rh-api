@@ -272,6 +272,20 @@ export default class EmployeeController {
   }
 
   /**
+   * 404 de la baja: el colaborador no existe, es de otra empresa o ya está
+   * dado de baja — al leerlo o al obtener el candado (VLRH-H1790991852870).
+   * Un solo cuerpo para los dos sitios: no distingue un caso de otro.
+   */
+  private employeeNotFoundForTerminationResponse(employeeId: unknown) {
+    return {
+      type: 'warning',
+      title: 'The employee was not found',
+      message: 'The employee was not found with the entered ID',
+      data: { employeeId },
+    }
+  }
+
+  /**
    * @swagger
    * /api/employees:
    *   get:
@@ -1965,15 +1979,10 @@ export default class EmployeeController {
         .first()
       if (!currentEmployee) {
         response.status(404)
-        return {
-          type: 'warning',
-          title: 'The employee was not found',
-          message: 'The employee was not found with the entered ID',
-          data: { employeeId },
-        }
+        return this.employeeNotFoundForTerminationResponse(employeeId)
       }
       const employeeService = new EmployeeService(i18n)
-      const deleteEmployee = await employeeService.delete(
+      const result = await employeeService.delete(
         currentEmployee,
         {
           employeeTerminatedDate,
@@ -1983,14 +1992,18 @@ export default class EmployeeController {
         // Quién dio la baja: queda en el historial de la revocación en checadores.
         auth.user?.userId ?? null
       )
-      if (deleteEmployee) {
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Employees',
-          message: 'The employee was deleted successfully',
-          data: { employee: deleteEmployee },
-        }
+      // Otra confirmación registró la baja entre la lectura y el candado:
+      // mismo 404 que el reintento secuencial, sin escrituras (regla 4).
+      if (result.kind === 'already-terminated') {
+        response.status(404)
+        return this.employeeNotFoundForTerminationResponse(employeeId)
+      }
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'The employee was deleted successfully',
+        data: { employee: result.employee },
       }
     } catch (error) {
       const messageError =
