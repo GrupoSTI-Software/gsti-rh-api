@@ -10,6 +10,10 @@ import type { PlatformConsentErrorKey } from '#exceptions/platform_consent_error
 export const PLATFORM_CONSENT_ERROR_CODES = {
   /** Query de listado inválida: `search`, `status`, `page` o `limit` fuera de contrato (422). */
   INVALID_FILTERS: 'CONSENT.PLATFORM.001',
+  /** Empresa inexistente o no activa en el historial por tenant (404). */
+  TENANT_NOT_FOUND: 'CONSENT.PLATFORM.010',
+  /** `page`/`perPage` fuera de contrato en el historial por tenant (422). */
+  INVALID_HISTORY_PARAMS: 'CONSENT.PLATFORM.011',
 } as const
 
 export type PlatformConsentErrorCode =
@@ -24,4 +28,6 @@ export const PLATFORM_CONSENT_ERROR_CODES_BY_KEY: Record<
   PlatformConsentErrorCode
 > = {
   'filtros-de-aceptaciones-invalidos': PLATFORM_CONSENT_ERROR_CODES.INVALID_FILTERS,
+  'empresa-no-encontrada': PLATFORM_CONSENT_ERROR_CODES.TENANT_NOT_FOUND,
+  'parametros-de-historial-invalidos': PLATFORM_CONSENT_ERROR_CODES.INVALID_HISTORY_PARAMS,
 }

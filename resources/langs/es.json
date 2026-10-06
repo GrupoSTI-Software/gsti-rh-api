@@ -2880,6 +2880,14 @@
       "filtros-de-aceptaciones-invalidos": {
         "title": "Filtros de aceptaciones inválidos",
         "detail": "Revisa la búsqueda (1 a 191 caracteres), el estado (al-dia, pendiente o nunca), la página y el límite (máximo 100)."
+      },
+      "empresa-no-encontrada": {
+        "title": "Empresa no encontrada",
+        "detail": "No existe una empresa activa con ese identificador."
+      },
+      "parametros-de-historial-invalidos": {
+        "title": "Parámetros de historial inválidos",
+        "detail": "Revisa el identificador de la empresa (UUID), la página y el tamaño de página (máximo 100)."
       }
     }
   },
@@ -3365,5 +3373,6 @@
   "org_structure_position_alias_invalid_title": "Alias inválido",
   "org_structure_position_alias_invalid_message": "El alias contiene caracteres no permitidos o un formato incorrecto.",
   "org_structure_position_create_failed_title": "No fue posible crear el puesto",
-  "org_structure_position_create_failed_message": "Ocurrió un error inesperado y no se creó el puesto. Intente de nuevo o contacte a soporte."
+  "org_structure_position_create_failed_message": "Ocurrió un error inesperado y no se creó el puesto. Intente de nuevo o contacte a soporte.",
+  "structure_placeholder_notice_demoted_reason": "el puesto al que iba dirigido (\"Sin posición\") se retiró del sistema. Elige el puesto o confirma el departamento completo antes de programarlo o enviarlo."
 }

@@ -1,11 +1,16 @@
 import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
+import db from '@adonisjs/lucid/services/db'
 import UserConsent from '#models/user_consent'
+import type { LegalDocumentType } from '#models/legal_document'
 import type {
   EvidenceFilters,
   EvidencePageResult,
   EvidencePagination,
   EvidenceRepository,
 } from './evidence.repository.js'
+
+/** Slugs que marcan una cuenta como de plataforma en la empresa del filtro (§4 regla 1). */
+const PLATFORM_ACCOUNT_ROLE_SLUGS = ['root'] as const
 
 /**
  * Implementación Lucid del repositorio de evidencia de aceptaciones.
@@ -89,6 +94,50 @@ export default class EvidenceRepositoryMysql implements EvidenceRepository {
             })
             .orWhereHas('employee', (employeeQuery) => {
               employeeQuery.withTrashed().where('business_unit_id', businessUnitId)
+            })
+        })
+      })
+      .if(filters.types !== undefined, (query) => {
+        const types = filters.types as LegalDocumentType[]
+        if (types.length === 0) {
+          // Fail-closed: un arreglo vacío no significa "sin filtro".
+          query.whereRaw('1 = 0')
+          return
+        }
+        query.whereHas('legalDocument', (documentQuery) => {
+          documentQuery.whereIn('legal_document_type', types)
+        })
+      })
+      .if(filters.excludePlatformAccounts, (query) => {
+        const businessUnitId = filters.businessUnitId
+        if (!businessUnitId) {
+          // Fail-closed: sin empresa del filtro la exclusión no devuelve nada (CA-8b).
+          query.whereRaw('1 = 0')
+          return
+        }
+        query.where((outer) => {
+          outer
+            // Asientos sin usuario quedan (el filtro types ya saca el biométrico).
+            .whereNull('user_consents.user_id')
+            .orWhereNotExists((sub) => {
+              sub
+                .from('users as pa_u')
+                .leftJoin('business_unit_users as pa_buu', (j) => {
+                  j.on('pa_buu.user_id', 'pa_u.user_id')
+                    .andOnVal('pa_buu.business_unit_id', businessUnitId)
+                    .andOnNull('pa_buu.business_unit_user_deleted_at')
+                })
+                .leftJoin(
+                  'roles as pa_r',
+                  'pa_r.role_id',
+                  db.raw('COALESCE(pa_buu.role_id, pa_u.role_id)')
+                )
+                .whereColumn('pa_u.user_id', 'user_consents.user_id')
+                .where((w) => {
+                  w.where('pa_u.is_platform_admin', true).orWhereIn('pa_r.role_slug', [
+                    ...PLATFORM_ACCOUNT_ROLE_SLUGS,
+                  ])
+                })
             })
         })
       })
