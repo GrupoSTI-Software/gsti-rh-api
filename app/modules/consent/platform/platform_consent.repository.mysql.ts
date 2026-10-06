@@ -12,6 +12,7 @@ import type {
   CurrentAcceptanceDocuments,
   ListTenantAcceptancesInput,
   PlatformConsentRepository,
+  PlatformTenantRef,
   TenantAcceptanceRow,
 } from '#modules/consent/platform/platform_consent.repository'
 
@@ -39,6 +40,13 @@ interface DocumentAggregateColumns {
   hasCurrent: boolean
   lastColumn: string
   currentColumn: string
+}
+
+/** Fila cruda de `business_units` para la resolución mínima por id público. */
+interface PlatformTenantRawRow {
+  businessUnitId: number | string
+  businessUnitPublicId: string
+  businessUnitName: string
 }
 
 /**
@@ -169,6 +177,47 @@ export default class PlatformConsentRepositoryMysql implements PlatformConsentRe
       })),
       total,
     }
+  }
+
+  /**
+   * Resuelve la empresa activa (no borrada) por su id público (§14). Espejo de la
+   * resolución de `PlatformTenantService#getTenantDetail`, acotado a lo que el
+   * historial consume; devuelve `null` en vez de lanzar (el 404 vive en el servicio).
+   */
+  async findBusinessUnitByPublicId(publicId: string): Promise<PlatformTenantRef | null> {
+    const row = (await db
+      .from('business_units as bu')
+      .whereNull('bu.business_unit_deleted_at')
+      .where('bu.business_unit_public_id', publicId)
+      .select(
+        'bu.business_unit_id as businessUnitId',
+        'bu.business_unit_public_id as businessUnitPublicId',
+        'bu.business_unit_name as businessUnitName'
+      )
+      .first()) as PlatformTenantRawRow | null
+
+    if (!row) {
+      return null
+    }
+
+    return {
+      businessUnitId: Number(row.businessUnitId),
+      businessUnitPublicId: row.businessUnitPublicId,
+      businessUnitName: row.businessUnitName,
+    }
+  }
+
+  /**
+   * Ids numéricos distintos de las cuentas aceptantes de la empresa (DA-1). Envuelve
+   * `ownerMembershipsQuery`: la regla de quién cuenta NO se reescribe aquí, solo se
+   * proyecta la columna `userId` ya calculada por la consulta privada.
+   */
+  async findOwnerUserIds(businessUnitId: number): Promise<number[]> {
+    const rows = (await db
+      .from(this.ownerMembershipsQuery([businessUnitId]).as('om'))
+      .select('om.userId')) as Array<{ userId: number | string }>
+
+    return rows.map((row) => Number(row.userId))
   }
 
   /**

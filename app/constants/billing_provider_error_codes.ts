@@ -19,6 +19,12 @@ export const BILLING_PROVIDER_ERROR_CODES = {
   WEBHOOK_PROCESSING_FAILED: 'PLT.PRV.WEBHOOK_PROCESSING_FAILED',
   /** Credencial del borrador rechazada en preparar tarjeta (USRH1790718243123) */
   CARD_SETUP_UNAUTHORIZED: 'PLT.PRV.CARD_SETUP_UNAUTHORIZED',
+  /** Tarjeta no confirmada al completar registro con Stripe (USRH1790708507607) */
+  CARD_NOT_CONFIRMED: 'PLT.PRV.CARD_NOT_CONFIRMED',
+  /** Precio o fin de prueba distintos a lo inscrito en Stripe (USRH1790708507607) */
+  SUBSCRIPTION_OPENING_MISMATCH: 'PLT.PRV.SUBSCRIPTION_OPENING_MISMATCH',
+  /** Otro complete del mismo borrador en curso (USRH1790708507607) */
+  SIGNUP_COMPLETION_IN_PROGRESS: 'PLT.PRV.SIGNUP_COMPLETION_IN_PROGRESS',
 } as const
 
 export type BillingProviderErrorCode =
@@ -51,3 +57,15 @@ export const BILLING_PROVIDER_WEBHOOK_MODE_MISMATCH_DETAIL =
 /** Texto fijo hacia Stripe cuando el procesamiento falló (USRH1790708507579). */
 export const BILLING_PROVIDER_WEBHOOK_PROCESSING_FAILED_DETAIL =
   'El aviso del proveedor de cobro no se pudo procesar. Se reintentará.'
+
+/** Texto fijo cuando falta tarjeta confirmada en complete (USRH1790708507607). */
+export const BILLING_PROVIDER_CARD_NOT_CONFIRMED_DETAIL =
+  'Confirma tu tarjeta en el paso de pago para completar el registro.'
+
+/** Texto fijo cuando el snapshot de apertura no coincide (USRH1790708507607). */
+export const BILLING_PROVIDER_SUBSCRIPTION_OPENING_MISMATCH_DETAIL =
+  'No fue posible abrir la suscripción con el proveedor de cobro. Intenta de nuevo.'
+
+/** Texto fijo cuando otro complete reclamó el borrador (USRH1790708507607). */
+export const BILLING_PROVIDER_SIGNUP_COMPLETION_IN_PROGRESS_DETAIL =
+  'Tu registro ya se está completando. Espera un momento y vuelve a intentar.'

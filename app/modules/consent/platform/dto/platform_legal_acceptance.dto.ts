@@ -1,6 +1,11 @@
 import type { DateTime } from 'luxon'
-import type { PlatformDocumentAcceptanceStatus } from '#modules/consent/platform/platform_consent.constants'
+import type {
+  PlatformAcceptanceDocumentType,
+  PlatformDocumentAcceptanceStatus,
+} from '#modules/consent/platform/platform_consent.constants'
 import type { CurrentAcceptanceDocument } from '#modules/consent/platform/platform_consent.repository'
+import type { EvidencePageMetaDto, EvidenceRowDto } from '#modules/consent/evidence/dto/evidence.dto'
+import type { UserConsentChannel } from '#models/user_consent'
 
 /** Versión vigente expuesta en el contrato §10 (§4 regla 9). */
 export interface CurrentDocumentVersionDto {
@@ -65,5 +70,58 @@ export function toDocumentAcceptanceDto(
   return {
     status,
     lastAcceptedAt: lastAcceptedAt !== null ? lastAcceptedAt.toISO() : null,
+  }
+}
+
+/**
+ * Fila del historial de aceptaciones por tenant, contrato congelado de §10 (9 llaves).
+ * Es la proyección por lista blanca de una `EvidenceRowDto`: NO expone correo, `userId`,
+ * `employeeId`, `legalDocumentId`, empresas ajenas ni los campos del canal físico.
+ */
+export interface PlatformTenantLegalAcceptanceRowDto {
+  userConsentId: number
+  userName: string
+  isOwner: boolean
+  documentType: PlatformAcceptanceDocumentType
+  version: string
+  acceptedAt: string | null
+  channel: UserConsentChannel
+  ip: string | null
+  userAgent: string | null
+}
+
+/** Respuesta de `GET` del historial de aceptaciones por tenant (§10, historia D2 la extiende). */
+export interface PlatformTenantLegalAcceptancesResponseDto {
+  type: 'success'
+  tenant: {
+    businessUnitPublicId: string
+    businessUnitName: string
+  }
+  data: PlatformTenantLegalAcceptanceRowDto[]
+  meta: EvidencePageMetaDto
+}
+
+/**
+ * Proyecta una fila de evidencia al contrato del historial por lista blanca (§14).
+ *
+ * `isOwner` es `true` solo si la fila tiene usuario y ese id pertenece al conjunto de
+ * owners ya resuelto (`ownerUserIds`); un asiento físico sin usuario (`userId === null`)
+ * nunca es owner. `documentType` se estrecha a `PlatformAcceptanceDocumentType` porque
+ * la consulta de evidencia ya se filtró a esos tipos (términos y aviso).
+ */
+export function toTenantLegalAcceptanceRow(
+  row: EvidenceRowDto,
+  ownerUserIds: ReadonlySet<number>
+): PlatformTenantLegalAcceptanceRowDto {
+  return {
+    userConsentId: row.userConsentId,
+    userName: row.userName,
+    isOwner: row.userId !== null && ownerUserIds.has(row.userId),
+    documentType: row.documentType as PlatformAcceptanceDocumentType,
+    version: row.version,
+    acceptedAt: row.acceptedAt,
+    channel: row.channel,
+    ip: row.ip,
+    userAgent: row.userAgent,
   }
 }
