@@ -22,6 +22,8 @@ import BillingCatalogService from '#services/billing_catalog_service'
 import { SignupServiceError } from '#exceptions/signup_service_error'
 import { SIGNUP_ERROR_CODES } from '#constants/signup_error_codes'
 import { ensureRole } from '#tests/helpers/ensure_role'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 
 /**
  * Tests de `SignupDraftService.complete()` — creación transaccional del
@@ -305,16 +307,21 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
       assert.equal(result.key, 'signup-settings-provisioning-failed')
       assert.equal(result.errorCode, SIGNUP_ERROR_CODES.SETTINGS_PROVISIONING_FAILED)
 
-      const orphanPerson = await Person.query().where('person_email', email).first()
-      assert.isNull(orphanPerson, 'No debe quedar un Person huérfano tras el rollback')
-
-      const orphanUser = await User.query().where('user_email', email).first()
-      assert.isNull(orphanUser, 'No debe quedar un User huérfano tras el rollback')
-
-      const orphanBusinessUnit = await BusinessUnit.query()
-        .where('business_unit_name', businessUnitName)
-        .first()
-      assert.isNull(orphanBusinessUnit, 'No debe quedar un BusinessUnit huérfano tras el rollback')
+      // Verificación global: `people` está filtrada por empresa y aquí se busca
+      // en cualquiera, justamente para detectar la que no debió quedar.
+      const orphans = await TenantContext.runUnscoped(
+        async () => ({
+          person: await Person.query().where('person_email', email).first(),
+          user: await User.query().where('user_email', email).first(),
+          businessUnit: await BusinessUnit.query()
+            .where('business_unit_name', businessUnitName)
+            .first(),
+        }),
+        TENANT_UNSCOPED_REASON.TEST_FIXTURE
+      )
+      assert.isNull(orphans.person, 'No debe quedar un Person huérfano tras el rollback')
+      assert.isNull(orphans.user, 'No debe quedar un User huérfano tras el rollback')
+      assert.isNull(orphans.businessUnit, 'No debe quedar un BusinessUnit huérfano tras el rollback')
 
       const stillPendingDraft = await SignupDraft.query()
         .where('signup_draft_id', draft.signupDraftId)
