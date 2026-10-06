@@ -102,6 +102,26 @@ export interface PlatformTenantLegalAcceptancesResponseDto {
 }
 
 /**
+ * Accesor que solicita el revelado de evidencia de una aceptación (§14): el actor de
+ * plataforma y los datos de red que se anotan en la bitácora, NUNCA en la respuesta.
+ */
+export interface PlatformRevealAccessor {
+  accessorUserId: number
+  accessorIp: string
+  accessorUserAgent: string | null
+}
+
+/**
+ * Resultado del revelado (contrato §10, tres llaves): la aceptación y su IP/agente de
+ * usuario en claro, o `null` cuando el asiento no capturó el dato.
+ */
+export interface PlatformRevealedEvidenceDto {
+  userConsentId: number
+  ip: string | null
+  userAgent: string | null
+}
+
+/**
  * Proyecta una fila de evidencia al contrato del historial por lista blanca (§14).
  *
  * `isOwner` es `true` solo si la fila tiene usuario y ese id pertenece al conjunto de

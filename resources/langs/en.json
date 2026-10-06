@@ -2895,6 +2895,14 @@
       "parametros-de-historial-invalidos": {
         "title": "Invalid history parameters",
         "detail": "Check the company identifier (UUID), the page and the page size (maximum 100)."
+      },
+      "aceptacion-no-encontrada": {
+        "title": "Acceptance not found",
+        "detail": "There is no terms or privacy notice acceptance with that identifier in this company."
+      },
+      "no-fue-posible-revelar-la-evidencia": {
+        "title": "Could not reveal the evidence",
+        "detail": "The access could not be logged, so the data was not shown. Try again."
       }
     }
   },

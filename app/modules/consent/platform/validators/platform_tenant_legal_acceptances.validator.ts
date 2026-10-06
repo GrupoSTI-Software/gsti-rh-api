@@ -29,6 +29,28 @@ export const platformTenantLegalAcceptancesQueryValidator = vine.compile(
   })
 )
 
+/**
+ * Params de `POST /api/platform/tenants/:businessUnitPublicId/legal-acceptances/:userConsentId/reveal`.
+ *
+ * `businessUnitPublicId` es el id público (UUID) de la empresa y `userConsentId` la PK
+ * numérica de la aceptación. `userConsentId` usa `min(1)` y no `positive()`: en VineJS
+ * `positive()` admite el 0, y CA-8 exige 422 con `userConsentId = 0` (mismo criterio que
+ * `page`/`perPage` en este archivo). La ruta no valida los params por sí sola: el
+ * controller debe invocarlo con `{ data: { params: request.params() } }`.
+ */
+export const revealTenantLegalAcceptanceValidator = vine.compile(
+  vine.object({
+    params: vine.object({
+      businessUnitPublicId: vine.string().trim().uuid(),
+      userConsentId: vine.number().min(1).withoutDecimals(),
+    }),
+  })
+)
+
+export type RevealTenantLegalAcceptanceParamsPayload = Awaited<
+  ReturnType<typeof revealTenantLegalAcceptanceValidator.validate>
+>
+
 export type TenantHistoryParamsPayload = Awaited<
   ReturnType<typeof platformTenantLegalAcceptancesParamsValidator.validate>
 >
