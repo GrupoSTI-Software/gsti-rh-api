@@ -160,3 +160,60 @@ export function isBillingCheckoutProvider(
     typeof candidate.cancelProviderSubscription === 'function'
   )
 }
+
+export type ProviderInvoiceStatus = 'draft' | 'open' | 'paid' | 'uncollectible' | 'void'
+
+export type ValanserhInvoicePart = 'period' | 'increase_debt'
+
+export interface ProviderInvoiceLine {
+  lineRef: string
+  amountCents: number
+  source: 'subscription_item' | 'invoice_item' | 'other'
+  priceRef: string | null
+  periodStart: number
+  periodEnd: number
+  proration: boolean
+  valanserhPart: ValanserhInvoicePart | null
+}
+
+export interface ProviderInvoice {
+  invoiceRef: string
+  status: ProviderInvoiceStatus | null
+  billingReason: string | null
+  subscriptionRef: string | null
+  customerRef: string
+  currency: string
+  totalCents: number
+  autoAdvance: boolean
+  lines: ProviderInvoiceLine[]
+}
+
+export interface InvoiceChargeDraft {
+  invoiceRef: string
+  customerRef: string
+  billingSubscriptionId: number
+  part: ValanserhInvoicePart
+  amountCents: number
+  currency: string
+  description: string
+}
+
+/** Lectura y ajuste de facturas en borrador en Stripe (USRH1790718243208). */
+export interface BillingInvoiceProviderPort {
+  readInvoice(invoiceRef: string): Promise<ProviderInvoice>
+  addInvoiceCharge(charge: InvoiceChargeDraft): Promise<ProviderObjectRef>
+  holdInvoice(invoiceRef: string): Promise<void>
+  resumeInvoice(invoiceRef: string): Promise<void>
+}
+
+export function isBillingInvoiceProvider(
+  provider: BillingProviderPort
+): provider is BillingProviderPort & BillingInvoiceProviderPort {
+  const candidate = provider as Partial<BillingInvoiceProviderPort>
+  return (
+    typeof candidate.readInvoice === 'function' &&
+    typeof candidate.addInvoiceCharge === 'function' &&
+    typeof candidate.holdInvoice === 'function' &&
+    typeof candidate.resumeInvoice === 'function'
+  )
+}
