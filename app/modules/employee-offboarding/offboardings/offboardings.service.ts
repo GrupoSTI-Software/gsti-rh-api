@@ -1,4 +1,5 @@
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { DateTime } from 'luxon'
 import type { I18n } from '@adonisjs/i18n'
 import type Employee from '#models/employee'
@@ -6,7 +7,7 @@ import RoleService from '#services/role_service'
 import EmployeeSupplieService from '#services/employee_supplie_service'
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
-import { toBusinessDateString } from '#utils/business_date'
+import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
 import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constants.js'
 import ConceptsRepositoryMysql from '../concepts/concepts.repository.mysql.js'
 import type { ConceptsRepository } from '../concepts/concepts.repository.js'
@@ -80,10 +81,7 @@ export default class OffboardingsService {
    * Regla 14 — permiso granular sobre el módulo `employee-offboardings`.
    * `root` y `owner` hacen bypass dentro de `RoleService.hasAccess`.
    */
-  async assertCanAccess(
-    roleId: number | null | undefined,
-    action: EmployeeOffboardingCaseAction
-  ) {
+  async assertCanAccess(roleId: number | null | undefined, action: EmployeeOffboardingCaseAction) {
     const forbidden = () =>
       new EmployeeOffboardingServiceError({
         key: 'sin-permiso',
@@ -98,11 +96,7 @@ export default class OffboardingsService {
     }
 
     const roleService = new RoleService()
-    const hasAccess = await roleService.hasAccess(
-      roleId,
-      EMPLOYEE_OFFBOARDINGS_MODULE_SLUG,
-      action
-    )
+    const hasAccess = await roleService.hasAccess(roleId, EMPLOYEE_OFFBOARDINGS_MODULE_SLUG, action)
     if (!hasAccess) {
       throw forbidden()
     }
@@ -119,10 +113,7 @@ export default class OffboardingsService {
     businessUnitScope: number[],
     openedByUserId: number | null
   ): Promise<EmployeeOffboardingDto> {
-    const employee = await this.repository.findEmployeeInScope(
-      input.employeeId,
-      businessUnitScope
-    )
+    const employee = await this.repository.findEmployeeInScope(input.employeeId, businessUnitScope)
     if (!employee) {
       throw this.employeeNotFoundError()
     }
@@ -283,6 +274,38 @@ export default class OffboardingsService {
   }
 
   /**
+   * Punto de extensión de la reactivación (VLRH-H1790812613829), dentro de SU
+   * transacción: la fila de `employees` ya la bloqueó la reactivación y aquí se
+   * bloquea el expediente abierto (mismo orden de candados que `openCase`).
+   * Copia fecha, modalidad y tipo de baja al expediente antes de que la
+   * reactivación los limpie del colaborador (regla 5); sin expediente abierto
+   * no hay copia. Se llama SIEMPRE, haya o no expediente: aquí se enganchan
+   * la regla R2 de VLRH-C0040 (VLRH-H1791055794596) y la cancelación del
+   * expediente (VLRH-H1790812613830). No atrapa nada: cualquier fallo revierte
+   * la reactivación completa.
+   *
+   * @param _actorUserId - Quién reactiva; lo consume la cancelación (VLRH-H1790812613830).
+   */
+  async onEmployeeReactivated(
+    trx: TransactionClientContract,
+    employee: Employee,
+    _actorUserId: number | null
+  ): Promise<void> {
+    const openCase = await this.repository.lockOpenByEmployee(employee.employeeId, trx)
+    if (openCase && openCase.businessUnitId !== employee.businessUnitId) {
+      // R4: el expediente no compone el mixin de empresa; una discrepancia revierte todo
+      throw new Error('onEmployeeReactivated: expediente de otra empresa')
+    }
+    // [R2 de VLRH-C0040 — la agrega VLRH-H1791055794596 aquí, antes de la copia]
+    if (!openCase) return
+    openCase.employeeOffboardingTerminationDate = toCalendarIsoDate(employee.employeeTerminatedDate)
+    openCase.employeeOffboardingTerminationModality = employee.employeeTerminationModality ?? null
+    openCase.employeeOffboardingTerminationType = employee.employeeTerminationType ?? null
+    await this.repository.saveCase(openCase, trx)
+    // [cancelación del expediente — la agrega VLRH-H1790812613830 aquí, con actorUserId]
+  }
+
+  /**
    * Apertura común: transacción → lock de la fila de `employees` (siempre
    * existe, §7 D6) → verificación de expediente `open` → alta del expediente
    * + generación de pendientes en un solo acto (molde
@@ -296,7 +319,7 @@ export default class OffboardingsService {
       notes: string | null
       openedByUserId: number | null
     }
-  ): Promise<{ employeeOffboardingId: number, alreadyExisted: boolean }> {
+  ): Promise<{ employeeOffboardingId: number; alreadyExisted: boolean }> {
     return await db.transaction(async (trx) => {
       const locked = await this.repository.lockEmployeeRow(employee.employeeId, trx)
       if (!locked) {

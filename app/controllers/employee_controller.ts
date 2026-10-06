@@ -74,6 +74,8 @@ import logger from '@adonisjs/core/services/logger'
 import { resolveEmployeeImportApiError } from '../helpers/employee_import_api_error.js'
 import { resolveEmployeeQuotaApiError } from '../helpers/employee_quota_api_error.js'
 import { EmployeeQuotaError } from '../exceptions/employee_quota_error.js'
+import { resolveEmployeeReactivationApiError } from '../helpers/employee_reactivation_api_error.js'
+import { EmployeeReactivationError } from '../exceptions/employee_reactivation_error.js'
 import EmployeePositionLevelService from '#services/employee_position_level_service'
 import { EmployeePositionLevelError } from '../exceptions/employee_position_level_error.js'
 import { resolveEmployeePositionLevelApiError } from '../helpers/employee_position_level_api_error.js'
@@ -282,6 +284,28 @@ export default class EmployeeController {
       title: 'The employee was not found',
       message: 'The employee was not found with the entered ID',
       data: { employeeId },
+    }
+  }
+
+  /**
+   * Sobre de error del cupo de empleados, el mismo para el alta y la
+   * reactivación (VLRH-H1790812613829): fija el status y devuelve el cuerpo.
+   */
+  private employeeQuotaErrorResponse(
+    error: EmployeeQuotaError,
+    response: HttpContext['response'],
+    i18n: I18n
+  ) {
+    const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
+    response.status(resolved.status)
+    return {
+      type: 'error',
+      title: resolved.title,
+      message: resolved.message,
+      detail: resolved.detail,
+      key: resolved.key,
+      code: resolved.errorCode,
+      data: resolved.data,
     }
   }
 
@@ -1076,17 +1100,7 @@ export default class EmployeeController {
         }
       }
       if (error instanceof EmployeeQuotaError) {
-        const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
-        response.status(resolved.status)
-        return {
-          type: 'error',
-          title: resolved.title,
-          message: resolved.message,
-          detail: resolved.detail,
-          key: resolved.key,
-          code: resolved.errorCode,
-          data: resolved.data,
-        }
+        return this.employeeQuotaErrorResponse(error, response, i18n)
       }
       // Errores de negocio de la modalidad híbrida se traducen a 400 con el
       // código para que el cliente muestre el mensaje correcto (i18n).
@@ -4186,7 +4200,13 @@ export default class EmployeeController {
    *       - bearerAuth: []
    *     tags:
    *       - Employees
-   *     summary: reactivate employee
+   *     summary: Deshace la baja de un colaborador (reactivar)
+   *     description: |
+   *       Reactivar = deshacer una baja registrada por error (VLRH-H1790812613829):
+   *       todo o nada. Revisa el cupo contratado, devuelve el código original
+   *       (quita solo la marca final de la baja), copia fecha, modalidad y tipo
+   *       de baja al expediente de salida abierto y los limpia del colaborador,
+   *       que vuelve a contar para el cupo. Exige employees:reactivate-employees.
    *     produces:
    *       - application/json
    *     parameters:
@@ -4198,7 +4218,7 @@ export default class EmployeeController {
    *         required: true
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: Baja deshecha. Solo identificador y código del colaborador.
    *         content:
    *           application/json:
    *             schema:
@@ -4206,80 +4226,57 @@ export default class EmployeeController {
    *               properties:
    *                 type:
    *                   type: string
-   *                   description: Type of response generated
    *                 title:
    *                   type: string
-   *                   description: Title of response generated
    *                 message:
    *                   type: string
-   *                   description: Message of response
    *                 data:
    *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
    *                   properties:
-   *                     error:
-   *                       type: string
+   *                     employee:
+   *                       type: object
+   *                       properties:
+   *                         employeeId:
+   *                           type: number
+   *                         employeeCode:
+   *                           type: string
+   *       '400':
+   *         description: Sin employeeId
+   *       '403':
+   *         description: Sin permiso employees:reactivate-employees (key PERM.DENIED)
+   *       '404':
+   *         description: Inexistente, de otra empresa, o ya activo al leer o al obtener el candado
+   *       '409':
+   *         description: >-
+   *           Cupo agotado (key cupo-empleados-agotado, code EMP.QUOTA.EXCEEDED), sin plan vigente
+   *           (key sin-plan-contratado, code EMP.QUOTA.NO_PLAN) o código original ocupado por otro
+   *           colaborador vivo de la empresa (key codigo-de-colaborador-ocupado,
+   *           code EMP.REACTIVATION.CODE_TAKEN, data.employeeCode). Nada cambió.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 code:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '500':
+   *         description: Error inesperado; sin efectos parciales y sin detalle técnico
    */
-  async reactivate({ request, response }: HttpContext) {
+  async reactivate({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+    const employeeId = request.param('employeeId')
     try {
-      const employeeId = request.param('employeeId')
       if (!employeeId) {
         response.status(400)
         return {
@@ -4289,38 +4286,66 @@ export default class EmployeeController {
           data: { ...request.all() },
         }
       }
+      // R4: alcance explícito además del mixin; sin alcance no se consulta
+      if (businessUnitScope.length === 0) {
+        response.status(404)
+        return this.employeeNotFoundForTerminationResponse(employeeId)
+      }
       const currentEmployee = await Employee.query()
         .whereNotNull('employee_deleted_at')
         .where('employee_id', employeeId)
+        .whereIn('business_unit_id', businessUnitScope)
         .withTrashed()
         .first()
       if (!currentEmployee) {
         response.status(404)
-        return {
-          type: 'warning',
-          title: 'The employee was not found',
-          message: 'The employee was not found with the entered ID',
-          data: { employeeId },
-        }
+        return this.employeeNotFoundForTerminationResponse(employeeId)
       }
-      currentEmployee.deletedAt = null
-      await currentEmployee.save()
+      const result = await new EmployeeService(i18n).reactivate(
+        currentEmployee,
+        auth.user?.userId ?? null
+      )
+      // Otra reactivación lo devolvió entre la lectura y el candado (regla 1)
+      if (result.kind === 'not-terminated') {
+        response.status(404)
+        return this.employeeNotFoundForTerminationResponse(employeeId)
+      }
       response.status(200)
       return {
         type: 'success',
         title: 'Employees',
         message: 'The employee was reactivate successfully',
-        data: { employee: currentEmployee },
+        data: {
+          employee: {
+            employeeId: result.employee.employeeId,
+            employeeCode: String(result.employee.employeeCode),
+          },
+        },
       }
     } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      if (error instanceof EmployeeQuotaError) {
+        return this.employeeQuotaErrorResponse(error, response, i18n)
+      }
+      if (error instanceof EmployeeReactivationError) {
+        const resolved = resolveEmployeeReactivationApiError(error, i18n)
+        response.status(resolved.status)
+        return {
+          type: 'error',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.errorCode,
+          data: resolved.data,
+        }
+      }
+      // Sin detalle técnico hacia el cliente: la transacción ya revirtió todo
+      logger.error({ err: error, employeeId }, 'EmployeeController.reactivate')
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: messageError,
       }
     }
   }

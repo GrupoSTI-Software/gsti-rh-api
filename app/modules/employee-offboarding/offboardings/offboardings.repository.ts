@@ -51,6 +51,17 @@ export interface OffboardingsRepository {
     trx?: TransactionClientContract
   ): Promise<EmployeeOffboarding | null>
 
+  /**
+   * Igual que `findOpenByEmployee`, con `forUpdate` dentro de la transacción de
+   * la reactivación (VLRH-H1790812613829). Por `employee_id` y sin filtro de
+   * empresa a propósito: el servicio afirma que el expediente es de la misma
+   * empresa que el colaborador y revierte si no.
+   */
+  lockOpenByEmployee(
+    employeeId: number,
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboarding | null>
+
   /** Inserta el expediente y devuelve su id (dentro de la transacción). */
   createCase(
     data: EmployeeOffboardingCreateData,
@@ -118,8 +129,11 @@ export interface OffboardingsRepository {
    */
   findMostRecentByEmployee(employeeId: number): Promise<EmployeeOffboarding | null>
 
-  /** Persiste el expediente ya mutado por el servicio (cierre/reapertura). */
-  saveCase(offboarding: EmployeeOffboarding): Promise<void>
+  /**
+   * Persiste el expediente ya mutado por el servicio (cierre/reapertura). Con
+   * `trx`, participa en la transacción de la reactivación (VLRH-H1790812613829).
+   */
+  saveCase(offboarding: EmployeeOffboarding, trx?: TransactionClientContract): Promise<void>
 
   /**
    * Colaborador del expediente con `withTrashed()` y sin alcance: para armar
