@@ -1,0 +1,47 @@
+name: Guardrails de catálogo y migraciones
+
+# Lo que CLAUDE.md declara no negociable: el catálogo de módulos y permisos sale
+# de una sola fuente y toda migración nueva lleva prefijo de 13 dígitos. Repite
+# el pre-push para que tampoco pase un push con --no-verify.
+
+on:
+  pull_request:
+    branches:
+      - multitenant
+      - main
+      - develop
+  push:
+    branches:
+      - multitenant
+      - main
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guardrails:
+    name: Catálogo de módulos y nombres de migración
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      # Estas pruebas no abren base de datos, pero la app arranca y valida su
+      # entorno. El ejemplo trae una cuenta de servicio de Firebase de relleno que
+      # no es JSON válido: se omite para que no se inicialice.
+      - name: Preparar entorno
+        run: sed "/^FIREBASE_SERVICE_ACCOUNT='/,/^}'/d" .env.example > .env
+
+      - name: Ejecutar guardrails
+        run: node ace test unit --files="constants/" --files="migrations/"
