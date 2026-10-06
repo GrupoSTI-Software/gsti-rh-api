@@ -107,6 +107,19 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.deleteWorkDisabilityPeriodExpense.action, 'manage-work-disabilities')
   })
 
+  test('reactivar tiene permiso propio, distinto de editar la ficha y de dar de baja (VLRH-H1790812613828)', ({
+    assert,
+  }) => {
+    const d = EMPLOYEES_WRITE_PERMISSION_DECLARATIONS
+    assert.deepEqual(d.reactivateEmployee, {
+      module: 'employees',
+      action: 'reactivate-employees',
+      bypass: 'standard',
+    })
+    assert.notEqual(d.reactivateEmployee.action, d.updateEmployee.action)
+    assert.notEqual(d.reactivateEmployee.action, d.terminateEmployee.action)
+  })
+
   test('mapea Expediente documental y Certificaciones de escritura', ({ assert }) => {
     const d = EMPLOYEES_WRITE_PERMISSION_DECLARATIONS
     assert.equal(d.createEmployeeRecord.action, 'tab-expediente-write')
