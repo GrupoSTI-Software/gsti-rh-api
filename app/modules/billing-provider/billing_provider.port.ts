@@ -19,6 +19,8 @@ export interface SubscriptionOpeningRequest {
   billingPlanId: number
   billingPlanPriceId: number
   contractedEmployees: number
+  /** Referencias ya creadas fuera de la trx; solo el registro con precio stripe. */
+  providerSubscription?: { customerRef: string; subscriptionRef: string }
 }
 
 export interface SubscriptionOpening {
@@ -106,4 +108,112 @@ export function isBillingWebhookProvider(
 ): provider is BillingProviderPort & BillingWebhookProviderPort {
   const candidate = provider as unknown as BillingWebhookProviderPort
   return typeof candidate.verifyWebhookEvent === 'function'
+}
+
+export type CardSetupOwner = { kind: 'signup_draft'; signupDraftId: number }
+
+export interface CardSetupRequest {
+  owner: CardSetupOwner
+  email: string
+  customerRef: string | null
+  setupIntentRef: string | null
+}
+
+export interface CardSetup {
+  customerRef: string
+  setupIntentRef: string
+  clientSecret: string
+  publishableKey: string
+  confirmed: boolean
+}
+
+export interface ProviderSubscriptionRequest {
+  owner: CardSetupOwner
+  customerRef: string
+  setupIntentRef: string
+  priceRef: string
+  /** Epoch en segundos de la medianoche CDMX que guardará la fila local. */
+  trialEndsAt: number
+  attempt: number
+}
+
+export interface ProviderSubscription {
+  customerRef: string
+  subscriptionRef: string
+  reused: boolean
+}
+
+/** Preparación de tarjeta y suscripción en checkout (registro). */
+export interface BillingCheckoutProviderPort {
+  prepareCardSetup(request: CardSetupRequest): Promise<CardSetup>
+  createProviderSubscription(request: ProviderSubscriptionRequest): Promise<ProviderSubscription>
+  cancelProviderSubscription(subscriptionRef: string): Promise<void>
+}
+
+export function isBillingCheckoutProvider(
+  provider: BillingProviderPort
+): provider is BillingProviderPort & BillingCheckoutProviderPort {
+  const candidate = provider as unknown as BillingCheckoutProviderPort
+  return (
+    typeof candidate.prepareCardSetup === 'function' &&
+    typeof candidate.createProviderSubscription === 'function' &&
+    typeof candidate.cancelProviderSubscription === 'function'
+  )
+}
+
+export type ProviderInvoiceStatus = 'draft' | 'open' | 'paid' | 'uncollectible' | 'void'
+
+export type ValanserhInvoicePart = 'period' | 'increase_debt'
+
+export interface ProviderInvoiceLine {
+  lineRef: string
+  amountCents: number
+  source: 'subscription_item' | 'invoice_item' | 'other'
+  priceRef: string | null
+  periodStart: number
+  periodEnd: number
+  proration: boolean
+  valanserhPart: ValanserhInvoicePart | null
+}
+
+export interface ProviderInvoice {
+  invoiceRef: string
+  status: ProviderInvoiceStatus | null
+  billingReason: string | null
+  subscriptionRef: string | null
+  customerRef: string
+  currency: string
+  totalCents: number
+  autoAdvance: boolean
+  lines: ProviderInvoiceLine[]
+}
+
+export interface InvoiceChargeDraft {
+  invoiceRef: string
+  customerRef: string
+  billingSubscriptionId: number
+  part: ValanserhInvoicePart
+  amountCents: number
+  currency: string
+  description: string
+}
+
+/** Lectura y ajuste de facturas en borrador en Stripe (USRH1790718243208). */
+export interface BillingInvoiceProviderPort {
+  readInvoice(invoiceRef: string): Promise<ProviderInvoice>
+  addInvoiceCharge(charge: InvoiceChargeDraft): Promise<ProviderObjectRef>
+  holdInvoice(invoiceRef: string): Promise<void>
+  resumeInvoice(invoiceRef: string): Promise<void>
+}
+
+export function isBillingInvoiceProvider(
+  provider: BillingProviderPort
+): provider is BillingProviderPort & BillingInvoiceProviderPort {
+  const candidate = provider as Partial<BillingInvoiceProviderPort>
+  return (
+    typeof candidate.readInvoice === 'function' &&
+    typeof candidate.addInvoiceCharge === 'function' &&
+    typeof candidate.holdInvoice === 'function' &&
+    typeof candidate.resumeInvoice === 'function'
+  )
 }

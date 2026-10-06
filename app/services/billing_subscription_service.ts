@@ -23,6 +23,8 @@ import {
   resolveMinimumContractedEmployees,
 } from '../helpers/contracted_employees_rules.js'
 import { resolveBillingProvider } from '#modules/billing-provider/billing_provider.registry'
+import { BILLING_PROVIDER_KEYS } from '#modules/billing-provider/billing_provider.port'
+import { subscriptionOpeningMismatch } from '#modules/billing-provider/billing_provider.errors'
 import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
 
 // ---------------------------------------------------------------------------
@@ -52,6 +54,13 @@ export interface CreateSubscriptionInput {
    * sus caminos. Se normaliza a MAYÚSCULAS dentro de `assertRedeemableCode`.
    */
   discountCode?: string
+  /** Snapshot de apertura Stripe creada fuera de la trx (registro self-service). */
+  providerSubscription?: {
+    customerRef: string
+    subscriptionRef: string
+    billingPlanPriceId: number
+    trialEndsAt: DateTime
+  }
 }
 
 export interface BusinessUnitListItem {
@@ -553,14 +562,6 @@ export default class BillingSubscriptionService {
       )
     }
 
-    const provider = resolveBillingProvider(currentPrice.billingPlanPriceProvider)
-    const opening = await provider.openSubscription({
-      businessUnitId: businessUnit.businessUnitId,
-      billingPlanId: input.billingPlanId,
-      billingPlanPriceId: currentPrice.billingPlanPriceId,
-      contractedEmployees,
-    })
-
     const nowBusiness = todayInBusinessZone()
     const skipTrial =
       input.skipTrial === true ||
@@ -568,6 +569,34 @@ export default class BillingSubscriptionService {
     const trialDays = skipTrial ? 0 : resolved.trialDays
     const trialEndsAt = skipTrial ? null : nowBusiness.plus({ days: trialDays })
     const periodEnd = skipTrial ? nowBusiness : trialEndsAt!
+
+    if (input.providerSubscription) {
+      const expected = input.providerSubscription
+      if (
+        currentPrice.billingPlanPriceProvider !== BILLING_PROVIDER_KEYS.STRIPE ||
+        currentPrice.billingPlanPriceId !== expected.billingPlanPriceId ||
+        trialEndsAt === null ||
+        trialEndsAt.toMillis() !== expected.trialEndsAt.toMillis()
+      ) {
+        throw subscriptionOpeningMismatch()
+      }
+    }
+
+    const provider = resolveBillingProvider(currentPrice.billingPlanPriceProvider)
+    const opening = await provider.openSubscription({
+      businessUnitId: businessUnit.businessUnitId,
+      billingPlanId: input.billingPlanId,
+      billingPlanPriceId: currentPrice.billingPlanPriceId,
+      contractedEmployees,
+      ...(input.providerSubscription
+        ? {
+            providerSubscription: {
+              customerRef: input.providerSubscription.customerRef,
+              subscriptionRef: input.providerSubscription.subscriptionRef,
+            },
+          }
+        : {}),
+    })
 
     const existingLive = await BillingSubscription.query({ client: trx })
       .where('business_unit_id', businessUnit.businessUnitId)

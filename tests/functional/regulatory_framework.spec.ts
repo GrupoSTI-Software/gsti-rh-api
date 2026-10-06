@@ -1,34 +1,121 @@
 import { test } from '@japa/runner'
+import type { Group } from '@japa/runner/core'
+import type { ApiClient } from '@japa/api-client'
+import ApiToken from '#models/api_token'
+import Person from '#models/person'
+import Role from '#models/role'
 import User from '#models/user'
-import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * USRH1785167064404 — API de consulta del marco regulatorio (solo lectura).
  * Verificación funcional contra BD real ya sembrada (seeders 0028-0031+0033):
  * 8 autoridades (STPS + 7 esqueleto), NOM-035-STPS (47 numerales),
  * NOM-037-STPS (49 numerales).
- * El permiso `regulatory-coverage:read` se prueba en
- * `regulatory_coverage_permission_gate.spec.ts`; aquí se usa root para probar el contenido.
+ *
+ * Las cinco lecturas viven bajo `/api/platform` y solo las abre un token de
+ * consola de plataforma (`auth` + `platformAdmin`). El 403 del guard y el 404 de
+ * las URLs viejas bajo `/api/v1` se prueban en
+ * `regulatory_coverage_permission_gate.spec.ts`; aquí se usa un administrador de
+ * plataforma con token de consola para probar el contenido.
  */
 
-/**
- * Usuario root sembrado por 0008. Con la exigencia de `regulatory-coverage`
- * encendida, "el primer usuario activo" dejaba el resultado al rol de la primera
- * fila (la consulta ni siquiera ordenaba): cualquier usuario creado antes que
- * root respondía 403. root pasa el gate por bypass.
- */
-async function getRootUser(): Promise<User> {
-  const root = await ensureRole('root')
-  return User.query()
-    .whereNull('user_deleted_at')
-    .where('role_id', root.roleId)
-    .orderBy('user_id', 'asc')
-    .firstOrFail()
+const TEST_PASSWORD = 'RegulatoryFrameworkPlatform123!'
+
+interface PlatformActor {
+  user: User
+  person: Person
+  email: string
 }
 
-test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities', () => {
+/** Crea un administrador de plataforma (rol root, `isPlatformAdmin`) con su persona. */
+async function createPlatformAdmin(emailPrefix: string): Promise<PlatformActor> {
+  const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+  const email = `${emailPrefix}-${stamp}@gsti-tests.local`
+  const role = await Role.query()
+    .whereNull('role_deleted_at')
+    .where('role_slug', 'root')
+    .firstOrFail()
+
+  const person = await Person.create({
+    personFirstname: 'MarcoPlataforma',
+    personLastname: 'Contenido',
+    personSecondLastname: emailPrefix,
+    personEmail: email,
+  })
+
+  const user = await User.create({
+    userEmail: email,
+    userPassword: TEST_PASSWORD,
+    userActive: 1,
+    isPlatformAdmin: true,
+    roleId: role.roleId,
+    personId: person.personId,
+    userEmailType: 'institutional',
+  })
+
+  return { user, person, email }
+}
+
+async function cleanupActor(actor: PlatformActor | null): Promise<void> {
+  if (!actor) return
+  await ApiToken.query().where('tokenable_id', actor.user.userId).delete()
+  await User.query().where('user_id', actor.user.userId).delete()
+  await Person.query().where('person_id', actor.person.personId).delete()
+}
+
+async function loginPlatformConsole(client: ApiClient, email: string): Promise<string> {
+  const response = await client.post('/api/platform/auth/login').json({
+    userEmail: email,
+    userPassword: TEST_PASSWORD,
+  })
+  response.assertStatus(200)
+  const token = response.body().data?.token
+  if (typeof token !== 'string' || token === '') {
+    throw new Error('Login de plataforma no devolvió token')
+  }
+  return token
+}
+
+/**
+ * El endpoint de login de plataforma limita las peticiones por IP (10 intentos cada
+ * 15 min, en memoria). Para no agotarlo en una corrida con otros specs, el
+ * administrador y su token de consola viven a nivel de módulo: se crean una sola vez
+ * (lazy, en el primer test que los pide) y se reutilizan en todos los grupos del archivo.
+ * El cleanup se hace en el teardown del ÚLTIMO grupo que corre (ver `useConsoleAdmin`).
+ */
+let sharedAdmin: PlatformActor | null = null
+let sharedToken: string | null = null
+let registeredGroups = 0
+let tornDownGroups = 0
+
+/**
+ * Registra el grupo en el conteo del archivo y devuelve la función que entrega el
+ * token de consola del administrador compartido. El último grupo en terminar borra
+ * el administrador y su persona.
+ */
+function useConsoleAdmin(group: Group): (client: ApiClient) => Promise<string> {
+  registeredGroups += 1
+
+  group.teardown(async () => {
+    tornDownGroups += 1
+    if (tornDownGroups < registeredGroups) return
+    await cleanupActor(sharedAdmin)
+    sharedAdmin = null
+    sharedToken = null
+  })
+
+  return async (client) => {
+    sharedAdmin ??= await createPlatformAdmin('marco-contenido')
+    sharedToken ??= await loginPlatformConsole(client, sharedAdmin.email)
+    return sharedToken
+  }
+}
+
+test.group('RegulatoryFramework — GET /api/platform/regulatory-authorities', (group) => {
+  const consoleToken = useConsoleAdmin(group)
+
   test('401 sin autenticación', async ({ client }) => {
-    const response = await client.get('/api/v1/regulatory-authorities')
+    const response = await client.get('/api/platform/regulatory-authorities')
     response.assertStatus(401)
   })
 
@@ -36,8 +123,10 @@ test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities', () => {
     client,
     assert,
   }) => {
-    const user = await getRootUser()
-    const response = await client.get('/api/v1/regulatory-authorities').loginAs(user)
+    const token = await consoleToken(client)
+    const response = await client
+      .get('/api/platform/regulatory-authorities')
+      .header('Authorization', `Bearer ${token}`)
 
     response.assertStatus(200)
     const body = response.body()
@@ -63,11 +152,11 @@ test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities', () => {
     client,
     assert,
   }) => {
-    const user = await getRootUser()
+    const token = await consoleToken(client)
     const response = await client
-      .get('/api/v1/regulatory-authorities')
+      .get('/api/platform/regulatory-authorities')
       .qs({ has_regulations: 'true' })
-      .loginAs(user)
+      .header('Authorization', `Bearer ${token}`)
 
     response.assertStatus(200)
     const rows = response.body().data as Array<{ regulationsCount: number }>
@@ -76,11 +165,11 @@ test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities', () => {
   })
 
   test('422 con has_regulations inválido (REG.VAL.001)', async ({ client, assert }) => {
-    const user = await getRootUser()
+    const token = await consoleToken(client)
     const response = await client
-      .get('/api/v1/regulatory-authorities')
+      .get('/api/platform/regulatory-authorities')
       .qs({ has_regulations: 'foo' })
-      .loginAs(user)
+      .header('Authorization', `Bearer ${token}`)
 
     response.assertStatus(422)
     assert.equal(response.body().code, 'REG.VAL.001')
@@ -88,13 +177,17 @@ test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities', () => {
   })
 })
 
-test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities/:slug', () => {
+test.group('RegulatoryFramework — GET /api/platform/regulatory-authorities/:slug', (group) => {
+  const consoleToken = useConsoleAdmin(group)
+
   test('200: detalle de STPS con sus normas embebidas, textos resueltos', async ({
     client,
     assert,
   }) => {
-    const user = await getRootUser()
-    const response = await client.get('/api/v1/regulatory-authorities/stps').loginAs(user)
+    const token = await consoleToken(client)
+    const response = await client
+      .get('/api/platform/regulatory-authorities/stps')
+      .header('Authorization', `Bearer ${token}`)
 
     response.assertStatus(200)
     const data = response.body().data
@@ -108,14 +201,11 @@ test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities/:slug', (
     assert.includeMembers(codes, ['NOM-035-STPS', 'NOM-037-STPS'])
   })
 
-  test('404 con autoridad inexistente (REG.NF.001, shape correcto)', async ({
-    client,
-    assert,
-  }) => {
-    const user = await getRootUser()
+  test('404 con autoridad inexistente (REG.NF.001, shape correcto)', async ({ client, assert }) => {
+    const token = await consoleToken(client)
     const response = await client
-      .get('/api/v1/regulatory-authorities/no-existe-xyz')
-      .loginAs(user)
+      .get('/api/platform/regulatory-authorities/no-existe-xyz')
+      .header('Authorization', `Bearer ${token}`)
 
     response.assertStatus(404)
     const body = response.body()
@@ -125,13 +215,17 @@ test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities/:slug', (
   })
 })
 
-test.group('RegulatoryFramework — GET /api/v1/regulations/:code', () => {
+test.group('RegulatoryFramework — GET /api/platform/regulations/:code', (group) => {
+  const consoleToken = useConsoleAdmin(group)
+
   test('200: NOM-035-STPS con árbol completo de 47 numerales bien anidado', async ({
     client,
     assert,
   }) => {
-    const user = await getRootUser()
-    const response = await client.get('/api/v1/regulations/NOM-035-STPS').loginAs(user)
+    const token = await consoleToken(client)
+    const response = await client
+      .get('/api/platform/regulations/NOM-035-STPS')
+      .header('Authorization', `Bearer ${token}`)
 
     response.assertStatus(200)
     const data = response.body().data
@@ -176,8 +270,10 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code', () => {
   })
 
   test('200: NOM-037-STPS con 49 numerales', async ({ client, assert }) => {
-    const user = await getRootUser()
-    const response = await client.get('/api/v1/regulations/NOM-037-STPS').loginAs(user)
+    const token = await consoleToken(client)
+    const response = await client
+      .get('/api/platform/regulations/NOM-037-STPS')
+      .header('Authorization', `Bearer ${token}`)
 
     response.assertStatus(200)
     const data = response.body().data
@@ -191,12 +287,58 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code', () => {
     assert.equal(countNodes(data.clausesTree), 49)
   })
 
+  test('textos del catálogo en español sin claves crudas (NOM-035-STPS y NOM-037-STPS)', async ({
+    client,
+    assert,
+  }) => {
+    interface ClauseNode {
+      code: string
+      title?: string | null
+      obligation?: string | null
+      explanation?: string | null
+      rationale?: string | null
+      auditCriteria?: string | null
+      children: ClauseNode[]
+    }
+    const textFields = ['title', 'obligation', 'explanation', 'rationale', 'auditCriteria'] as const
+
+    const rawKeys: string[] = []
+    function collectRawKeys(regulationCode: string, nodes: ClauseNode[]): void {
+      for (const node of nodes) {
+        for (const field of textFields) {
+          const value = node[field]
+          if (typeof value === 'string' && value.startsWith('regulatory.')) {
+            rawKeys.push(`${regulationCode} ${node.code} ${field}: ${value}`)
+          }
+        }
+        collectRawKeys(regulationCode, node.children)
+      }
+    }
+
+    const token = await consoleToken(client)
+    for (const code of ['NOM-035-STPS', 'NOM-037-STPS']) {
+      const response = await client
+        .get(`/api/platform/regulations/${code}`)
+        .header('Authorization', `Bearer ${token}`)
+        .header('Accept-Language', 'es')
+
+      response.assertStatus(200)
+      const tree = response.body().data.clausesTree as ClauseNode[]
+      assert.isAbove(tree.length, 0, `${code} debe traer numerales`)
+      collectRawKeys(code, tree)
+    }
+
+    assert.deepEqual(rawKeys, [], 'ningún texto debe llegar como clave cruda')
+  })
+
   test('404 con código de norma inexistente — shape exacto (REG.NF.002, regla 6)', async ({
     client,
     assert,
   }) => {
-    const user = await getRootUser()
-    const response = await client.get('/api/v1/regulations/NOM-099-XXX').loginAs(user)
+    const token = await consoleToken(client)
+    const response = await client
+      .get('/api/platform/regulations/NOM-099-XXX')
+      .header('Authorization', `Bearer ${token}`)
 
     response.assertStatus(404)
     assert.deepEqual(response.body(), {
@@ -211,12 +353,16 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code', () => {
     client,
     assert,
   }) => {
-    const user = await getRootUser()
+    const token = await consoleToken(client)
     // Primer hit: llena el caché.
-    await client.get('/api/v1/regulations/NOM-035-STPS').loginAs(user)
+    await client
+      .get('/api/platform/regulations/NOM-035-STPS')
+      .header('Authorization', `Bearer ${token}`)
 
     const start = Date.now()
-    const response = await client.get('/api/v1/regulations/NOM-035-STPS').loginAs(user)
+    const response = await client
+      .get('/api/platform/regulations/NOM-035-STPS')
+      .header('Authorization', `Bearer ${token}`)
     const elapsedMs = Date.now() - start
 
     response.assertStatus(200)
@@ -224,138 +370,152 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code', () => {
   })
 })
 
-test.group('RegulatoryFramework — GET /api/v1/regulations/:code/clauses/:clauseCode', () => {
-  test('200: numeral 5.8.a con texto, jerarquía y features/evidencia', async ({
-    client,
-    assert,
-  }) => {
-    const user = await getRootUser()
-    const response = await client
-      .get('/api/v1/regulations/NOM-035-STPS/clauses/5.8.a')
-      .loginAs(user)
+test.group(
+  'RegulatoryFramework — GET /api/platform/regulations/:code/clauses/:clauseCode',
+  (group) => {
+    const consoleToken = useConsoleAdmin(group)
 
-    response.assertStatus(200)
-    const data = response.body().data
-    assert.equal(data.code, '5.8.a')
-    assert.isString(data.obligation)
-    assert.notInclude(data.obligation, 'regulatory.')
-    assert.isString(data.explanation)
-    assert.isString(data.rationale)
-    assert.isString(data.auditCriteria)
-    assert.exists(data.parent)
-    assert.equal(data.parent.code, '5.8')
-    assert.deepEqual(data.children, [])
-    assert.isArray(data.features)
-    assert.isArray(data.evidenceRequirements)
-    assert.isAbove(data.evidenceRequirements.length, 0)
-    assert.notInclude(data.evidenceRequirements[0].description, 'regulatory.')
-  })
+    test('200: numeral 5.8.a con texto, jerarquía y features/evidencia', async ({
+      client,
+      assert,
+    }) => {
+      const token = await consoleToken(client)
+      const response = await client
+        .get('/api/platform/regulations/NOM-035-STPS/clauses/5.8.a')
+        .header('Authorization', `Bearer ${token}`)
 
-  test('200: numeral padre 5.8 lista sus 3 hijos directos', async ({ client, assert }) => {
-    const user = await getRootUser()
-    const response = await client
-      .get('/api/v1/regulations/NOM-035-STPS/clauses/5.8')
-      .loginAs(user)
+      response.assertStatus(200)
+      const data = response.body().data
+      assert.equal(data.code, '5.8.a')
+      assert.isString(data.obligation)
+      assert.notInclude(data.obligation, 'regulatory.')
+      assert.isString(data.explanation)
+      assert.isString(data.rationale)
+      assert.isString(data.auditCriteria)
+      assert.exists(data.parent)
+      assert.equal(data.parent.code, '5.8')
+      assert.deepEqual(data.children, [])
+      assert.isArray(data.features)
+      assert.isArray(data.evidenceRequirements)
+      assert.isAbove(data.evidenceRequirements.length, 0)
+      assert.notInclude(data.evidenceRequirements[0].description, 'regulatory.')
+    })
 
-    response.assertStatus(200)
-    const data = response.body().data
-    assert.deepEqual(
-      data.children.map((c: { code: string }) => c.code),
-      ['5.8.a', '5.8.b', '5.8.c']
-    )
-    assert.exists(data.parent)
-    assert.equal(data.parent.code, '5')
-  })
+    test('200: numeral padre 5.8 lista sus 3 hijos directos', async ({ client, assert }) => {
+      const token = await consoleToken(client)
+      const response = await client
+        .get('/api/platform/regulations/NOM-035-STPS/clauses/5.8')
+        .header('Authorization', `Bearer ${token}`)
 
-  test('404 con norma inexistente (REG.NF.002)', async ({ client, assert }) => {
-    const user = await getRootUser()
-    const response = await client
-      .get('/api/v1/regulations/NOM-099-XXX/clauses/5.1')
-      .loginAs(user)
+      response.assertStatus(200)
+      const data = response.body().data
+      assert.deepEqual(
+        data.children.map((c: { code: string }) => c.code),
+        ['5.8.a', '5.8.b', '5.8.c']
+      )
+      assert.exists(data.parent)
+      assert.equal(data.parent.code, '5')
+    })
 
-    response.assertStatus(404)
-    assert.equal(response.body().code, 'REG.NF.002')
-  })
+    test('404 con norma inexistente (REG.NF.002)', async ({ client, assert }) => {
+      const token = await consoleToken(client)
+      const response = await client
+        .get('/api/platform/regulations/NOM-099-XXX/clauses/5.1')
+        .header('Authorization', `Bearer ${token}`)
 
-  test('404 con numeral inexistente en norma existente (REG.NF.003)', async ({
-    client,
-    assert,
-  }) => {
-    const user = await getRootUser()
-    const response = await client
-      .get('/api/v1/regulations/NOM-035-STPS/clauses/99.99')
-      .loginAs(user)
+      response.assertStatus(404)
+      assert.equal(response.body().code, 'REG.NF.002')
+    })
 
-    response.assertStatus(404)
-    assert.equal(response.body().code, 'REG.NF.003')
-    assert.equal(response.body().key, 'numeral-no-encontrado')
-  })
+    test('404 con numeral inexistente en norma existente (REG.NF.003)', async ({
+      client,
+      assert,
+    }) => {
+      const token = await consoleToken(client)
+      const response = await client
+        .get('/api/platform/regulations/NOM-035-STPS/clauses/99.99')
+        .header('Authorization', `Bearer ${token}`)
 
-  test('404 (no 500) con numeral de otra norma (pertenencia cruzada)', async ({
-    client,
-    assert,
-  }) => {
-    const user = await getRootUser()
-    // '5.1' existe en NOM-037-STPS con otro id; pedirlo bajo NOM-035-STPS
-    // con un código que sólo exista en la otra norma debe dar 404, no 500.
-    const response = await client
-      .get('/api/v1/regulations/NOM-035-STPS/clauses/5.1.I')
-      .loginAs(user)
+      response.assertStatus(404)
+      assert.equal(response.body().code, 'REG.NF.003')
+      assert.equal(response.body().key, 'numeral-no-encontrado')
+    })
 
-    response.assertStatus(404)
-    assert.equal(response.body().code, 'REG.NF.003')
-  })
-})
+    test('404 (no 500) con numeral de otra norma (pertenencia cruzada)', async ({
+      client,
+      assert,
+    }) => {
+      const token = await consoleToken(client)
+      // '5.1' existe en NOM-037-STPS con otro id; pedirlo bajo NOM-035-STPS
+      // con un código que sólo exista en la otra norma debe dar 404, no 500.
+      const response = await client
+        .get('/api/platform/regulations/NOM-035-STPS/clauses/5.1.I')
+        .header('Authorization', `Bearer ${token}`)
 
-test.group('RegulatoryFramework — GET /api/v1/regulations/:code/clauses/:clauseCode/features', () => {
-  test('200: forma mínima {clause, features}', async ({ client, assert }) => {
-    const user = await getRootUser()
-    const response = await client
-      .get('/api/v1/regulations/NOM-035-STPS/clauses/5.8.a/features')
-      .loginAs(user)
+      response.assertStatus(404)
+      assert.equal(response.body().code, 'REG.NF.003')
+    })
+  }
+)
 
-    response.assertStatus(200)
-    const data = response.body().data
-    assert.equal(data.clause.code, '5.8.a')
-    assert.isArray(data.features)
-  })
+test.group(
+  'RegulatoryFramework — GET /api/platform/regulations/:code/clauses/:clauseCode/features',
+  (group) => {
+    const consoleToken = useConsoleAdmin(group)
 
-  test('404 con numeral inexistente (REG.NF.003)', async ({ client, assert }) => {
-    const user = await getRootUser()
-    const response = await client
-      .get('/api/v1/regulations/NOM-035-STPS/clauses/99.99/features')
-      .loginAs(user)
+    test('200: forma mínima {clause, features}', async ({ client, assert }) => {
+      const token = await consoleToken(client)
+      const response = await client
+        .get('/api/platform/regulations/NOM-035-STPS/clauses/5.8.a/features')
+        .header('Authorization', `Bearer ${token}`)
 
-    response.assertStatus(404)
-    assert.equal(response.body().code, 'REG.NF.003')
-  })
-})
+      response.assertStatus(200)
+      const data = response.body().data
+      assert.equal(data.clause.code, '5.8.a')
+      assert.isArray(data.features)
+    })
 
-test.group('RegulatoryFramework — negativo: sin mutaciones', () => {
+    test('404 con numeral inexistente (REG.NF.003)', async ({ client, assert }) => {
+      const token = await consoleToken(client)
+      const response = await client
+        .get('/api/platform/regulations/NOM-035-STPS/clauses/99.99/features')
+        .header('Authorization', `Bearer ${token}`)
+
+      response.assertStatus(404)
+      assert.equal(response.body().code, 'REG.NF.003')
+    })
+  }
+)
+
+test.group('RegulatoryFramework — negativo: sin mutaciones', (group) => {
+  const consoleToken = useConsoleAdmin(group)
+
   test('no existen rutas POST/PUT/DELETE bajo estos paths', async ({ client }) => {
-    const user = await getRootUser()
+    const token = await consoleToken(client)
     const post = await client
-      .post('/api/v1/regulatory-authorities')
-      .loginAs(user)
+      .post('/api/platform/regulatory-authorities')
+      .header('Authorization', `Bearer ${token}`)
       .json({})
     // 404 (ruta inexistente) o 405; nunca 200/201 — cero mutación posible.
     post.assertStatus(404)
   })
 })
 
-test.group('RegulatoryFramework — i18n (regla 5)', () => {
+test.group('RegulatoryFramework — i18n (regla 5)', (group) => {
+  const consoleToken = useConsoleAdmin(group)
+
   test('con Accept-Language: en, los textos llegan en inglés con el mismo shape', async ({
     client,
     assert,
   }) => {
-    const user = await getRootUser()
+    const token = await consoleToken(client)
     const responseEs = await client
-      .get('/api/v1/regulatory-authorities/stps')
-      .loginAs(user)
+      .get('/api/platform/regulatory-authorities/stps')
+      .header('Authorization', `Bearer ${token}`)
     const responseEn = await client
-      .get('/api/v1/regulatory-authorities/stps')
+      .get('/api/platform/regulatory-authorities/stps')
       .header('Accept-Language', 'en')
-      .loginAs(user)
+      .header('Authorization', `Bearer ${token}`)
 
     responseEs.assertStatus(200)
     responseEn.assertStatus(200)
