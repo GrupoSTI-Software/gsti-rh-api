@@ -1,5 +1,7 @@
 # Prueba manual — Revelar la dirección y el equipo de una aceptación
 
+**Estado: recorrido completo el 6 de octubre de 2026.** Los 10 escenarios y toda la checklist quedaron en verde, sin hallazgos.
+
 **Problema:** en el historial de una empresa, la dirección y el equipo desde donde se aceptó se ven tapados. Si un cliente dice que él no aceptó, quien opera la plataforma no puede mostrar desde qué equipo se aceptó, y tampoco debe destapar de un golpe todas las demás aceptaciones.
 
 **Solución:** en el renglón desplegado, cuando sí hubo dirección o equipo, aparece un botón para verlos completos. Al pulsarlo se destapa **solo ese renglón**, sin preguntar si se está seguro, y la pantalla avisa que la consulta queda anotada. Los demás renglones siguen tapados. Al cambiar de página o al salir, vuelven a taparse. Si no hubo ni dirección ni equipo, el botón no está. Desde el historial de una empresa no se llega a la aceptación de otra, ni a un consentimiento de huella o de rostro.
@@ -193,13 +195,15 @@ Objetivo: comprobar que en una pantalla angosta el expediente, el renglón despl
 
 Cada casilla se marca contra el objetivo de su escenario, no contra "se hicieron los pasos":
 
-- [ ] 4.1 Al desplegar un renglón con dirección y equipo capturados se ven tapados con puntos, con el botón **Revelar IP y agente de usuario** y el aviso de que la consulta queda registrada
-- [ ] 4.2 Al pulsar revelar no aparece ninguna confirmación y enseguida se ven la dirección y el equipo de ese renglón
-- [ ] 4.3 Solo ese renglón queda destapado; los demás siguen tapados, el botón desaparece y se lee que siguen visibles hasta salir
-- [ ] 4.4 Al cambiar de página, y al salir y volver, los datos se tapan otra vez y el botón reaparece
-- [ ] 4.5 Revelar el mismo renglón otra vez vuelve a mostrar la dirección y el equipo completos
-- [ ] 4.6 Una aceptación sin dirección ni equipo muestra un guion y no tiene el botón
-- [ ] 4.7 Desde el expediente de **QA Revelar Empresa** no se puede revelar la aceptación de **QA Revelar Otra Empresa**
-- [ ] 4.8 El consentimiento de huella o de rostro no aparece en el expediente y no hay forma de revelarlo
-- [ ] 4.9 El agente de usuario largo con script se lee como texto y la pantalla no se rompe
-- [ ] 4.10 En 375 px el expediente, el renglón desplegado y el texto largo se leen sin desbordarse
+**Recorrido: completado por la persona responsable el 6 de octubre de 2026 — los 10 escenarios quedaron en verde, sin hallazgos.**
+
+- [x] 4.1 Al desplegar un renglón con dirección y equipo capturados se ven tapados con puntos, con el botón **Revelar IP y agente de usuario** y el aviso de que la consulta queda registrada
+- [x] 4.2 Al pulsar revelar no aparece ninguna confirmación y enseguida se ven la dirección y el equipo de ese renglón
+- [x] 4.3 Solo ese renglón queda destapado; los demás siguen tapados, el botón desaparece y se lee que siguen visibles hasta salir
+- [x] 4.4 Al cambiar de página, y al salir y volver, los datos se tapan otra vez y el botón reaparece
+- [x] 4.5 Revelar el mismo renglón otra vez vuelve a mostrar la dirección y el equipo completos
+- [x] 4.6 Una aceptación sin dirección ni equipo muestra un guion y no tiene el botón
+- [x] 4.7 Desde el expediente de **QA Revelar Empresa** no se puede revelar la aceptación de **QA Revelar Otra Empresa**
+- [x] 4.8 El consentimiento de huella o de rostro no aparece en el expediente y no hay forma de revelarlo
+- [x] 4.9 El agente de usuario largo con script se lee como texto y la pantalla no se rompe
+- [x] 4.10 En 375 px el expediente, el renglón desplegado y el texto largo se leen sin desbordarse
