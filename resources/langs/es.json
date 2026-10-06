@@ -3092,6 +3092,8 @@
   "session_permission_tree_unresolved_detail": "No fue posible determinar el rol de la sesión para construir el listado de permisos.",
   "system_setting_trade_name_taken_title": "Nombre comercial en uso",
   "system_setting_trade_name_taken_detail": "Tu empresa ya tiene una configuración con ese nombre comercial; usa un nombre distinto.",
+  "system_setting_zone_tolerance_meters_invalid_title": "Margen de tolerancia de zona inválido",
+  "system_setting_zone_tolerance_meters_invalid_message": "El margen debe ser un número entero de metros entre 0 y 200.",
   "user_access_email_masked_title": "No fue posible guardar el correo de acceso",
   "user_access_email_masked_detail": "El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio.",
   "user_access_email_duplicated_title": "Este correo de acceso ya está en uso",

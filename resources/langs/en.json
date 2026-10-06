@@ -3089,6 +3089,8 @@
   "session_permission_tree_unresolved_detail": "The session role could not be determined to build the permission list.",
   "system_setting_trade_name_taken_title": "Trade name already in use",
   "system_setting_trade_name_taken_detail": "Your company already has a configuration with that trade name; use a different name.",
+  "system_setting_zone_tolerance_meters_invalid_title": "Invalid zone tolerance margin",
+  "system_setting_zone_tolerance_meters_invalid_message": "The margin must be a whole number of meters between 0 and 200.",
   "user_access_email_masked_title": "The access email could not be saved",
   "user_access_email_masked_detail": "The access email contains the mask of a protected value. Type the full email or use the other email type; no changes were saved.",
   "user_access_email_duplicated_title": "This access email is already in use",

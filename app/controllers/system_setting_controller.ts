@@ -25,6 +25,59 @@ import {
   isTenantScopeActive,
   scopedSystemSettingIds,
 } from '#helpers/system_setting_tenant_scope'
+import {
+  SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT,
+  SYSTEM_SETTING_ZONE_TOLERANCE_METERS_MAX,
+  SYSTEM_SETTING_ZONE_TOLERANCE_METERS_MIN,
+} from '../constants/system_setting_defaults.js'
+
+/**
+ * Margen de tolerancia de zona tal como llega en el multipart (VLRH-H1790812613753).
+ * `meters` solo existe en la rama `value`: el typecheck impide usar un inválido.
+ */
+type ZoneToleranceInput =
+  | { kind: 'absent' }
+  | { kind: 'value'; meters: number }
+  | { kind: 'invalid' }
+
+/**
+ * Ausente si no viaja (`undefined`, `null`, `''` o `'null'`); valor si es un
+ * entero de metros dentro del rango; inválido en cualquier otro caso.
+ */
+function parseZoneToleranceMeters(raw: unknown): ZoneToleranceInput {
+  if (raw === undefined || raw === null) return { kind: 'absent' }
+  let meters: number
+  if (typeof raw === 'number') {
+    meters = raw
+  } else if (typeof raw === 'string') {
+    const trimmed = raw.trim()
+    if (trimmed === '' || trimmed === 'null') return { kind: 'absent' }
+    if (!/^\d+$/.test(trimmed)) return { kind: 'invalid' }
+    meters = Number(trimmed)
+  } else {
+    return { kind: 'invalid' }
+  }
+  if (
+    !Number.isInteger(meters) ||
+    meters < SYSTEM_SETTING_ZONE_TOLERANCE_METERS_MIN ||
+    meters > SYSTEM_SETTING_ZONE_TOLERANCE_METERS_MAX
+  ) {
+    return { kind: 'invalid' }
+  }
+  return { kind: 'value', meters }
+}
+
+/** Cuerpo del 400 por margen inválido, en el idioma del usuario. */
+function zoneToleranceInvalidBody(t: (key: string) => string) {
+  return {
+    type: 'warning',
+    title: t('system_setting_zone_tolerance_meters_invalid_title'),
+    message: t('system_setting_zone_tolerance_meters_invalid_message'),
+    detail: t('system_setting_zone_tolerance_meters_invalid_message'),
+    key: 'margen-tolerancia-zona-invalido',
+    code: SYSTEM_SETTING_ERROR_CODES.ZONE_TOLERANCE_METERS_INVALID.code,
+  }
+}
 
 export default class SystemSettingController {
   /**
@@ -375,6 +428,12 @@ export default class SystemSettingController {
    *                 description: System setting period late arrivals before attendance lock
    *                 required: false
    *                 default: 'monthly'
+   *               systemSettingZoneToleranceMeters:
+   *                 type: integer
+   *                 minimum: 0
+   *                 maximum: 200
+   *                 description: Margen de tolerancia de la zona de asistencia en metros enteros (0..200). Si no viaja, el alta usa 50 y la edición conserva el vigente; fuera de rango responde 400 SYS.CNFG.VAL.019 (key margen-tolerancia-zona-invalido).
+   *                 required: false
    *     responses:
    *       '201':
    *         description: Resource processed successfully
@@ -489,6 +548,11 @@ export default class SystemSettingController {
           data: { systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactorRaw },
         }
       }
+      const zoneToleranceInput = parseZoneToleranceMeters(request.input('systemSettingZoneToleranceMeters'))
+      if (zoneToleranceInput.kind === 'invalid') {
+        response.status(400)
+        return zoneToleranceInvalidBody(t)
+      }
 
       const systemSetting = {
         systemSettingTradeName: systemSettingTradeName,
@@ -507,6 +571,10 @@ export default class SystemSettingController {
         systemSettingPeriodAbsencesBeforeAttendanceLock: systemSettingPeriodAbsencesBeforeAttendanceLock,
         systemSettingPeriodLateArrivalsBeforeAttendanceLock: systemSettingPeriodLateArrivalsBeforeAttendanceLock,
         systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactor,
+        systemSettingZoneToleranceMeters:
+          zoneToleranceInput.kind === 'value'
+            ? zoneToleranceInput.meters
+            : SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT,
       } as SystemSetting
       const systemSettingService = new SystemSettingService()
       const data = await request.validateUsing(createSystemSettingValidator)
@@ -758,6 +826,12 @@ export default class SystemSettingController {
    *                 description: System setting period late arrivals before attendance lock
    *                 required: false
    *                 default: 'monthly'
+   *               systemSettingZoneToleranceMeters:
+   *                 type: integer
+   *                 minimum: 0
+   *                 maximum: 200
+   *                 description: Margen de tolerancia de la zona de asistencia en metros enteros (0..200). Si no viaja, el alta usa 50 y la edición conserva el vigente; fuera de rango responde 400 SYS.CNFG.VAL.019 (key margen-tolerancia-zona-invalido).
+   *                 required: false
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -873,6 +947,11 @@ export default class SystemSettingController {
           data: { systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactorRaw },
         }
       }
+      const zoneToleranceInput = parseZoneToleranceMeters(request.input('systemSettingZoneToleranceMeters'))
+      if (zoneToleranceInput.kind === 'invalid') {
+        response.status(400)
+        return zoneToleranceInvalidBody(t)
+      }
 
       const systemSetting = {
         systemSettingId: systemSettingId,
@@ -892,6 +971,9 @@ export default class SystemSettingController {
         systemSettingPeriodAbsencesBeforeAttendanceLock: systemSettingPeriodAbsencesBeforeAttendanceLock,
         systemSettingPeriodLateArrivalsBeforeAttendanceLock: systemSettingPeriodLateArrivalsBeforeAttendanceLock,
         systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactor,
+        // Ausente: `undefined`, y el `??` del servicio conserva el margen vigente.
+        systemSettingZoneToleranceMeters:
+          zoneToleranceInput.kind === 'value' ? zoneToleranceInput.meters : undefined,
       } as SystemSetting
       if (!systemSettingId) {
         response.status(400)
