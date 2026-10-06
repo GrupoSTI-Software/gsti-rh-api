@@ -246,9 +246,7 @@ test.group('Assists — motor de ingesta idempotente (USRH1786554648211)', (grou
       .json({
         employeeId: fixture.employeeId,
         assistType: 'check',
-        assistLatitude: 0,
-        assistLongitude: 0,
-        assistPrecision: 0,
+        // Sin ubicación: la zona (VLRH-H1790812613754) no es el objeto de este caso.
         assistPunchTime: punchTime,
         // Campos de pertenencia y de rastro: la lista blanca los descarta (regla 7).
         // `businessUnitId` no se prueba aquí: el middleware de alcance lo corta

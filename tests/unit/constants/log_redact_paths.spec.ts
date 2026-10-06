@@ -326,4 +326,34 @@ test.group('LOG_REDACT_PATHS — registro técnico (USRH1788551528000)', () => {
     }
     assert.equal(mysql.compileSqlOnError, false)
   })
+
+  test('VLRH-H1790812613754: redacta la ubicación de la checada; conserva identificadores', async ({
+    assert,
+  }) => {
+    const { logger, readLine } = createCaptureLogger()
+    logger.warn({
+      body: {
+        employeeId: 7,
+        assistLatitude: 20.674,
+        assistLongitude: -103.354,
+        assistPrecision: 12,
+        assistIsMocked: true,
+      },
+      record: { employeeId: 7, businessUnitId: 3, geo: { latitude: 20.674, longitude: -103.354, precision: 12 } },
+    })
+    const line = await readLine()
+    const body = line.body as Record<string, unknown>
+    const record = line.record as Record<string, unknown>
+    const geo = record.geo as Record<string, unknown>
+
+    assert.equal(body.assistLatitude, LOG_REDACT_CENSOR)
+    assert.equal(body.assistLongitude, LOG_REDACT_CENSOR)
+    assert.equal(body.assistPrecision, LOG_REDACT_CENSOR)
+    assert.equal(body.assistIsMocked, LOG_REDACT_CENSOR)
+    assert.equal(geo.latitude, LOG_REDACT_CENSOR)
+    assert.equal(geo.longitude, LOG_REDACT_CENSOR)
+    assert.equal(geo.precision, LOG_REDACT_CENSOR)
+    assert.equal(body.employeeId, 7)
+    assert.equal(record.businessUnitId, 3)
+  })
 })
