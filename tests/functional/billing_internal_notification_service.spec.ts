@@ -24,6 +24,9 @@ import type { SubscriptionChangeRecord } from '#services/billing_subscription_ch
 const TEST_SMTP_SENDER = 'smtp-billing-notif@gsti.local'
 const INTERNAL_RECIPIENT_A = 'billing-notif-a@gsti-tests.local'
 const INTERNAL_RECIPIENT_B = 'billing-notif-b@gsti-tests.local'
+/** Destinatarios de la lista blanca de no-producción (`DEVELOPMENT_EMAIL_LIST`). */
+const DEV_GATE_RECIPIENT_A = 'wramirez@gruposti.com'
+const DEV_GATE_RECIPIENT_B = 'jsoto@gruposti.com'
 
 function makeSubscription(overrides: Partial<BillingSubscription> = {}): BillingSubscription {
   const subscription = new BillingSubscription()
@@ -149,7 +152,7 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
       await withSmtpConfigured(async () => {
         await withEnvVars(
           {
-            BILLING_INTERNAL_NOTIFICATION_EMAILS: `${INTERNAL_RECIPIENT_A},${INTERNAL_RECIPIENT_B}`,
+            BILLING_INTERNAL_NOTIFICATION_EMAILS: `${DEV_GATE_RECIPIENT_A},${DEV_GATE_RECIPIENT_B}`,
           },
           async () => {
             const service = new BillingInternalNotificationService()
@@ -165,15 +168,14 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
       fake.mails.assertSentCount(SelfServiceSubscriptionCreatedMail, 1)
       fake.mails.assertSent(SelfServiceSubscriptionCreatedMail, ({ message }) => {
         const json = message.toJSON() as { message: { subject: string } }
-        assert.match(json.message.subject, /Contratación self-service/i)
+        assert.match(json.message.subject, /\[Interno\] Nueva contratación/i)
         assert.include(json.message.subject, 'Acme Self Service SA')
-        assert.include(json.message.subject, 'Plan Profesional')
-        assert.include(json.message.subject, '40 empleados')
         message.assertHtmlIncludes('Acme Self Service SA')
         message.assertHtmlIncludes('Plan Profesional')
-        message.assertHtmlIncludes('Contratación')
+        message.assertHtmlIncludes('Nueva contratación')
+        message.assertHtmlIncludes('40')
         message.assertHtmlIncludes('Importes y cobro')
-        return message.hasTo(INTERNAL_RECIPIENT_A) && message.hasTo(INTERNAL_RECIPIENT_B)
+        return message.hasTo(DEV_GATE_RECIPIENT_A) && message.hasTo(DEV_GATE_RECIPIENT_B)
       })
     } finally {
       mail.restore()
@@ -185,7 +187,7 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
     try {
       await withSmtpConfigured(async () => {
         await withEnvVars(
-          { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A },
           async () => {
             const service = new BillingInternalNotificationService()
             await service.notifySelfServiceSubscriptionCreated({
@@ -219,7 +221,7 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
     try {
       await withSmtpConfigured(async () => {
         await withEnvVars(
-          { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A },
           async () => {
             const service = new BillingInternalNotificationService()
             await service.notifySelfServiceSubscriptionCreated({
@@ -299,7 +301,7 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
     try {
       await withEnvVars(
         {
-          BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A,
+          BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A,
           SMTP_USERNAME: '',
           SMTP_FROM_ADDRESS: '',
         },
@@ -335,7 +337,7 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
     try {
       await withSmtpConfigured(async () => {
         await withEnvVars(
-          { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A, NODE_ENV: 'test' },
           async () => {
             const service = new BillingInternalNotificationService()
             await service.notifySelfServiceSubscriptionCreated({
@@ -350,7 +352,8 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
       fake.mails.assertSent(SelfServiceSubscriptionCreatedMail, ({ message }) => {
         const json = message.toJSON() as { message: { subject: string } }
         assert.match(json.message.subject, /^\[TEST\] /)
-        assert.include(json.message.subject, '[Contratación self-service]')
+        assert.include(json.message.subject, '[Interno] Nueva contratación')
+        assert.include(json.message.subject, 'Ambiente Test SA')
         return true
       })
     } finally {

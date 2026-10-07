@@ -31,6 +31,8 @@ export const BILLING_PROVIDER_ERROR_CODES = {
   INVOICE_UNEXPECTED_LINES: 'PLT.PRV.INVOICE_UNEXPECTED_LINES',
   /** Factura no ligada a una suscripción stripe registrada (USRH1790708507665) */
   INVOICE_SUBSCRIPTION_NOT_FOUND: 'PLT.PRV.INVOICE_SUBSCRIPTION_NOT_FOUND',
+  /** Cobro Stripe confirmado pero el asiento en Valanserh falló (USRH1790708507693) */
+  PAYMENT_SETTLEMENT_FAILED: 'PLT.PRV.PAYMENT_SETTLEMENT_FAILED',
 } as const
 
 export type BillingProviderErrorCode =
@@ -87,3 +89,7 @@ export const BILLING_PROVIDER_INVOICE_UNEXPECTED_LINES_DETAIL =
 /** Texto fijo cuando la factura no corresponde a una suscripción registrada (USRH1790708507665). */
 export const BILLING_PROVIDER_INVOICE_SUBSCRIPTION_NOT_FOUND_DETAIL =
   'La factura del proveedor no corresponde a una suscripción registrada.'
+
+/** Texto fijo cuando no se pudo registrar un cobro ya hecho en Stripe (USRH1790708507693). */
+export const BILLING_PROVIDER_PAYMENT_SETTLEMENT_FAILED_DETAIL =
+  'El pago cobrado por el proveedor no se pudo registrar en Valanserh.'
