@@ -3,6 +3,7 @@ import {
   BILLING_PROVIDER_CARD_NOT_CONFIRMED_DETAIL,
   BILLING_PROVIDER_INVOICE_AMOUNT_UNAVAILABLE_DETAIL,
   BILLING_PROVIDER_INVOICE_SUBSCRIPTION_NOT_FOUND_DETAIL,
+  BILLING_PROVIDER_PAYMENT_SETTLEMENT_FAILED_DETAIL,
   BILLING_PROVIDER_INVOICE_UNEXPECTED_LINES_DETAIL,
   BILLING_PROVIDER_OPERATION_NOT_AVAILABLE_DETAIL,
   BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL,
@@ -76,6 +77,20 @@ export function invoiceSubscriptionNotFound(
     500,
     'suscripcion-de-la-factura-no-encontrada',
     BILLING_PROVIDER_INVOICE_SUBSCRIPTION_NOT_FOUND_DETAIL
+  )
+}
+
+export function paymentSettlementFailed(
+  invoiceRef: string,
+  innerCode: string | null
+): BillingProviderServiceError {
+  const suffix = innerCode ?? 'unknown'
+  return new BillingProviderServiceError(
+    `Asiento del pago Stripe falló para ${invoiceRef}: ${suffix}`,
+    BILLING_PROVIDER_ERROR_CODES.PAYMENT_SETTLEMENT_FAILED,
+    500,
+    'pago-del-proveedor-no-asentado',
+    BILLING_PROVIDER_PAYMENT_SETTLEMENT_FAILED_DETAIL
   )
 }
 

@@ -1,5 +1,6 @@
 import type BillingSubscription from '#models/billing_subscription'
 import BillingProviderInvoiceCreatedHandler from '#modules/billing-provider/billing_provider_invoice_created.handler'
+import BillingProviderInvoicePaidHandler from '#modules/billing-provider/billing_provider_invoice_paid.handler'
 import type {
   BillingProviderPort,
   VerifiedProviderEvent,
@@ -45,3 +46,5 @@ billingProviderEventHandlers.register(
   'invoice.created',
   new BillingProviderInvoiceCreatedHandler()
 )
+
+billingProviderEventHandlers.register('invoice.paid', new BillingProviderInvoicePaidHandler())
