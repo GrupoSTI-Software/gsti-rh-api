@@ -229,6 +229,12 @@ export default class AssistIngestionController {
    *                       type: number
    *                     assistPrecision:
    *                       type: number
+   *                     assistIsMocked:
+   *                       type: boolean
+   *                       nullable: true
+   *                       description: |
+   *                         Indicador de ubicación simulada que reporta el teléfono.
+   *                         Solo tiene efecto con latitud y longitud.
    *     responses:
    *       '200':
    *         description: |
@@ -366,6 +372,7 @@ export default class AssistIngestionController {
           latitude: item.assistLatitude ?? null,
           longitude: item.assistLongitude ?? null,
           precision: item.assistPrecision ?? null,
+          isMocked: item.assistIsMocked ?? null,
         },
         origin,
         createdByUserId: access.isOwner ? null : (auth.user?.userId ?? null),
