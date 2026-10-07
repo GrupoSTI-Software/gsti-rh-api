@@ -5,7 +5,6 @@ import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
-import SystemModule from '#models/system_module'
 import RoleSystemPermission from '#models/role_system_permission'
 import {
   grantModuleAction,
@@ -35,6 +34,11 @@ const TEST_PASSWORD = 'TeleworkSettingsTest123!'
 const ROOT_ROLE = 'root'
 const NO_PERMISSION_ROLE = 'empleado' // no tiene el permiso 'telework-settings'
 const MODULE_SLUG = 'telework-settings'
+/**
+ * Módulo del catálogo que sí declara `gestion` (spec §8): sirve para probar que
+ * el bypass del helper RBAC no cruza de módulo (Review Focus 2).
+ */
+const OTHER_MODULE_WITH_GESTION = 'telework-policy'
 
 /** Payload válido de referencia (CA-2): 6 meses, 15 días, 350/500/250 MXN. */
 const VALID_PAYLOAD: Record<string, unknown> = {
@@ -107,34 +111,6 @@ async function countSettings(businessUnitId: number): Promise<number> {
 
 async function deleteSettings(businessUnitId: number) {
   await db.from('telework_compliance_settings').where('business_unit_id', businessUnitId).delete()
-}
-
-/**
- * Materializa el permiso `gestion` del módulo que el helper RBAC consulta.
- *
- * El catálogo de la HU (spec §8 / Task 1) declara `read` y `update` para
- * `telework-settings`, así que no existe una fila `gestion` que conceder. El
- * bypass `gestion` es una convención del helper (`assertComplianceRepsePermission`
- * resuelve `hasAction || hasGestion`); para ejercitarlo de verdad —Review Focus 2—
- * el spec crea el permiso que el helper busca y lo retira al terminar.
- */
-async function createGestionPermission(): Promise<number> {
-  const systemModule = await SystemModule.query()
-    .whereNull('system_module_deleted_at')
-    .where('system_module_slug', MODULE_SLUG)
-    .firstOrFail()
-  const insert = await db.table('system_permissions').insert({
-    system_permission_name: 'Gestión completa de ajustes de teletrabajo',
-    system_permission_slug: 'gestion',
-    system_module_id: systemModule.systemModuleId,
-    system_permission_created_at: new Date(),
-  })
-  return Number(insert[0])
-}
-
-async function deleteGestionPermission(systemPermissionId: number) {
-  await db.from('role_system_permissions').where('system_permission_id', systemPermissionId).delete()
-  await db.from('system_permissions').where('system_permission_id', systemPermissionId).delete()
 }
 
 function getSettings(client: ApiClient, user: User, businessUnit: BusinessUnit) {
@@ -229,30 +205,33 @@ test.group('telework-settings — permisos (CA-9, Review Focus 1 y 2)', (group) 
     }
   })
 
-  test('Objetivo: Review Focus 2 — un rol con solo gestion puede leer y guardar', async ({
+  test('Objetivo: Review Focus 2 — un rol con gestion en otro módulo no recibe el bypass en telework-settings', async ({
     client,
     assert,
   }) => {
-    const actor = await createTestActor(NO_PERMISSION_ROLE, 'solo-gestion')
+    const actor = await createTestActor(NO_PERMISSION_ROLE, 'gestion-otro-modulo')
     let grant: ModuleActionGrant | null = null
-    let gestionPermissionId: number | null = null
     try {
       await actor.user.related('businessUnits').attach([businessUnit!.businessUnitId])
-      gestionPermissionId = await createGestionPermission()
-      grant = await grantModuleAction(actor.roleId, MODULE_SLUG, 'gestion')
+      // `telework-policy` sí declara `gestion` en el catálogo (§8); el helper
+      // RBAC resuelve el bypass por módulo (`hasAccess(roleId, moduleSlug, ...)`),
+      // así que concederlo en otro módulo no habilita `telework-settings`.
+      grant = await grantModuleAction(actor.roleId, OTHER_MODULE_WITH_GESTION, 'gestion')
 
       const read = await getSettings(client, actor.user, businessUnit!)
-      read.assertStatus(200)
+      read.assertStatus(403)
+      assert.equal(read.body().key, 'sin-permiso')
+      assert.equal(read.body().errorCode, 'TWS.AUTH.001')
 
       const write = await putSettings(client, actor.user, businessUnit!, VALID_PAYLOAD)
-      write.assertStatus(200)
-      assert.isFalse(write.body().data.isDefault)
+      write.assertStatus(403)
+      assert.equal(write.body().key, 'sin-permiso')
+      assert.equal(write.body().errorCode, 'TWS.AUTH.001')
+
+      assert.equal(await countSettings(businessUnit!.businessUnitId), 0)
     } finally {
       await deleteSettings(businessUnit!.businessUnitId)
       await revokeGrant(grant)
-      if (gestionPermissionId) {
-        await deleteGestionPermission(gestionPermissionId)
-      }
       await cleanupTestActor(actor)
     }
   })

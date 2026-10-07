@@ -107,13 +107,22 @@ export function resolveTeleworkComplianceSettingApiError(
     }
   }
 
+  // Rama no tipada (500). No propaga el texto crudo del error interno (ni el
+  // mensaje del driver ni el stack): usa el mensaje genérico del módulo, igual
+  // que las demás ramas del resolvedor. El catálogo (§11) fija `TWS.SYS.001`
+  // → título "Error inesperado" con `key` `error-inesperado`, presente también
+  // en el `detail` para que el cuerpo nunca serialice `undefined`.
+  const message = translate(
+    i18n,
+    'an_unexpected_error_has_occurred_on_the_server',
+    'Ha ocurrido un error inesperado en el servidor'
+  )
   return {
-    message:
-      typeof err?.message === 'string'
-        ? err.message
-        : translate(i18n, 'an_unexpected_error_has_occurred_on_the_server', 'Error inesperado'),
+    message,
     title: ERROR_TITLE_BY_CODE[TELEWORK_COMPLIANCE_SETTING_ERROR_CODES.SYS_UNHANDLED],
     status: fallbackStatus,
     errorCode: TELEWORK_COMPLIANCE_SETTING_ERROR_CODES.SYS_UNHANDLED,
+    key: 'error-inesperado',
+    detail: message,
   }
 }
