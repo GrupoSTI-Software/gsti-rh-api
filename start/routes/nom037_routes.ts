@@ -76,3 +76,21 @@ router
   })
   .prefix('/api')
   .use(middleware.auth())
+
+// VLRH-H1791306074375 — ajustes de teletrabajo por empresa (singleton por
+// empresa, empresa resuelta del header `X-Business-Unit-Id`). Grupo al final
+// para no tocar el montaje de los grupos existentes. Sin ruta DELETE.
+router
+  .group(() => {
+    router.get(
+      '/nom037/telework-settings',
+      '#controllers/telework_compliance_setting_controller.show'
+    )
+    router.put(
+      '/nom037/telework-settings',
+      '#controllers/telework_compliance_setting_controller.update'
+    )
+  })
+  .prefix('/api')
+  .use(middleware.auth())
+  .use(middleware.businessScope())
