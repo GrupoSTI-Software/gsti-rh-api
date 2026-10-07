@@ -53,10 +53,23 @@ test.group('platform_legal_acceptance_routes — guard de plataforma', () => {
     const firstGetIndex = content.indexOf('router.get(')
     assert.isTrue(groupIndex >= 0 && firstGetIndex >= 0)
     assert.isTrue(groupIndex < firstGetIndex)
-    assert.notMatch(content, /router\.post\(/)
     assert.notMatch(content, /router\.put\(/)
     assert.notMatch(content, /router\.patch\(/)
     assert.notMatch(content, /router\.delete\(/)
+  })
+
+  test('declara POST …/:userConsentId/reveal hacia reveal dentro del grupo', async ({ assert }) => {
+    const content = await readFile(join(process.cwd(), ROUTES_PATH), 'utf8')
+    // Prettier parte la llamada en varias líneas: se comparan sin espacios en blanco.
+    const compact = content.replace(/\s+/g, '')
+    const groupStart = compact.indexOf('router.group(')
+    assert.isTrue(groupStart >= 0)
+    const groupBody = compact.slice(groupStart)
+    assert.include(
+      groupBody,
+      "router.post('/tenants/:businessUnitPublicId/legal-acceptances/:userConsentId/reveal',"
+    )
+    assert.include(groupBody, 'platform_consent.controller.reveal')
   })
 })
 

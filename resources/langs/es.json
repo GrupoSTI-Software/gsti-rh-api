@@ -549,6 +549,14 @@
   "role_scope_day_out_of_range_message": "Tu rol no alcanza a modificar esa fecha. Pide el registro a un rol con más días de alcance.",
   "assist_punch_time_role_scope_title": "Fuera del alcance de tu rol",
   "assist_punch_time_role_scope_message": "Tu rol no alcanza a registrar asistencia de esa fecha. Pide el registro a un rol con más días de alcance.",
+  "assist_coordinates_invalid_title": "Ubicación inválida",
+  "assist_coordinates_invalid_message": "La ubicación que envió el dispositivo no es válida. Activa la ubicación e inténtalo de nuevo.",
+  "assist_outside_zone_title": "Fuera de tu zona de asistencia",
+  "assist_outside_zone_message": "Tu registro se hizo fuera de las zonas donde tienes autorizado registrar asistencia.",
+  "assist_without_authorized_zone_title": "Sin zona de asistencia asignada",
+  "assist_without_authorized_zone_message": "No tienes una zona de asistencia asignada. Pide a Recursos Humanos que te asigne una.",
+  "assist_zone_not_evaluable_title": "Zona de asistencia no disponible",
+  "assist_zone_not_evaluable_message": "Tu zona de asistencia no se puede usar para validar el registro. Pide a Recursos Humanos que la revise.",
   "assist_punch_time_out_of_window_title": "Hora de captura fuera de la ventana permitida",
   "assist_punch_time_out_of_window_message": "Esta checada se capturó fuera del plazo permitido para registrarse por este canal. Solicita su captura al área de Recursos Humanos.",
   "assist_duplicate_natural_key_title": "Checada duplicada",
@@ -2890,6 +2898,14 @@
       "parametros-de-historial-invalidos": {
         "title": "Parámetros de historial inválidos",
         "detail": "Revisa el identificador de la empresa (UUID), la página y el tamaño de página (máximo 100)."
+      },
+      "aceptacion-no-encontrada": {
+        "title": "Aceptación no encontrada",
+        "detail": "No existe una aceptación de términos o aviso con ese identificador en esta empresa."
+      },
+      "no-fue-posible-revelar-la-evidencia": {
+        "title": "No fue posible revelar la evidencia",
+        "detail": "No se pudo registrar la consulta en la bitácora; los datos no se mostraron. Intenta de nuevo."
       }
     }
   },
@@ -3092,6 +3108,8 @@
   "session_permission_tree_unresolved_detail": "No fue posible determinar el rol de la sesión para construir el listado de permisos.",
   "system_setting_trade_name_taken_title": "Nombre comercial en uso",
   "system_setting_trade_name_taken_detail": "Tu empresa ya tiene una configuración con ese nombre comercial; usa un nombre distinto.",
+  "system_setting_zone_tolerance_meters_invalid_title": "Margen de tolerancia de zona inválido",
+  "system_setting_zone_tolerance_meters_invalid_message": "El margen debe ser un número entero de metros entre 0 y 200.",
   "user_access_email_masked_title": "No fue posible guardar el correo de acceso",
   "user_access_email_masked_detail": "El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio.",
   "user_access_email_duplicated_title": "Este correo de acceso ya está en uso",

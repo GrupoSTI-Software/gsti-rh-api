@@ -88,9 +88,7 @@ test.group('Assists — la checada repetida responde éxito (USRH1788135907801)'
     const payload = {
       employeeId: fixture.employeeId,
       assistType: 'check',
-      assistLatitude: 0,
-      assistLongitude: 0,
-      assistPrecision: 0,
+      // Sin ubicación: la zona (VLRH-H1790812613754) no es el objeto de este caso.
       assistPunchTime: uniquePunchTime(0),
       assistChannel: 'backoffice',
     }

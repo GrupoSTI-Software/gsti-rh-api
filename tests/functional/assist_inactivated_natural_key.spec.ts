@@ -232,9 +232,7 @@ test.group('Assists — inactivada no libera slot de llave natural (CA-23)', (gr
       .json({
         employeeId,
         assistType: 'check',
-        assistLongitude: 0,
-        assistLatitude: 0,
-        assistPrecision: 0,
+        // Sin ubicación: la zona (VLRH-H1790812613754) no es el objeto de este caso.
         assistPunchTime: punchTime.toISO(),
       })
       .loginAs(user)

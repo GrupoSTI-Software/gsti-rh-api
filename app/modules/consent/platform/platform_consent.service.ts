@@ -1,7 +1,11 @@
 import type { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
+import logger from '@adonisjs/core/services/logger'
 import PlatformTenantService from '#services/platform_tenant_service'
+import PiiAccessLogService from '#services/pii_access_log_service'
 import PlatformConsentError from '#exceptions/platform_consent_error'
 import EvidenceService from '#modules/consent/evidence/evidence.service'
+import type { PiiAccessInputInterface } from '../../../interfaces/pii_access_input_interface.js'
 import {
   PLATFORM_ACCEPTANCES_DEFAULT_LIMIT,
   PLATFORM_ACCEPTANCE_DOCUMENT_TYPES,
@@ -13,6 +17,8 @@ import {
   toDocumentAcceptanceDto,
   toTenantLegalAcceptanceRow,
   type PlatformLegalAcceptancesResponse,
+  type PlatformRevealAccessor,
+  type PlatformRevealedEvidenceDto,
   type PlatformTenantLegalAcceptancesResponseDto,
 } from '#modules/consent/platform/dto/platform_legal_acceptance.dto'
 import type {
@@ -21,6 +27,9 @@ import type {
   PlatformConsentRepository,
 } from '#modules/consent/platform/platform_consent.repository'
 import PlatformConsentRepositoryMysql from '#modules/consent/platform/platform_consent.repository.mysql'
+
+/** Módulo de origen saneado que la bitácora anota en cada revelado del expediente. */
+const PLATFORM_LEGAL_ACCEPTANCES_ORIGIN_MODULE = 'platform-legal-acceptances'
 
 /**
  * Resuelve el estado de aceptación de un documento a partir de hechos agregados
@@ -63,7 +72,8 @@ export default class PlatformConsentService {
   constructor(
     private readonly tenantService: PlatformTenantService = new PlatformTenantService(),
     private readonly repository: PlatformConsentRepository = new PlatformConsentRepositoryMysql(),
-    private readonly evidenceService: EvidenceService = new EvidenceService()
+    private readonly evidenceService: EvidenceService = new EvidenceService(),
+    private readonly piiAccessLogService: PiiAccessLogService = new PiiAccessLogService()
   ) {}
 
   /**
@@ -159,6 +169,103 @@ export default class PlatformConsentService {
       },
       data: evidencePage.data.map((row) => toTenantLegalAcceptanceRow(row, owners)),
       meta: evidencePage.meta,
+    }
+  }
+
+  /**
+   * Revela la IP y el agente de usuario en claro de UNA aceptación de la empresa del path,
+   * registrando antes cada columna con valor en la bitácora de acceso a datos personales
+   * (§10, §14).
+   *
+   * Orden no negociable: empresa → aserciones `> 0` → lookup enmascarado → (si no hay
+   * columnas con valor: return sin bitácora) → transacción `record`×N → lectura en claro →
+   * return. Nada de IP ni UA en claro antes de la lectura; el registro y la lectura viven
+   * en la misma transacción, así que si el registro falla no hay dato ni filas parciales.
+   */
+  async revealEvidence(
+    publicId: string,
+    userConsentId: number,
+    accessor: PlatformRevealAccessor
+  ): Promise<PlatformRevealedEvidenceDto> {
+    const tenant = await this.repository.findBusinessUnitByPublicId(publicId)
+    if (tenant === null) {
+      throw new PlatformConsentError('empresa-no-encontrada')
+    }
+    this.assertPositiveBusinessUnitId(tenant.businessUnitId)
+
+    // El filtro `.if` del repositorio no acota con 0: se corta aquí. Error interno (nunca
+    // llega por HTTP: el validador lo rechaza antes).
+    if (!Number.isSafeInteger(userConsentId) || userConsentId <= 0) {
+      throw new Error('Identificador de aceptación inválido')
+    }
+
+    const filters = {
+      businessUnitId: tenant.businessUnitId,
+      userConsentId,
+      types: [...PLATFORM_ACCEPTANCE_DOCUMENT_TYPES],
+      excludePlatformAccounts: true,
+    }
+    const masked = await this.evidenceService.getEvidence(filters, { page: 1, perPage: 1 }, false)
+    const row = masked.data[0]
+    if (row?.userConsentId !== userConsentId) {
+      throw new PlatformConsentError('aceptacion-no-encontrada')
+    }
+
+    // Una fila por columna CON valor: `null` y `''` se tratan como sin dato (`maskSensitiveValue`
+    // conserva la cadena vacía) y no se registran ni se revelan como dato.
+    const columns: Array<'userConsentIp' | 'userConsentUserAgent'> = []
+    if (row.ip !== null && row.ip !== '') {
+      columns.push('userConsentIp')
+    }
+    if (row.userAgent !== null && row.userAgent !== '') {
+      columns.push('userConsentUserAgent')
+    }
+    if (columns.length === 0) {
+      return { userConsentId, ip: row.ip, userAgent: row.userAgent }
+    }
+
+    try {
+      return await db.transaction(async (trx) => {
+        for (const column of columns) {
+          const input: PiiAccessInputInterface = {
+            businessUnitId: tenant.businessUnitId,
+            accessorUserId: accessor.accessorUserId,
+            model: 'UserConsent',
+            modelColumn: column,
+            recordId: userConsentId,
+            accessorIp: accessor.accessorIp,
+            accessorUserAgent: accessor.accessorUserAgent,
+            requestId: null,
+            subjectEmployeeId: row.employeeId,
+            originModule: PLATFORM_LEGAL_ACCEPTANCES_ORIGIN_MODULE,
+          }
+          await this.piiAccessLogService.record(input, trx)
+        }
+
+        const clear = await this.evidenceService.getEvidence(filters, { page: 1, perPage: 1 }, true)
+        const clearRow = clear.data[0]
+        if (clearRow?.userConsentId !== userConsentId) {
+          // Carrera entre el registro y la lectura: revierte el callback (rollback).
+          throw new PlatformConsentError('aceptacion-no-encontrada')
+        }
+        return { userConsentId, ip: clearRow.ip, userAgent: clearRow.userAgent }
+      })
+    } catch (error) {
+      if (error instanceof PlatformConsentError && error.key === 'aceptacion-no-encontrada') {
+        throw error
+      }
+      // Solo empresa, aceptación y nombre del error — NUNCA IP ni UA.
+      logger.error(
+        {
+          businessUnitId: tenant.businessUnitId,
+          userConsentId,
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        },
+        'No fue posible revelar la evidencia de la aceptación'
+      )
+      const revealError = new PlatformConsentError('no-fue-posible-revelar-la-evidencia')
+      Object.assign(revealError, { cause: error })
+      throw revealError
     }
   }
 

@@ -45,6 +45,13 @@ export const LOG_REDACT_PATHS = [
   'err.source', // Stripe: fuente legacy
   'err.header', // Stripe: cabecera stripe-signature en error de verificación (7579)
   'err.payload', // Stripe: cuerpo en error de verificación (7579)
+  '*.assistLatitude', // checada: ubicación del empleado (VLRH-H1790812613754)
+  '*.assistLongitude', // checada: ubicación del empleado
+  '*.assistPrecision', // checada: error de ubicación del teléfono
+  '*.assistIsMocked', // checada: indicador de ubicación simulada (VLRH-H1790812613756)
+  '*.geo.latitude', // ingesta: ubicación del registro resuelto
+  '*.geo.longitude', // ingesta: ubicación del registro resuelto
+  '*.geo.precision', // ingesta: error de ubicación del registro resuelto
 ] as const satisfies readonly string[]
 
 /** Valor sustituto fijo; distinto de la máscara de producto (`•`) para no confundir eco y log. */
