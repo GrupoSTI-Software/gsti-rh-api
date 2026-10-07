@@ -1,6 +1,7 @@
 import type { DateTime } from 'luxon'
 import type Assist from '#models/assist'
 import type { AssistCreateFrom } from '#constants/assist_origin'
+import type { AssistLocationFlag } from '#constants/assist_location_flag'
 
 /** Desenlace de una checada entregada al motor de ingesta. */
 export type AssistIngestionOutcome = 'inserted' | 'preexisting' | 'rejected'
@@ -24,6 +25,11 @@ export interface AssistIngestionGeo {
   latitude: number | null
   longitude: number | null
   precision: number | null
+  /**
+   * Indicador de ubicación simulada que reporta el teléfono (VLRH-H1790812613756).
+   * Opcional: ADMS y pines no lo aportan. `null` o ausente = no lo dijo.
+   */
+  isMocked?: boolean | null
 }
 
 /** El hecho declarado por el cliente, ya normalizado por el adaptador de transporte. */
@@ -61,6 +67,8 @@ export interface AssistIngestionRecord {
   terminalSn: string | null
   terminalAlias?: string | null
   verifyMethod?: number | null
+  /** Marca de ubicación decidida tras la comprobación de zona (VLRH-H1790812613756). */
+  locationFlag?: AssistLocationFlag | null
 }
 
 /** Lo que el puerto devuelve por registro: se insertó, o su identidad ya estaba tomada. */
