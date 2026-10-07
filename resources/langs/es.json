@@ -2957,6 +2957,16 @@
       }
     }
   },
+  "telework_settings": {
+    "title": "Ajustes de teletrabajo",
+    "get_success": "Ajustes de teletrabajo obtenidos correctamente.",
+    "upsert_success": "Ajustes de teletrabajo guardados correctamente.",
+    "val_input": "Los datos enviados no son válidos.",
+    "invalid_revalidation": "La periodicidad de revalidación debe ser un número entero de meses entre 1 y 12.",
+    "invalid_notice": "La ventana de aviso debe ser un número entero de días, mayor o igual a 1 y menor que los meses de periodicidad multiplicados por 30.",
+    "invalid_allowance": "Los montos deben ser mayores o iguales a cero, con dos decimales como máximo, y no mayores a 99999999.99.",
+    "forbidden_scope": "No se pudo resolver la empresa para consultar los ajustes de teletrabajo."
+  },
   "consent_evidence_title": "Evidencia de aceptaciones",
   "consent_evidence_list_success": "Evidencia de aceptaciones obtenida correctamente.",
   "consent_evidence_download_url_success": "URL de descarga generada correctamente.",
@@ -2969,6 +2979,10 @@
   "telework_policy_forbidden_read_message": "No tienes permiso para consultar la Política de Teletrabajo.",
   "telework_policy_forbidden_write_title": "Sin permiso",
   "telework_policy_forbidden_write_message": "No tienes permiso para gestionar la Política de Teletrabajo.",
+  "telework_settings_forbidden_read_title": "Sin permiso de consulta",
+  "telework_settings_forbidden_read_message": "No tienes permiso para consultar los ajustes de teletrabajo.",
+  "telework_settings_forbidden_write_title": "Sin permiso",
+  "telework_settings_forbidden_write_message": "No tienes permiso para editar los ajustes de teletrabajo.",
   "employee_temporary_assignment_unauthorized_title": "No autorizado",
   "employee_temporary_assignment_unauthorized_message": "El usuario debe estar autenticado.",
   "employee_temporary_assignment_resource_not_found_title": "Recurso no encontrado",
