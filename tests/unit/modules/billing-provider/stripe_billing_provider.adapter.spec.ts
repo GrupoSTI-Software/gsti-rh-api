@@ -6,14 +6,18 @@ import Stripe from 'stripe'
 import {
   BILLING_PROVIDER_OPERATION_NOT_AVAILABLE_DETAIL,
   BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL,
+  BILLING_PROVIDER_PROVIDER_STATE_UNAVAILABLE_DETAIL,
   BILLING_PROVIDER_STRIPE_NOT_CONFIGURED_DETAIL,
   BILLING_PROVIDER_ERROR_CODES,
 } from '#constants/billing_provider_error_codes'
+import { resolveBillingProviderApiError } from '#helpers/billing_provider_api_error'
+import logger from '@adonisjs/core/services/logger'
 import { BillingProviderServiceError } from '#exceptions/billing_provider_service_error'
 import ManualBillingProviderAdapter from '#modules/billing-provider/manual_billing_provider.adapter'
 import {
   BILLING_PROVIDER_KEYS,
   isBillingInvoiceProvider,
+  isBillingSubscriptionStateProvider,
   type BillingProviderPort,
 } from '#modules/billing-provider/billing_provider.port'
 import StripeBillingProviderAdapter, {
@@ -25,6 +29,8 @@ import StripeBillingProviderAdapter, {
   catalogIdempotencyKey,
   cardSetupIdempotencyKey,
   invoiceChargeIdempotencyKey,
+  toProviderPaymentFailure,
+  toProviderSubscriptionState,
 } from '#modules/billing-provider/stripe_billing_provider.adapter'
 import type { StripeSettings } from '#modules/billing-provider/stripe_billing_provider.config'
 
@@ -121,9 +127,9 @@ test.group('StripeBillingProviderAdapter — guardias (7496)', () => {
         callback()
       },
     })
-    const logger = pino({ level: 'info' }, destination)
-    logger.info({ adapter, description })
-    logger.flush()
+    const pinoLogger = pino({ level: 'info' }, destination)
+    pinoLogger.info({ adapter, description })
+    pinoLogger.flush()
     assert.notInclude(chunks.join(''), 'fixtureSecret1')
   })
 })
@@ -1159,6 +1165,261 @@ test.group('StripeBillingProviderAdapter — lo pagado (USRH1790724549115 / CA-1
         assertProviderError(error).errorCode,
         BILLING_PROVIDER_ERROR_CODES.PROVIDER_REQUEST_FAILED
       )
+    }
+  })
+})
+
+test.group('StripeBillingProviderAdapter — lectura de estado (9026 / CA-8…CA-10)', () => {
+  test('CA-8: mapeo de suscripción y guardia isBillingSubscriptionStateProvider', ({
+    assert,
+  }) => {
+    assert.deepEqual(
+      toProviderSubscriptionState({
+        id: 'sub_fixtureS1',
+        object: 'subscription',
+        customer: 'cus_fixtureS1',
+        status: 'past_due',
+      }),
+      {
+        subscriptionRef: 'sub_fixtureS1',
+        customerRef: 'cus_fixtureS1',
+        status: 'past_due',
+      }
+    )
+
+    assert.deepEqual(
+      toProviderSubscriptionState({
+        id: 'sub_fixtureS1',
+        customer: { id: 'cus_fixtureS1', email: 'prospecto.fixture@correo.test' },
+        status: 'past_due',
+      }),
+      {
+        subscriptionRef: 'sub_fixtureS1',
+        customerRef: 'cus_fixtureS1',
+        status: 'past_due',
+      }
+    )
+
+    assert.deepEqual(
+      toProviderSubscriptionState({
+        id: 'sub_fixtureS1',
+        customer: 'cus_fixtureS1',
+        status: 'suspended',
+      })?.status,
+      'unknown'
+    )
+
+    assert.isNull(toProviderSubscriptionState({ customer: 'cus_fixtureS1', status: 'active' }))
+    assert.isNull(toProviderSubscriptionState({ id: 'sub_fixtureS1', status: 'active' }))
+
+    const stripeAdapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS)
+    const manualAdapter = new ManualBillingProviderAdapter()
+    assert.isTrue(isBillingSubscriptionStateProvider(stripeAdapter))
+    assert.isFalse(isBillingSubscriptionStateProvider(manualAdapter))
+    assert.isFalse(
+      isBillingSubscriptionStateProvider({
+        key: BILLING_PROVIDER_KEYS.STRIPE,
+        readSubscriptionState: async () => ({
+          subscriptionRef: 'sub_x',
+          customerRef: 'cus_x',
+          status: 'active',
+        }),
+      } as unknown as BillingProviderPort)
+    )
+  })
+
+  test('CA-9: mapeo de fallo sin PII en el DTO', ({ assert }) => {
+    const invoice = {
+      id: 'in_fixtureS1',
+      customer: 'cus_fixtureS1',
+      parent: { subscription_details: { subscription: 'sub_fixtureS1' } },
+      customer_email: 'prospecto.fixture@correo.test',
+    }
+    const intent = {
+      id: 'pi_fixtureS1',
+      status: 'requires_payment_method',
+      last_payment_error: {
+        code: 'card_declined',
+        decline_code: 'fraudulent',
+        message: 'Your card was declined for suspected fraud.',
+        payment_method: {
+          billing_details: {
+            email: 'prospecto.fixture@correo.test',
+            name: 'Fixture Titular',
+            phone: '5550000000',
+          },
+          card: { last4: '4242' },
+        },
+      },
+    }
+
+    const dto = toProviderPaymentFailure(invoice, intent)
+    assert.deepEqual(dto, {
+      invoiceRef: 'in_fixtureS1',
+      subscriptionRef: 'sub_fixtureS1',
+      customerRef: 'cus_fixtureS1',
+      errorCode: 'card_declined',
+      declineCode: 'fraudulent',
+      intentStatus: 'requires_payment_method',
+    })
+    assert.deepEqual(Object.keys(dto!).sort(), [
+      'customerRef',
+      'declineCode',
+      'errorCode',
+      'intentStatus',
+      'invoiceRef',
+      'subscriptionRef',
+    ])
+    const raw = JSON.stringify(dto)
+    for (const forbidden of [
+      'prospecto.fixture@correo.test',
+      'Fixture Titular',
+      '4242',
+      'suspected fraud',
+    ]) {
+      assert.notInclude(raw, forbidden)
+    }
+
+    const withoutIntent = toProviderPaymentFailure(invoice, null)
+    assert.equal(withoutIntent?.errorCode, null)
+    assert.equal(withoutIntent?.declineCode, null)
+    assert.equal(withoutIntent?.intentStatus, null)
+  })
+
+  test('CA-10: errores envueltos, refs inválidas y adaptador deshabilitado', async ({
+    assert,
+  }) => {
+    const stripeError = new Stripe.errors.StripeInvalidRequestError({
+      message: 'No such subscription; prospecto.fixture@correo.test',
+      type: 'invalid_request_error',
+      code: 'resource_missing',
+      requestId: 'req_fixtureS1',
+      statusCode: 404,
+    })
+
+    const warnLines: string[] = []
+    const originalWarn = logger.warn.bind(logger)
+    ;(logger as unknown as { warn: typeof logger.warn }).warn = ((...args: Parameters<
+      typeof logger.warn
+    >) => {
+      warnLines.push(JSON.stringify(args))
+      return originalWarn(...args)
+    }) as typeof logger.warn
+
+    try {
+      for (const [label, adapter] of [
+        [
+          'readSubscriptionState',
+          new StripeBillingProviderAdapter(ENABLED_SETTINGS, () =>
+            ({
+              subscriptions: { retrieve: async () => { throw stripeError } },
+            }) as unknown as Stripe
+          ),
+        ],
+        [
+          'readInvoicePaymentFailure',
+          new StripeBillingProviderAdapter(ENABLED_SETTINGS, () =>
+            ({
+              invoices: { retrieve: async () => { throw stripeError } },
+            }) as unknown as Stripe
+          ),
+        ],
+      ] as const) {
+        let caught: unknown
+        try {
+          if (label === 'readSubscriptionState') {
+            await adapter.readSubscriptionState('sub_fixtureS1')
+          } else {
+            await adapter.readInvoicePaymentFailure('in_fixtureS1')
+          }
+        } catch (error) {
+          caught = error
+        }
+        const typed = assertProviderError(caught)
+        assert.equal(typed.errorCode, BILLING_PROVIDER_ERROR_CODES.PROVIDER_STATE_UNAVAILABLE)
+        assert.equal(typed.httpStatus, 500)
+        assert.equal(typed.key, 'estado-del-proveedor-no-disponible')
+        assert.equal(typed.detail, BILLING_PROVIDER_PROVIDER_STATE_UNAVAILABLE_DETAIL)
+        assert.deepEqual(resolveBillingProviderApiError(typed), {
+          title: 'Proveedor de cobro',
+          detail: BILLING_PROVIDER_PROVIDER_STATE_UNAVAILABLE_DETAIL,
+          key: 'estado-del-proveedor-no-disponible',
+          code: 'PLT.PRV.PROVIDER_STATE_UNAVAILABLE',
+          status: 500,
+        })
+        for (const output of [JSON.stringify(typed), typed.message, typed.detail]) {
+          assert.notInclude(output, 'prospecto.fixture@correo.test')
+          assert.notInclude(output, 'No such subscription')
+        }
+      }
+
+      assert.isAbove(warnLines.length, 0)
+      for (const line of warnLines) {
+        assert.notInclude(line, 'prospecto.fixture@correo.test')
+      }
+      assert.isTrue(
+        warnLines.some(
+          (line) => line.includes('readSubscriptionState') || line.includes('readInvoicePaymentFailure')
+        )
+      )
+
+      const hangUpAdapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () =>
+        ({
+          subscriptions: {
+            retrieve: async () => {
+              throw new Error('socket hang up')
+            },
+          },
+        }) as unknown as Stripe
+      )
+      try {
+        await hangUpAdapter.readSubscriptionState('sub_fixtureS1')
+        assert.fail('Debió lanzar')
+      } catch (error) {
+        assert.equal(
+          assertProviderError(error).errorCode,
+          BILLING_PROVIDER_ERROR_CODES.PROVIDER_STATE_UNAVAILABLE
+        )
+      }
+
+      const enabledAdapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => {
+        throw new Error('SDK no debió invocarse')
+      })
+      for (const call of [
+        () => enabledAdapter.readSubscriptionState(''),
+        () => enabledAdapter.readSubscriptionState('cus_fixtureS1'),
+        () => enabledAdapter.readInvoicePaymentFailure('in_fixtureS1/lines'),
+      ] as const) {
+        try {
+          await call()
+          assert.fail('Debió lanzar')
+        } catch (error) {
+          assert.equal(
+            assertProviderError(error).errorCode,
+            BILLING_PROVIDER_ERROR_CODES.PROVIDER_STATE_UNAVAILABLE
+          )
+        }
+      }
+
+      const disabled = new StripeBillingProviderAdapter(DISABLED_SETTINGS, () => {
+        throw new Error('SDK no debió invocarse')
+      })
+      for (const call of [
+        () => disabled.readSubscriptionState('sub_fixtureS1'),
+        () => disabled.readInvoicePaymentFailure('in_fixtureS1'),
+      ] as const) {
+        try {
+          await call()
+          assert.fail('Debió lanzar')
+        } catch (error) {
+          assert.equal(
+            assertProviderError(error).errorCode,
+            BILLING_PROVIDER_ERROR_CODES.STRIPE_NOT_CONFIGURED
+          )
+        }
+      }
+    } finally {
+      ;(logger as unknown as { warn: typeof logger.warn }).warn = originalWarn
     }
   })
 })
