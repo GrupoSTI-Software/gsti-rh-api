@@ -1,6 +1,6 @@
 # Prueba manual — Configurar por empresa la compensación y la revalidación del teletrabajo
 
-**Estado: entregado el 7 de octubre de 2026. Lo recorre una persona; quien lo escribió no lo caminó.**
+**Estado: entregado el 7 de octubre de 2026 y recorrido ese mismo día por una persona (quien lo escribió no lo caminó); los 11 objetivos de la lista se cumplieron.**
 
 **Problema:** antes, cada adenda de teletrabajo se llenaba a mano y cada persona de Recursos Humanos ponía el monto que recordaba, así que la misma empresa terminaba pagando cantidades distintas por un trabajo parecido. Tampoco había un solo lugar para acordar de una vez cuánto se propone por luz, internet y equipo propio, ni cada cuánto hay que volver a revisar el lugar de trabajo en casa.
 
@@ -182,17 +182,19 @@ Objetivo: comprobar que quien no tiene permiso no encuentra la entrada en el men
 
 Cada casilla se marca contra el objetivo de su escenario, no contra "se hicieron los pasos":
 
-- [ ] 4.1 Empresa sin ajustes: chip **Valores del sistema**, 12 meses, 30 días y montos vacíos
-- [ ] 4.2 Abrir la pantalla no la deja configurada ni deja línea de última modificación
-- [ ] 4.3 Guardar deja el aviso **Ajustes guardados**, el chip **Configurada** y la línea de última modificación
-- [ ] 4.4 Al volver a entrar siguen los mismos valores y el chip **Configurada**
-- [ ] 4.5 La otra empresa del mismo grupo no hereda lo guardado en la primera
-- [ ] 4.6 Un monto fuera del máximo se señala bajo el campo del monto sin perder lo capturado
-- [ ] 4.7 Una periodicidad que no es un entero de meses se señala bajo su campo sin perder lo capturado
-- [ ] 4.8 Un aviso de 200 días con periodicidad de 6 meses se señala bajo su campo sin perder lo capturado
-- [ ] 4.9 En 375 px los campos y el botón Guardar se ven y se usan sin desbordarse
-- [ ] 5.1 Con solo consulta los campos son de solo lectura y no hay botón Guardar
-- [ ] 5.2 Sin acceso no aparece la opción de menú y la dirección muestra **No tienes acceso**
+- [x] 4.1 Empresa sin ajustes: chip **Valores del sistema**, 12 meses, 30 días y montos vacíos
+- [x] 4.2 Abrir la pantalla no la deja configurada ni deja línea de última modificación
+- [x] 4.3 Guardar deja el aviso **Ajustes guardados**, el chip **Configurada** y la línea de última modificación
+- [x] 4.4 Al volver a entrar siguen los mismos valores y el chip **Configurada**
+- [x] 4.5 La otra empresa del mismo grupo no hereda lo guardado en la primera
+- [x] 4.6 Un monto fuera del máximo se señala bajo el campo del monto sin perder lo capturado
+- [x] 4.7 Una periodicidad que no es un entero de meses se señala bajo su campo sin perder lo capturado
+- [x] 4.8 Un aviso de 200 días con periodicidad de 6 meses se señala bajo su campo sin perder lo capturado
+- [x] 4.9 En 375 px los campos y el botón Guardar se ven y se usan sin desbordarse
+- [x] 5.1 Con solo consulta los campos son de solo lectura y no hay botón Guardar
+- [x] 5.2 Sin acceso no aparece la opción de menú y la dirección muestra **No tienes acceso**
+
+Recorrido completo el 7 de octubre de 2026: las 11 casillas se marcaron **contra el objetivo de su escenario**, no contra "se hicieron los pasos".
 
 ## 7. Lo que no se revisa con esta base
 
