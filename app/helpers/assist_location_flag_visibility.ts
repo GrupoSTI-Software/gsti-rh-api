@@ -55,7 +55,8 @@ export async function canSeeAssistLocationFlag(
     ) {
       return false
     }
-    if (user.isPlatformAdmin === true) return false
+    // Desde la BD llega como 0/1, no como booleano: cualquier valor verdadero excluye.
+    if (user.isPlatformAdmin) return false
     const roleSlug: unknown = user.role?.roleSlug
     if (typeof roleSlug !== 'string') return false
     if (roleSlug === PLATFORM_ROLE_SLUG) return false

@@ -126,6 +126,14 @@ test.group('canSeeAssistLocationFlag', () => {
     assert.deepEqual(double.calls, { ownership: 0, hasAccess: 0 })
   })
 
+  test('cuenta de plataforma con el 1 que entrega la BD: no la ve', async ({ assert }) => {
+    // MySQL entrega `is_platform_admin` como 0/1, no como booleano.
+    const user = Object.assign(sessionUser(ADMIN_ROLE_SLUG), { isPlatformAdmin: 1 })
+    const double = granted()
+    assert.isFalse(await canSeeAssistLocationFlag(user, 413, double.deps))
+    assert.deepEqual(double.calls, { ownership: 0, hasAccess: 0 })
+  })
+
   test('rol efectivo root: no la ve y el corte va antes de consultar', async ({ assert }) => {
     const double = granted()
     assert.isFalse(

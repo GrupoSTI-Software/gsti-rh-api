@@ -14,6 +14,7 @@ import env from '#start/env'
 import logger from '@adonisjs/core/services/logger'
 import Employee from '#models/employee'
 import { AssistDayInterface } from '../interfaces/assist_day_interface.js'
+import type { AssistLocationFlag } from '#constants/assist_location_flag'
 import { AssistInterface } from '../interfaces/assist_interface.js'
 import AssistStatusResponseDto from '#dtos/assist_status_response_dto'
 import ShiftForEmployeeService from './shift_for_employees_service.js'
@@ -62,6 +63,31 @@ const WORK_DISABILITY_EXCEPTION_SLUGS: ReadonlySet<string> = new Set([
   'falta-por-incapacidad',
   'incapacidad-por-maternidad',
 ])
+
+/** Momentos del día que apuntan a una checada de `assitFlatList`. */
+const DAY_PUNCH_MOMENTS = ['checkIn', 'checkEatIn', 'checkEatOut', 'checkOut'] as const
+
+/**
+ * Copia serializada del calendario con la marca de ubicación en cada checada
+ * de `assitFlatList` y en cada momento del día (VLRH-H1791056345261).
+ *
+ * Trabaja sobre la forma ya serializada, la misma que recibiría el cliente: el
+ * cálculo del calendario no cambia y la marca existe solo en esta copia.
+ */
+function withLocationFlags(
+  calendar: AssistDayInterface[],
+  flags: ReadonlyMap<number, AssistLocationFlag | null>
+): AssistDayInterface[] {
+  const serialized = JSON.parse(JSON.stringify(calendar)) as AssistDayInterface[]
+  const apply = (punch: AssistInterface | null | undefined) => {
+    if (punch) punch.assistLocationFlag = flags.get(punch.assistId ?? 0) ?? null
+  }
+  for (const day of serialized) {
+    for (const punch of day.assist?.assitFlatList ?? []) apply(punch)
+    for (const moment of DAY_PUNCH_MOMENTS) apply(day.assist?.[moment])
+  }
+  return serialized
+}
 
 /**
  * Servicio para la sincronización y procesamiento de asistencias de empleados.
@@ -1227,12 +1253,14 @@ export default class SyncAssistsService {
     const assistList = await query.paginate(paginator?.page || 1, paginator?.limit || 500)
     const assistListFlat = assistList.toJSON().data as AssistInterface[]
 
-    // La marca no se serializa con el modelo (`serializeAs: null`): se copia de
-    // la instancia ya cargada, solo cuando el llamador la pidió.
-    if (options.includeAssistLocationFlag === true) {
-      const flags = new Map(assistList.all().map((model) => [model.assistId, model.assistLocationFlag ?? null]))
-      for (const item of assistListFlat) item.assistLocationFlag = flags.get(item.assistId ?? 0) ?? null
-    }
+    // Marca de ubicación (VLRH-H1791056345261), solo si el llamador la pidió. Se
+    // lee de las instancias ya cargadas y se aplica al final: los elementos del
+    // calendario siguen siendo modelos y su `toJSON()` la omite
+    // (`serializeAs: null`), así que asignarla aquí no llegaría a la respuesta.
+    const locationFlags =
+      options.includeAssistLocationFlag === true
+        ? new Map(assistList.all().map((model) => [model.assistId, model.assistLocationFlag ?? null]))
+        : null
 
     // OPTIMIZACIÓN: Agrupar assists por día usando Map en lugar de buscar en cada iteración (O(n) vs O(n²))
     const assistsByDay = new Map<string, AssistInterface[]>()
@@ -1370,7 +1398,7 @@ export default class SyncAssistsService {
       title: this.t('resources'),
       message: this.t('resources_were_found_successfully'),
       data: {
-        employeeCalendar,
+        employeeCalendar: locationFlags ? withLocationFlags(employeeCalendar, locationFlags) : employeeCalendar,
         temporaryAssignments,
         // Zona IANA del sitio: el cliente muestra las horas en ella, no en la del usuario.
         timeZone: zone,
