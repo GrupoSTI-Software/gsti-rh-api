@@ -1,6 +1,6 @@
 # Prueba manual — Marcar la categoría de teletrabajo en los tipos de activo
 
-**Estado: entregado el 8 de octubre de 2026; pendiente de recorrer por una persona (quien lo escribió no lo camina).**
+**Estado: entregado el 8 de octubre de 2026 y recorrido ese mismo día por una persona (quien lo escribió no lo caminó); los 5 objetivos de la lista se cumplieron.**
 
 **Problema:** la norma de teletrabajo obliga a la empresa a darle a cada teletrabajador una silla ergonómica, el equipo de cómputo o impresión y los aditamentos que hagan falta, y a poder demostrar en una inspección qué le entregó a cada quien. Esas entregas ya se registran en Activos e insumos, pero la empresa no tenía cómo indicar cuáles de sus tipos de activo son justamente esos insumos de la norma.
 
@@ -129,10 +129,10 @@ Se declara no revisable desde esta pantalla y queda cubierto por las pruebas aut
 
 Cada casilla se marca contra el objetivo de su escenario, no contra "se hicieron los pasos":
 
-- [ ] 4.1 Marcar una categoría en **Laptop QA**: se guarda, no cambia el nombre y el catálogo muestra **Equipo de cómputo o impresión**
-- [ ] 4.2 Quitar la categoría: **Laptop QA** vuelve a "Sin categoría" y se puede reclasificar
-- [ ] 4.3 Alta de **Silla Ergo** con **Silla ergonómica**: nace clasificado y el bloque de alta se reinicia
-- [ ] 4.4 **Monitor QA** (tipo previo) se ve sin categoría y funciona igual que siempre
-- [ ] 5.1 Con solo consulta: se ve la categoría como etiqueta, no hay selector ni bloque de alta, y **Monitor QA** sigue sin etiqueta
+- [x] 4.1 Marcar una categoría en **Laptop QA**: se guarda, no cambia el nombre y el catálogo muestra **Equipo de cómputo o impresión**
+- [x] 4.2 Quitar la categoría: **Laptop QA** vuelve a "Sin categoría" y se puede reclasificar
+- [x] 4.3 Alta de **Silla Ergo** con **Silla ergonómica**: nace clasificado y el bloque de alta se reinicia
+- [x] 4.4 **Monitor QA** (tipo previo) se ve sin categoría y funciona igual que siempre
+- [x] 5.1 Con solo consulta: se ve la categoría como etiqueta, no hay selector ni bloque de alta, y **Monitor QA** sigue sin etiqueta
 
-Pendiente: recorrido por una persona; al cerrarlo, cada casilla se marca **contra el objetivo de su escenario**, no contra "se hicieron los pasos".
+Recorrido completo el 8 de octubre de 2026: las 5 casillas se marcaron **contra el objetivo de su escenario**, no contra "se hicieron los pasos".
