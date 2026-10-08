@@ -100,6 +100,9 @@ export default class AssistIngestionRepositoryMysql implements AssistIngestionRe
     assist.assistSyncId = 0
     if (record.assistType !== null) assist.assistType = record.assistType
     assist.assistOrigin = record.origin
+    // Único escritor de la marca (VLRH-H1790812613756): se fija al insertar y un
+    // reenvío `preexisting` no pasa por aquí, así que conserva la de la primera llegada.
+    assist.assistLocationFlag = record.locationFlag ?? null
     assist.assistCreatedByUserId = record.createdByUserId
 
     if (record.geo.latitude !== null) assist.assistLatitude = record.geo.latitude

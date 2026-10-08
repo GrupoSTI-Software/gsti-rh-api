@@ -183,7 +183,8 @@ export default class BillingProviderWebhookService {
           handler,
           provider,
           verified,
-          billingSubscription
+          billingSubscription,
+          locked.billingProviderEventAttempts
         )
         if (handlerOutcome.status === 'processed') {
           locked.billingProviderEventStatus = BILLING_PROVIDER_EVENT_STATUSES.PROCESSED
@@ -224,12 +225,14 @@ export default class BillingProviderWebhookService {
     handler: BillingProviderEventHandler,
     provider: BillingProviderPort,
     event: VerifiedProviderEvent,
-    billingSubscription: BillingSubscription | null
+    billingSubscription: BillingSubscription | null,
+    attempt: number
   ) {
     return handler.handle({
       event,
       billingSubscription,
       provider,
+      attempt,
     })
   }
 

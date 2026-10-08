@@ -60,6 +60,11 @@ const EXCEPCIONES_CONGELADAS: readonly string[] = [
   '1788282413070000_create_alliance_billing_profiles_table.ts',
   '1788282413071000_add_alliance_id_to_discount_codes.ts',
   '1788282413072000_add_qr_storage_key_to_alliances.ts',
+  // Entraron a multitenant después de congelar la lista (2026-09-11 y 2026-09-17)
+  // y ya corrieron en bases compartidas: renombrarlas las volvería a ejecutar.
+  // Se registran aquí para no romper ese historial; no es precedente.
+  '1788282413073000_create_alliance_attributions_table.ts',
+  '1788282413074000_create_alliance_commissions_table.ts',
   '1788282413204000_reorganize_system_modules_into_groups.ts',
   '1788288461952000_create_sat_cancellation_reasons_table.ts',
   '1788288461952001_create_billing_tax_receipts_table.ts',
@@ -91,7 +96,8 @@ test.group('Convención de nombre de migraciones', () => {
   test('la lista de excepciones no crece', ({ assert }) => {
     assert.lengthOf(
       EXCEPCIONES_CONGELADAS,
-      34,
+      // 34 al congelar + las dos de alianzas que ya habían corrido (ver lista).
+      36,
       'La lista de excepciones está congelada: ningún archivo nuevo debe agregarse a ella.'
     )
   })

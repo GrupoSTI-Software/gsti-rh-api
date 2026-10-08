@@ -1157,6 +1157,29 @@ export const SYSTEM_MODULES_GROUPED = [
         ],
       },
       {
+        systemModuleName: 'Ajustes de teletrabajo',
+        systemModuleSlug: 'telework-settings',
+        systemModuleDescription: '',
+        systemModules: 1,
+        systemModulePath: '/telework-settings',
+        systemModuleOrder: 8,
+        systemModuleActive: 1,
+        systemModulePermissionEnforcementActive: true,
+        systemModuleRetired: false,
+        systemModuleIcon:
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l8 0"/><path d="M16 6l4 0"/><path d="M14 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 12l2 0"/><path d="M10 12l10 0"/><path d="M8 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/><path d="M4 18l10 0"/><path d="M18 18l2 0"/><path d="M16 18m-2 0a2 2 0 1 0 4 0a2 2 0 1 0 -4 0"/></svg>',
+        systemModulePermissions: [
+          {
+            systemPermissionName: 'Acceder a ajustes de teletrabajo',
+            systemPermissionSlug: 'read',
+          },
+          {
+            systemPermissionName: 'Editar ajustes de teletrabajo',
+            systemPermissionSlug: 'update',
+          },
+        ],
+      },
+      {
         systemModuleName: 'Dispositivos biométricos',
         systemModuleSlug: 'biometric-devices',
         systemModuleDescription: '',

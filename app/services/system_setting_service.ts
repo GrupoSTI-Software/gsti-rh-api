@@ -9,6 +9,7 @@ import { SystemSettingResolutionError } from '../exceptions/system_setting_resol
 import { SYSTEM_SETTING_RESOLUTION_ERROR_CODES } from '../constants/system_setting_resolution_error_codes.js'
 import {
   SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT,
+  SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT,
   tenantDefaultContent,
 } from '../constants/system_setting_defaults.js'
 import type { TenantProvisioningTargetInterface } from '../interfaces/tenant_provisioning_target_interface.js'
@@ -86,6 +87,8 @@ export default class SystemSettingService {
     target.systemSettingPeriodLateArrivalsBeforeAttendanceLock = source.systemSettingPeriodLateArrivalsBeforeAttendanceLock
     target.systemSettingMonthlyConversionFactor =
       source.systemSettingMonthlyConversionFactor ?? SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT
+    target.systemSettingZoneToleranceMeters =
+      source.systemSettingZoneToleranceMeters ?? SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT
   }
 
   async update(currentSystemSetting: SystemSetting, systemSetting: SystemSetting) {
@@ -111,6 +114,10 @@ export default class SystemSettingService {
     currentSystemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock
     currentSystemSetting.systemSettingMonthlyConversionFactor =
       systemSetting.systemSettingMonthlyConversionFactor ?? currentSystemSetting.systemSettingMonthlyConversionFactor
+    // VLRH-H1790812613753: un cliente que no manda el margen (BO viejo, guardado
+    // de otra sección) conserva el vigente en vez de escribir `undefined`.
+    currentSystemSetting.systemSettingZoneToleranceMeters =
+      systemSetting.systemSettingZoneToleranceMeters ?? currentSystemSetting.systemSettingZoneToleranceMeters
     await currentSystemSetting.save()
     return currentSystemSetting
   }
