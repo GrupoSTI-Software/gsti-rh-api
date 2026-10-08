@@ -591,6 +591,200 @@ test.group('Activos — módulo de lectura y reglas de servidor', (group) => {
     assert.isNull(laptop?.teleworkCategory)
   })
 
+  test('categoría de teletrabajo: PUT solo la categoría no renombra ni toca resguardos (CA-1)', async ({
+    client,
+    assert,
+  }) => {
+    const actor = required(owner, 'owner')
+    const beforeResponse = await call(client, actor, 'get', '/api/asset-types')
+    const before = beforeResponse.body().data as AssetTypeDto[]
+    const laptopBefore = before.find((type) => type.supplyTypeId === laptopTypeId)
+    const resguardosBefore = await db
+      .from('employee_supplies')
+      .where('supply_id', assignedAssetId)
+      .count('* as total')
+
+    const put = await call(client, actor, 'put', `/api/supply-types/${laptopTypeId}`, {
+      supplyTypeTeleworkCategory: 'computing_equipment',
+    })
+    put.assertStatus(200)
+
+    const afterResponse = await call(client, actor, 'get', '/api/asset-types')
+    const after = afterResponse.body().data as AssetTypeDto[]
+    const laptopAfter = after.find((type) => type.supplyTypeId === laptopTypeId)
+    assert.equal(laptopAfter?.teleworkCategory, 'computing_equipment')
+    assert.equal(laptopAfter?.name, laptopBefore?.name)
+    assert.equal(laptopAfter?.slug, laptopBefore?.slug)
+    assert.equal(laptopAfter?.suppliesCount, laptopBefore?.suppliesCount)
+    const resguardosAfter = await db
+      .from('employee_supplies')
+      .where('supply_id', assignedAssetId)
+      .count('* as total')
+    assert.deepEqual(resguardosAfter, resguardosBefore)
+
+    const clean = await call(client, actor, 'put', `/api/supply-types/${laptopTypeId}`, {
+      supplyTypeTeleworkCategory: null,
+    })
+    clean.assertStatus(200)
+  })
+
+  test('categoría desde el alta, sin el campo y con null (CA-2, Review Focus 1)', async ({
+    client,
+    assert,
+  }) => {
+    const actor = required(owner, 'owner')
+    const withCategory = await call(client, actor, 'post', '/api/supply-types', {
+      supplyTypeName: uniqueTestName('Silla Ergo'),
+      supplyTypeTeleworkCategory: 'ergonomic_chair',
+    })
+    withCategory.assertStatus(201)
+    const withNull = await call(client, actor, 'post', '/api/supply-types', {
+      supplyTypeName: uniqueTestName('Sin categoría'),
+      supplyTypeTeleworkCategory: null,
+    })
+    withNull.assertStatus(201)
+    const withoutField = await call(client, actor, 'post', '/api/supply-types', {
+      supplyTypeName: uniqueTestName('Sin campo'),
+    })
+    withoutField.assertStatus(201)
+
+    const rowsResponse = await call(client, actor, 'get', '/api/asset-types')
+    const rows = rowsResponse.body().data as AssetTypeDto[]
+    const categoryOf = (id: number) => rows.find((type) => type.supplyTypeId === id)?.teleworkCategory
+    assert.equal(categoryOf(withCategory.body().data.supplyType.supplyTypeId), 'ergonomic_chair')
+    assert.isNull(categoryOf(withNull.body().data.supplyType.supplyTypeId))
+    assert.isNull(categoryOf(withoutField.body().data.supplyType.supplyTypeId))
+  })
+
+  test('quitar la categoría deja resguardos, contratos y activos intactos (CA-3)', async ({
+    client,
+    assert,
+  }) => {
+    const actor = required(owner, 'owner')
+    await call(client, actor, 'put', `/api/supply-types/${laptopTypeId}`, {
+      supplyTypeTeleworkCategory: 'computing_equipment',
+    })
+    const contractsBefore = await db
+      .from('employee_supplies_response_contracts')
+      .where('employee_supply_id', assignedEmployeeSupplyId)
+      .count('* as total')
+
+    const put = await call(client, actor, 'put', `/api/supply-types/${laptopTypeId}`, {
+      supplyTypeTeleworkCategory: null,
+    })
+    put.assertStatus(200)
+
+    const listResponse = await call(client, actor, 'get', '/api/asset-types')
+    const laptop = (listResponse.body().data as AssetTypeDto[]).find(
+      (type) => type.supplyTypeId === laptopTypeId
+    )
+    assert.isNull(laptop?.teleworkCategory)
+    assert.equal(laptop?.suppliesCount, 4)
+    const contractsAfter = await db
+      .from('employee_supplies_response_contracts')
+      .where('employee_supply_id', assignedEmployeeSupplyId)
+      .count('* as total')
+    assert.deepEqual(contractsAfter, contractsBefore)
+  })
+
+  test('categoría ausente no cambia y cuerpo vacío no altera nada (CA-4, Review Focus 2)', async ({
+    client,
+    assert,
+  }) => {
+    const actor = required(owner, 'owner')
+    await call(client, actor, 'put', `/api/supply-types/${laptopTypeId}`, {
+      supplyTypeTeleworkCategory: 'computing_equipment',
+    })
+
+    const other = await call(client, actor, 'put', `/api/supply-types/${laptopTypeId}`, {
+      supplyTypeDescription: 'Equipo portátil',
+    })
+    other.assertStatus(200)
+
+    const empty = await call(client, actor, 'put', `/api/supply-types/${laptopTypeId}`, {})
+    empty.assertStatus(200)
+
+    const listResponse = await call(client, actor, 'get', '/api/asset-types')
+    const laptop = (listResponse.body().data as AssetTypeDto[]).find(
+      (type) => type.supplyTypeId === laptopTypeId
+    )
+    assert.equal(laptop?.teleworkCategory, 'computing_equipment')
+  })
+
+  test('categoría fuera del catálogo responde 422 y no cambia nada (CA-6, Review Focus 3)', async ({
+    client,
+    assert,
+  }) => {
+    const actor = required(owner, 'owner')
+    const typeRowBefore = await db
+      .from('supply_types')
+      .where('supply_type_id', laptopTypeId)
+      .first()
+    const nameBefore = typeRowBefore.supply_type_name
+
+    const invalid = await call(client, actor, 'put', `/api/supply-types/${laptopTypeId}`, {
+      supplyTypeName: uniqueTestName('Portátil'),
+      supplyTypeTeleworkCategory: 'monitor',
+    })
+    invalid.assertStatus(422)
+    assert.equal(invalid.body().key, ASSET_ERROR_KEYS.TELEWORK_CATEGORY_INVALID)
+    assert.isNull(invalid.body().data)
+
+    for (const bad of [['ergonomic_chair', 'accessory'], 5, true]) {
+      const response = await call(client, actor, 'put', `/api/supply-types/${laptopTypeId}`, {
+        supplyTypeTeleworkCategory: bad,
+      })
+      response.assertStatus(422)
+      assert.equal(response.body().key, ASSET_ERROR_KEYS.TELEWORK_CATEGORY_INVALID, JSON.stringify(bad))
+    }
+
+    const post = await call(client, actor, 'post', '/api/supply-types', {
+      supplyTypeName: uniqueTestName('Aditamento'),
+      supplyTypeTeleworkCategory: 'monitor',
+    })
+    post.assertStatus(422)
+    assert.equal(post.body().key, ASSET_ERROR_KEYS.TELEWORK_CATEGORY_INVALID)
+
+    const row = await db.from('supply_types').where('supply_type_id', laptopTypeId).first()
+    assert.equal(row.supply_type_name, nameBefore)
+  })
+
+  test('tipo de otra empresa, inexistente o global responde 404 (CA-7, Review Focus 4)', async ({
+    client,
+    assert,
+  }) => {
+    const actor = required(owner, 'owner')
+    const other = required(otherOwner, 'otra empresa')
+    const foreignTypeId = await createType(client, other, uniqueTestName('Silla'))
+
+    for (const url of [
+      `/api/supply-types/${foreignTypeId}`,
+      '/api/supply-types/999999',
+    ]) {
+      const response = await call(client, actor, 'put', url, {
+        supplyTypeTeleworkCategory: 'ergonomic_chair',
+      })
+      response.assertStatus(404)
+      assert.equal(response.body().key, ASSET_ERROR_KEYS.TYPE_NOT_FOUND, url)
+    }
+
+    const [globalId] = await db.table('supply_types').insert({
+      supply_type_name: uniqueTestName('Global'),
+      supply_type_slug: unique('global'),
+      business_unit_id: null,
+      supply_type_created_at: new Date(),
+      supply_type_updated_at: new Date(),
+    })
+    const global = await call(client, actor, 'put', `/api/supply-types/${globalId}`, {
+      supplyTypeTeleworkCategory: 'ergonomic_chair',
+    })
+    global.assertStatus(404)
+    assert.equal(global.body().key, ASSET_ERROR_KEYS.TYPE_NOT_FOUND)
+
+    const foreignRow = await db.from('supply_types').where('supply_type_id', foreignTypeId).first()
+    assert.isNull(foreignRow.supply_type_telework_category)
+  })
+
   test('borrar un tipo con activos y un activo asignado responde 409', async ({
     client,
     assert,

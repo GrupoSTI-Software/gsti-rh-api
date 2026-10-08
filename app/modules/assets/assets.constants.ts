@@ -67,6 +67,8 @@ export const ASSET_ERROR_KEYS = {
   CHARACTERISTIC_VALUE_INVALID: 'valor-de-caracteristica-invalido',
   PHOTO_LIMIT_EXCEEDED: 'limite-de-fotos-excedido',
   FILE_NOT_FOUND: 'archivo-no-encontrado',
+  TELEWORK_CATEGORY_INVALID: 'categoria-de-insumo-invalida',
+  TYPE_NOT_FOUND: 'tipo-de-activo-no-encontrado',
   INVALID_INPUT: 'entrada-invalida',
   UNEXPECTED: 'error-inesperado',
 } as const
