@@ -254,6 +254,7 @@ export default class TeleworkChecklistRepositoryMysql implements TeleworkCheckli
   }
 
   async updateApplicationStatus(
+    businessUnitId: number,
     applicationId: number,
     status: TeleworkChecklistApplicationStatus,
     extra?: TeleworkChecklistStatusExtra,
@@ -277,6 +278,7 @@ export default class TeleworkChecklistRepositoryMysql implements TeleworkCheckli
 
     await client
       .from(APPLICATIONS_TABLE)
+      .where('business_unit_id', businessUnitId)
       .where('telework_checklist_application_id', applicationId)
       .update(values)
   }

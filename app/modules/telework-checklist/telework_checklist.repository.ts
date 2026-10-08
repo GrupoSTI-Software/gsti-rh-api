@@ -140,6 +140,7 @@ export interface TeleworkChecklistRepository {
 
   /** Cambia el estado de una aplicación (y sus datos de invalidación); siempre toca `updated_at`. */
   updateApplicationStatus(
+    businessUnitId: number,
     applicationId: number,
     status: TeleworkChecklistApplicationStatus,
     extra?: TeleworkChecklistStatusExtra,

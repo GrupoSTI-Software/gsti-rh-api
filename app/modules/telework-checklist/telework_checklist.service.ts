@@ -187,6 +187,7 @@ export default class TeleworkChecklistService {
       const today = this.today()
       if (!this.isCurrentEffective(current, today)) {
         await this.repository.updateApplicationStatus(
+          businessUnitId,
           current.applicationId,
           TELEWORK_CHECKLIST_APPLICATION_STATUS.EXPIRED,
           {},
@@ -197,6 +198,7 @@ export default class TeleworkChecklistService {
 
       const invalidatedAt = DateTime.now().toISO()
       await this.repository.updateApplicationStatus(
+        businessUnitId,
         current.applicationId,
         TELEWORK_CHECKLIST_APPLICATION_STATUS.INVALIDATED,
         { invalidatedAt, invalidationReason: reason, invalidatedByUserId: actorUserId },
@@ -295,7 +297,13 @@ export default class TeleworkChecklistService {
           const status = this.isCurrentEffective(current, today)
             ? TELEWORK_CHECKLIST_APPLICATION_STATUS.REPLACED
             : TELEWORK_CHECKLIST_APPLICATION_STATUS.EXPIRED
-          await this.repository.updateApplicationStatus(current.applicationId, status, {}, trx)
+          await this.repository.updateApplicationStatus(
+            businessUnitId,
+            current.applicationId,
+            status,
+            {},
+            trx
+          )
         }
 
         const id = await this.repository.insertApplication(insertValues, trx)
