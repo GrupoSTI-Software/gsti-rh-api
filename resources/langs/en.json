@@ -207,6 +207,12 @@
   "employee_import_quota_no_plan_message": "No rows from the file were applied because your company does not have an active plan.",
   "employee_import_quota_no_plan_detail": "The file contained {incoming} new hires and none were applied. Email us at hola@valanserh.com to activate your plan and upload the file again.",
   "employee_quota_error_default_title": "Error",
+  "employee_reactivation_code_taken_title": "Employee code already in use",
+  "employee_reactivation_code_taken_message": "Code {employeeCode} already belongs to another active employee of the company.",
+  "employee_reactivation_code_taken_detail": "Change the other employee's code or fix this one before reactivating.",
+  "employee_reactivation_exit_concluded_title": "The exit has already been completed",
+  "employee_reactivation_exit_concluded_message": "This termination cannot be undone because the employee's exit has already been completed. If they return to work, use a rehire instead.",
+  "employee_reactivation_exit_concluded_detail": "The exit case has been closed, or the separation letter or the termination agreement has already been issued.",
   "repse_specialized_services_title": "Repse Specialized Services",
   "repse_specialized_service_title": "Repse Specialized Service",
   "repse_specialized_services_listed_successfully": "REPSE specialized services retrieved successfully",
@@ -1592,6 +1598,19 @@
     "fallback_url": "If the button does not open, copy and paste this URL into your browser:",
     "footer": "© {tradeName} · Automatic message, do not reply to this address."
   },
+  "traumatic_event_new_hr_notification": {
+    "subject": "{companyName}: a new report requires your attention",
+    "preheader": "There is a new report in the system that requires your attention.",
+    "greeting": "Hello:",
+    "intro": "A worker at {companyName} reported a severe traumatic event from the employee app. Sign in to review it and start their care and referral.",
+    "worker_label": "Worker",
+    "event_type_label": "Event type",
+    "occurred_at_label": "Date it occurred",
+    "cta": "View traumatic events",
+    "confidentiality_note": "For confidentiality, this email does not include the description of the event or the people involved. Review them in the system.",
+    "fallback_url": "If the button does not open, copy and paste this URL into your browser:",
+    "footer": "© {tradeName} · Automatic message, do not reply to this address."
+  },
   "regulatory": {
     "authorities": {
       "stps": {
@@ -2954,6 +2973,16 @@
       }
     }
   },
+  "telework_settings": {
+    "title": "Telework settings",
+    "get_success": "Telework settings retrieved successfully.",
+    "upsert_success": "Telework settings saved successfully.",
+    "val_input": "The submitted data is not valid.",
+    "invalid_revalidation": "The revalidation period must be a whole number of months between 1 and 12.",
+    "invalid_notice": "The notice window must be a whole number of days, greater than or equal to 1 and less than the revalidation period in months multiplied by 30.",
+    "invalid_allowance": "Amounts must be greater than or equal to zero, with at most two decimals, and no greater than 99999999.99.",
+    "forbidden_scope": "The business unit for consulting the telework settings could not be resolved."
+  },
   "consent_evidence_title": "Consent evidence",
   "consent_evidence_list_success": "Consent evidence retrieved successfully.",
   "consent_evidence_download_url_success": "Download URL generated successfully.",
@@ -2966,6 +2995,10 @@
   "telework_policy_forbidden_read_message": "You do not have permission to view the Telework Policy.",
   "telework_policy_forbidden_write_title": "No permission",
   "telework_policy_forbidden_write_message": "You do not have permission to manage the Telework Policy.",
+  "telework_settings_forbidden_read_title": "No read permission",
+  "telework_settings_forbidden_read_message": "You do not have permission to view the telework settings.",
+  "telework_settings_forbidden_write_title": "No permission",
+  "telework_settings_forbidden_write_message": "You do not have permission to edit the telework settings.",
   "employee_temporary_assignment_unauthorized_title": "Unauthorized",
   "employee_temporary_assignment_unauthorized_message": "The user must be authenticated.",
   "employee_temporary_assignment_resource_not_found_title": "Resource not found",
@@ -3350,6 +3383,10 @@
   "asset_photo_limit_exceeded_detail": "A custody record allows up to {max} assignment photos.",
   "asset_file_not_found_title": "File not found",
   "asset_file_not_found_detail": "The file does not exist or is not available.",
+  "asset_type_telework_category_invalid_title": "Invalid supply category",
+  "asset_type_telework_category_invalid_detail": "The category must be Ergonomic chair, Computer or printing equipment or Accessory.",
+  "asset_type_not_found_title": "Asset type not found",
+  "asset_type_not_found_detail": "The asset type does not exist or does not belong to the company.",
   "asset_invalid_input_title": "Invalid data",
   "asset_invalid_input_detail": "Check the submitted data.",
   "asset_unexpected_error_title": "Unexpected error",

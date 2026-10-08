@@ -1,0 +1,56 @@
+{{-- Aviso interno: estado de Stripe inesperado (USRH1790708507723) --}}<!DOCTYPE html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ subject }}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f6fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f6fa;">
+    <tr>
+      <td align="center" style="padding: 24px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 640px;">
+          <tr>
+            <td style="background-color: {{ sidebarColor }}; padding: 18px 24px; border-top-left-radius: 12px; border-top-right-radius: 12px; color: #ffffff;">
+              <div style="font-size: 18px; font-weight: 700;">{{ tradeName }}</div>
+              <div style="font-size: 13px; color: #e0f2fe; margin-top: 4px;">Estado de Stripe — aviso interno</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #ffffff; padding: 24px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px;">
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.5;">
+                Revisa la suscripción en la consola de plataforma: el estado en Stripe no cuadra con lo esperado.
+              </p>
+              <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.5; background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 14px;">
+                <strong>Alerta:</strong> {{ alertLabel }}
+              </p>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 13px;">
+                <tr>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; width: 42%;">Suscripción Valanserh</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 600;">#{{ billingSubscriptionId }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6;">Suscripción Stripe</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 600;">{{ subscriptionRef }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6;">Aviso Stripe</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 600;">{{ eventRef }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6;">Estado en Stripe</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 600;">{{ providerStatus }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px;">Estado local</td>
+                  <td style="padding: 8px; font-weight: 600;">{{ localStatus }}</td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

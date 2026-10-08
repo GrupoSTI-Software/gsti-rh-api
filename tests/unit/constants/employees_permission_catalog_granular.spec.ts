@@ -236,6 +236,12 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
         kind: 'write',
         section: 'listado',
       },
+      {
+        slug: 'reactivate-employees',
+        displayName: 'Reactivar colaborador dado de baja',
+        kind: 'write',
+        section: 'listado',
+      },
     ]
 
     for (const row of expected) {
@@ -295,6 +301,19 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
       assert.exists(action, slug)
       assert.isUndefined(action!.legacyEquivalence)
     }
+  })
+
+  test('declara reactivate-employees en listado, sin herencia ni exención (VLRH-H1790812613828)', ({
+    assert,
+  }) => {
+    const action = EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === 'reactivate-employees')
+    assert.exists(action)
+    assert.equal(action!.displayName, 'Reactivar colaborador dado de baja')
+    assert.equal(action!.kind, 'write')
+    assert.equal(action!.section, 'listado')
+    assert.equal(action!.exceptionProfile, 'standard')
+    assert.isUndefined(action!.legacyEquivalence)
+    assert.isUndefined(action!.exemption)
   })
 
   test('declara manage-employee-supplies en expediente, independiente de manage-files', ({

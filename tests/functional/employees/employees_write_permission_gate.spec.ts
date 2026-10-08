@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import type { ApiClient } from '@japa/api-client'
 import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Role from '#models/role'
@@ -160,7 +161,10 @@ async function grantOnly(roleId: number, permissionSlugs: string[]) {
   }
 }
 
-async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<SystemActor> {
+async function createSystemActor(
+  roleSlug: TestRoleSlug,
+  emailPrefix: string
+): Promise<SystemActor> {
   const role = await ensureRole(roleSlug)
   const businessUnit = await BusinessUnit.query()
     .whereNull('business_unit_deleted_at')
@@ -272,7 +276,10 @@ async function createEmployeeFixture(
 
 async function cleanupEmployeeFixture(fixture: EmployeeFixture | null) {
   if (!fixture) return
-  await db.from('employee_salary_history').where('employee_id', fixture.employee.employeeId).delete()
+  await db
+    .from('employee_salary_history')
+    .where('employee_id', fixture.employee.employeeId)
+    .delete()
   await Employee.query().where('employee_id', fixture.employee.employeeId).delete()
   await db.from('positions').where('position_id', fixture.alternativePositionId).delete()
   await db.from('positions').where('position_id', fixture.positionId).delete()
@@ -342,9 +349,18 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
             employees.map((employee) => employee.employee_id)
           )
           .delete()
-        await db.from('employees').where('business_unit_id', actor.businessUnit.businessUnitId).delete()
-        await db.from('positions').where('business_unit_id', actor.businessUnit.businessUnitId).delete()
-        await db.from('departments').where('business_unit_id', actor.businessUnit.businessUnitId).delete()
+        await db
+          .from('employees')
+          .where('business_unit_id', actor.businessUnit.businessUnitId)
+          .delete()
+        await db
+          .from('positions')
+          .where('business_unit_id', actor.businessUnit.businessUnitId)
+          .delete()
+        await db
+          .from('departments')
+          .where('business_unit_id', actor.businessUnit.businessUnitId)
+          .delete()
       }
       await cleanupActor(actor)
     } finally {
@@ -383,7 +399,11 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
   })
 
   test('B: permite editar baja existente sin modificar su registro', async ({ client, assert }) => {
-    const fixture = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'terminated', true)
+    const fixture = await createEmployeeFixture(
+      actor!.businessUnit.businessUnitId,
+      'terminated',
+      true
+    )
     try {
       const before = await terminationSnapshot(fixture.employee.employeeId)
       const response = await client
@@ -401,7 +421,10 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
         )
       response.assertStatus(201)
       const updated = await terminationSnapshot(fixture.employee.employeeId)
-      assert.equal(String(updated.employee_terminated_date), String(before.employee_terminated_date))
+      assert.equal(
+        String(updated.employee_terminated_date),
+        String(before.employee_terminated_date)
+      )
       assert.equal(updated.employee_termination_modality, before.employee_termination_modality)
       assert.equal(updated.employee_termination_type, before.employee_termination_type)
       assert.equal(Number(updated.daily_salary), 654)
@@ -411,13 +434,49 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
   })
 
   for (const [name, terminated, changes] of [
-    ['C1: impide asentar una baja', false, { employeeTerminatedDate: '2024-01-15', employeeTerminationModality: 'Renuncia', employeeTerminationType: 'Jubilación' }],
-    ['C2: impide cambiar la fecha de baja', true, { employeeTerminatedDate: '2024-02-15', employeeTerminationModality: 'Renuncia', employeeTerminationType: 'Jubilación' }],
-    ['C3: impide cambiar modalidad o tipo de baja', true, { employeeTerminatedDate: '2024-01-15', employeeTerminationModality: 'Retiro', employeeTerminationType: 'Jubilación' }],
-    ['C4: impide limpiar una baja', true, { employeeTerminatedDate: null, employeeTerminationModality: null, employeeTerminationType: null }],
+    [
+      'C1: impide asentar una baja',
+      false,
+      {
+        employeeTerminatedDate: '2024-01-15',
+        employeeTerminationModality: 'Renuncia',
+        employeeTerminationType: 'Jubilación',
+      },
+    ],
+    [
+      'C2: impide cambiar la fecha de baja',
+      true,
+      {
+        employeeTerminatedDate: '2024-02-15',
+        employeeTerminationModality: 'Renuncia',
+        employeeTerminationType: 'Jubilación',
+      },
+    ],
+    [
+      'C3: impide cambiar modalidad o tipo de baja',
+      true,
+      {
+        employeeTerminatedDate: '2024-01-15',
+        employeeTerminationModality: 'Retiro',
+        employeeTerminationType: 'Jubilación',
+      },
+    ],
+    [
+      'C4: impide limpiar una baja',
+      true,
+      {
+        employeeTerminatedDate: null,
+        employeeTerminationModality: null,
+        employeeTerminationType: null,
+      },
+    ],
   ] as const) {
     test(name, async ({ client, assert }) => {
-      const fixture = await createEmployeeFixture(actor!.businessUnit.businessUnitId, name.slice(0, 2), terminated)
+      const fixture = await createEmployeeFixture(
+        actor!.businessUnit.businessUnitId,
+        name.slice(0, 2),
+        terminated
+      )
       try {
         const before = await terminationSnapshot(fixture.employee.employeeId)
         const response = await client
@@ -501,7 +560,10 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
     }
   })
 
-  test('I: niega create, tab-foto-write y manage-biotime sin sus grants', async ({ client, assert }) => {
+  test('I: niega create, tab-foto-write y manage-biotime sin sus grants', async ({
+    client,
+    assert,
+  }) => {
     const fixture = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'other-actions')
     try {
       const responses = [
@@ -544,11 +606,156 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
           .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId),
       ]
       for (const [index, response] of responses.entries()) {
-        assert.equal(response.status(), 403, `DELETE mapeado ${index} debe exigir tab-trabajo-delete`)
+        assert.equal(
+          response.status(),
+          403,
+          `DELETE mapeado ${index} debe exigir tab-trabajo-delete`
+        )
         assert.equal(response.body()?.key, 'PERM.DENIED')
       }
     } finally {
       await cleanupEmployeeFixture(fixture)
+    }
+  })
+
+  /** Colaborador dado de baja: registro de baja de la fixture más el borrado lógico. */
+  async function createTerminatedEmployee(prefix: string): Promise<EmployeeFixture> {
+    const fixture = await createEmployeeFixture(actor!.businessUnit.businessUnitId, prefix, true)
+    await db
+      .from('employees')
+      .where('employee_id', fixture.employee.employeeId)
+      .update({ employee_deleted_at: new Date() })
+    return fixture
+  }
+
+  async function deletedAtOf(employeeId: number): Promise<unknown> {
+    const row = await db
+      .from('employees')
+      .where('employee_id', employeeId)
+      .select('employee_deleted_at')
+      .first()
+    return row?.employee_deleted_at ?? null
+  }
+
+  const reactivate = (client: ApiClient, employeeId: number) =>
+    client
+      .put(`/api/employees/${employeeId}/reactivate`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+
+  test('VLRH-H1790812613828 CA-1 y CA-2: editar la ficha o dar de baja no bastan para reactivar', async ({
+    client,
+    assert,
+  }) => {
+    const fixture = await createTerminatedEmployee('reactivar-sin-permiso')
+    try {
+      const before = await deletedAtOf(fixture.employee.employeeId)
+      assert.isNotNull(before)
+      for (const grants of [['tab-trabajo-write'], ['delete']]) {
+        await grantOnly(actor!.role.roleId, grants)
+        const response = await reactivate(client, fixture.employee.employeeId)
+        response.assertStatus(403)
+        assert.deepEqual(response.body(), {
+          title: 'Sin permiso',
+          detail: 'No tienes permiso para realizar esta operación.',
+          key: 'PERM.DENIED',
+        })
+        assert.equal(String(await deletedAtOf(fixture.employee.employeeId)), String(before))
+      }
+    } finally {
+      await grantOnly(actor!.role.roleId, ['tab-trabajo-write'])
+      await cleanupEmployeeFixture(fixture)
+    }
+  })
+
+  test('VLRH-H1790812613828 CA-3: con el permiso propio pasa el gate', async ({
+    client,
+    assert,
+  }) => {
+    const fixture = await createTerminatedEmployee('reactivar-con-permiso')
+    try {
+      await grantOnly(actor!.role.roleId, ['reactivate-employees'])
+      const response = await reactivate(client, fixture.employee.employeeId)
+      assert.notEqual(response.status(), 403)
+      assert.notEqual(response.body()?.key, 'PERM.DENIED')
+    } finally {
+      await grantOnly(actor!.role.roleId, ['tab-trabajo-write'])
+      await cleanupEmployeeFixture(fixture)
+    }
+  })
+
+  test('VLRH-H1790812613828 CA-4: owner y root evaden el gate de reactivar; super-administrador no', async ({
+    client,
+    assert,
+  }) => {
+    const owner = await createSystemActor('owner', 'reactivate-owner')
+    const root = await createSystemActor('root', 'reactivate-root')
+    const superAdmin = await createSystemActor('super-administrador', 'reactivate-super-admin')
+    try {
+      for (const systemActor of [owner, root]) {
+        const response = await client
+          .put('/api/employees/999999999/reactivate')
+          .loginAs(systemActor.user)
+          .header('X-Business-Unit-Id', systemActor.businessUnit.businessUnitPublicId)
+        assert.notEqual(response.status(), 403)
+        assert.notEqual(response.body()?.key, 'PERM.DENIED')
+      }
+      const denied = await client
+        .put('/api/employees/999999999/reactivate')
+        .loginAs(superAdmin.user)
+        .header('X-Business-Unit-Id', superAdmin.businessUnit.businessUnitPublicId)
+      denied.assertStatus(403)
+      assert.equal(denied.body()?.key, 'PERM.DENIED')
+    } finally {
+      await cleanupSystemActor(owner)
+      await cleanupSystemActor(root)
+      await cleanupSystemActor(superAdmin)
+    }
+  })
+
+  test('VLRH-H1790812613828 CA-5: el árbol de sesión reconoce reactivate-employees en listado', async ({
+    client,
+    assert,
+  }) => {
+    interface ActionNode {
+      slug: string
+      displayName: string
+      allowed: boolean
+      reason: string
+      grantable: boolean
+    }
+    interface TreeBody {
+      data: {
+        modules: Array<{ slug: string; sections: Array<{ slug: string; actions: ActionNode[] }> }>
+      }
+    }
+    const findAction = async (): Promise<ActionNode> => {
+      const response = await client
+        .get('/api/auth/session/permissions')
+        .loginAs(actor!.user)
+        .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+      response.assertStatus(200)
+      const employees = (response.body() as TreeBody).data.modules.find(
+        (moduleNode) => moduleNode.slug === 'employees'
+      )
+      const listado = employees?.sections.find((section) => section.slug === 'listado')
+      const action = listado?.actions.find((candidate) => candidate.slug === 'reactivate-employees')
+      if (!action) throw new Error('El árbol debe incluir employees:listado:reactivate-employees')
+      return action
+    }
+    try {
+      await grantOnly(actor!.role.roleId, ['reactivate-employees'])
+      const granted = await findAction()
+      assert.equal(granted.displayName, 'Reactivar colaborador dado de baja')
+      assert.isTrue(granted.allowed)
+      assert.equal(granted.reason, 'assignment')
+      assert.isTrue(granted.grantable)
+
+      await grantOnly(actor!.role.roleId, ['tab-trabajo-write'])
+      const missing = await findAction()
+      assert.isFalse(missing.allowed)
+    } finally {
+      await grantOnly(actor!.role.roleId, ['tab-trabajo-write'])
     }
   })
 })

@@ -38,6 +38,19 @@ import EmployeeOffboardingItem from './employee_offboarding_item.js'
  *         employeeOffboardingNotes:
  *           type: string
  *           nullable: true
+ *         employeeOffboardingTerminationDate:
+ *           type: string
+ *           format: date
+ *           nullable: true
+ *           description: Copia de la fecha de baja al reactivar (VLRH-H1790812613829); null si nunca se reactivó
+ *         employeeOffboardingTerminationModality:
+ *           type: string
+ *           nullable: true
+ *           description: Copia de la modalidad de baja al reactivar
+ *         employeeOffboardingTerminationType:
+ *           type: string
+ *           nullable: true
+ *           description: Copia del tipo de baja al reactivar
  */
 export default class EmployeeOffboarding extends compose(BaseModel, SoftDeletes) {
   /**
@@ -70,6 +83,23 @@ export default class EmployeeOffboarding extends compose(BaseModel, SoftDeletes)
 
   @column()
   declare employeeOffboardingNotes: string | null
+
+  /**
+   * Copia de los datos de la baja, escrita UNA vez al reactivar
+   * (VLRH-H1790812613829, regla 5): reactivar limpia fecha, modalidad y tipo
+   * del colaborador y el expediente dejaría de poder explicar su salida.
+   * Nulas en expedientes previos y en los que nunca pasaron por una
+   * reactivación. La fecha se escribe `yyyy-MM-dd`; el driver puede devolver
+   * `Date` al leer: los lectores normalizan con `toCalendarIsoDate`.
+   */
+  @column()
+  declare employeeOffboardingTerminationDate: string | null
+
+  @column()
+  declare employeeOffboardingTerminationModality: string | null
+
+  @column()
+  declare employeeOffboardingTerminationType: string | null
 
   @column()
   declare employeeOffboardingOpenedByUserId: number | null

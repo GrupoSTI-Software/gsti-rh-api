@@ -52,6 +52,19 @@ test.group('ROLE_PRESETS — integridad (USRH1785766406742)', () => {
     }
   })
 
+  test('solo Administrador de RH incluye reactivar, y subió a 1.2.0 (VLRH-H1790812613828)', ({
+    assert,
+  }) => {
+    const hrAdmin = getRolePreset('hr-admin')
+    assert.include(hrAdmin.permissionSlugs, 'reactivate-employees')
+    assert.include(hrAdmin.permissionSlugs, 'delete')
+    assert.equal(hrAdmin.version, '1.2.0')
+    for (const slug of ['branch-supervisor', 'read-only', 'data-entry'] as const) {
+      assert.notInclude(getRolePreset(slug).permissionSlugs, 'reactivate-employees', slug)
+      assert.notInclude(getRolePreset(slug).permissionSlugs, 'delete', slug)
+    }
+  })
+
   test('cada plantilla tiene version semver no vacía y moduleSlug employees', ({ assert }) => {
     for (const preset of ROLE_PRESETS) {
       assert.match(preset.version, /^\d+\.\d+\.\d+$/)

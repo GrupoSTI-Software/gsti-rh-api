@@ -1,6 +1,7 @@
 import SupplyType from '#models/supply_type'
 import { slugifyFileNamePart } from '#helpers/download_file_name'
 import { assertSupplyTypeWithoutAssets } from '#modules/assets/assets.rules'
+import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
 import { SupplyTypeFilterSearchInterface } from '../interfaces/supply_type_filter_search_interface.js'
 
 export default class SupplyTypeService {
@@ -48,6 +49,7 @@ export default class SupplyTypeService {
     supplyTypeDescription?: string
     supplyTypeIdentifier?: string
     supplyTypeSlug?: string
+    supplyTypeTeleworkCategory?: SupplyTypeTeleworkCategory | null
   }) {
     if (!data.supplyTypeSlug) {
       return await SupplyType.create({
@@ -94,6 +96,7 @@ export default class SupplyTypeService {
     supplyTypeDescription?: string
     supplyTypeIdentifier?: string
     supplyTypeSlug?: string
+    supplyTypeTeleworkCategory?: SupplyTypeTeleworkCategory | null
   }) {
     const supplyType = await SupplyType.findOrFail(id)
 

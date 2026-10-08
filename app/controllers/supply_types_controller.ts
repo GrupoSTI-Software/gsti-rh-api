@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { errors as vineErrors } from '@vinejs/vine'
 import SupplyTypeService from '#services/supply_type_service'
 import {
   createSupplyTypeValidator,
@@ -142,6 +143,11 @@ export default class SupplyTypesController {
    *                 type: string
    *                 maxLength: 255
    *                 description: Opcional; si no llega se deriva del nombre y es único en la empresa (`laptop`, `laptop-2`)
+   *               supplyTypeTeleworkCategory:
+   *                 type: string
+   *                 nullable: true
+   *                 enum: [ergonomic_chair, computing_equipment, accessory]
+   *                 description: Categoría de insumo de teletrabajo (NOM-037-STPS-2023)
    *     responses:
    *       201:
    *         description: Supply type created successfully
@@ -152,16 +158,25 @@ export default class SupplyTypesController {
    *               properties:
    *                 data:
    *                   $ref: '#/components/schemas/SupplyType'
+   *       422:
+   *         description: "Categoría fuera del catálogo (`key: categoria-de-insumo-invalida`)"
    *       400:
    *         description: Validation error or slug already exists
    */
-  async store({ request, response }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const data = await request.validateUsing(createSupplyTypeValidator)
       const supplyType = await SupplyTypeService.create(data)
 
       return StandardResponseFormatter.success(response, supplyType, 'Supply Type', 'Supply type created successfully', 201)
     } catch (error) {
+      if (error instanceof vineErrors.E_VALIDATION_ERROR) {
+        const messages = error.messages as Array<{ field?: string }>
+        if (messages.some((message) => message.field === 'supplyTypeTeleworkCategory')) {
+          return respondAssetError(ctx, AssetError.teleworkCategoryInvalid())
+        }
+      }
       return StandardResponseFormatter.error(response, error.message, 400)
     }
   }
@@ -198,6 +213,11 @@ export default class SupplyTypesController {
    *               supplyTypeSlug:
    *                 type: string
    *                 maxLength: 255
+   *               supplyTypeTeleworkCategory:
+   *                 type: string
+   *                 nullable: true
+   *                 enum: [ergonomic_chair, computing_equipment, accessory]
+   *                 description: Categoría de insumo de teletrabajo (NOM-037-STPS-2023)
    *     responses:
    *       200:
    *         description: Supply type updated successfully
@@ -208,18 +228,30 @@ export default class SupplyTypesController {
    *               properties:
    *                 data:
    *                   $ref: '#/components/schemas/SupplyType'
+   *       422:
+   *         description: "Categoría fuera del catálogo (`key: categoria-de-insumo-invalida`)"
    *       400:
    *         description: Validation error or slug already exists
    *       404:
-   *         description: Supply type not found
+   *         description: "Tipo inexistente, de otra empresa o global (`key: tipo-de-activo-no-encontrado`)"
    */
-  async update({ params, request, response }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { params, request, response } = ctx
     try {
       const data = await request.validateUsing(updateSupplyTypeValidator)
       const supplyType = await SupplyTypeService.update(params.id, data)
 
       return StandardResponseFormatter.success(response, supplyType, 'Supply Type', 'Supply type updated successfully')
     } catch (error) {
+      if (error instanceof vineErrors.E_VALIDATION_ERROR) {
+        const messages = error.messages as Array<{ field?: string }>
+        if (messages.some((message) => message.field === 'supplyTypeTeleworkCategory')) {
+          return respondAssetError(ctx, AssetError.teleworkCategoryInvalid())
+        }
+      }
+      if ((error as { code?: string })?.code === 'E_ROW_NOT_FOUND') {
+        return respondAssetError(ctx, AssetError.assetTypeNotFound())
+      }
       return StandardResponseFormatter.error(response, error.message, 400)
     }
   }

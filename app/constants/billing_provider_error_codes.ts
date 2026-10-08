@@ -33,6 +33,10 @@ export const BILLING_PROVIDER_ERROR_CODES = {
   INVOICE_SUBSCRIPTION_NOT_FOUND: 'PLT.PRV.INVOICE_SUBSCRIPTION_NOT_FOUND',
   /** Cobro Stripe confirmado pero el asiento en Valanserh falló (USRH1790708507693) */
   PAYMENT_SETTLEMENT_FAILED: 'PLT.PRV.PAYMENT_SETTLEMENT_FAILED',
+  /** Stripe no respondió al leer estado o fallo de cobro (USRH1790724549026) */
+  PROVIDER_STATE_UNAVAILABLE: 'PLT.PRV.PROVIDER_STATE_UNAVAILABLE',
+  /** Estado releído en Stripe no corresponde a la suscripción local (USRH1790708507723) */
+  PROVIDER_STATE_MISMATCH: 'PLT.PRV.PROVIDER_STATE_MISMATCH',
 } as const
 
 export type BillingProviderErrorCode =
@@ -93,3 +97,11 @@ export const BILLING_PROVIDER_INVOICE_SUBSCRIPTION_NOT_FOUND_DETAIL =
 /** Texto fijo cuando no se pudo registrar un cobro ya hecho en Stripe (USRH1790708507693). */
 export const BILLING_PROVIDER_PAYMENT_SETTLEMENT_FAILED_DETAIL =
   'El pago cobrado por el proveedor no se pudo registrar en Valanserh.'
+
+/** Texto fijo cuando no se pudo consultar el estado en Stripe (USRH1790724549026). */
+export const BILLING_PROVIDER_PROVIDER_STATE_UNAVAILABLE_DETAIL =
+  'No fue posible consultar el estado actual en el proveedor de cobro.'
+
+/** Texto fijo cuando el estado releído no liga con la suscripción (USRH1790708507723). */
+export const BILLING_PROVIDER_PROVIDER_STATE_MISMATCH_DETAIL =
+  'El estado leído en el proveedor de cobro no corresponde a la suscripción.'

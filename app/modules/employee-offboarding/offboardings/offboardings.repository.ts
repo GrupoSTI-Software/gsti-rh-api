@@ -3,6 +3,7 @@ import type Employee from '#models/employee'
 import type EmployeeOffboarding from '#models/employee_offboarding'
 import type EmployeeSupplie from '#models/employee_supplie'
 import type User from '#models/user'
+import type { EmployeeOffboardingDocumentType } from '../documents/documents.constants.js'
 
 /** Datos para insertar el expediente (el servicio ya resolvió snapshot y origen). */
 export interface EmployeeOffboardingCreateData {
@@ -49,6 +50,17 @@ export interface OffboardingsRepository {
   findOpenByEmployee(
     employeeId: number,
     trx?: TransactionClientContract
+  ): Promise<EmployeeOffboarding | null>
+
+  /**
+   * Igual que `findOpenByEmployee`, con `forUpdate` dentro de la transacción de
+   * la reactivación (VLRH-H1790812613829). Por `employee_id` y sin filtro de
+   * empresa a propósito: el servicio afirma que el expediente es de la misma
+   * empresa que el colaborador y revierte si no.
+   */
+  lockOpenByEmployee(
+    employeeId: number,
+    trx: TransactionClientContract
   ): Promise<EmployeeOffboarding | null>
 
   /** Inserta el expediente y devuelve su id (dentro de la transacción). */
@@ -118,8 +130,36 @@ export interface OffboardingsRepository {
    */
   findMostRecentByEmployee(employeeId: number): Promise<EmployeeOffboarding | null>
 
-  /** Persiste el expediente ya mutado por el servicio (cierre/reapertura). */
-  saveCase(offboarding: EmployeeOffboarding): Promise<void>
+  /**
+   * Expediente vivo más reciente del colaborador DENTRO de su empresa, sin
+   * filtrar por estado, con `forShare()` dentro de la transacción de la
+   * reactivación (R2 de VLRH-C0040, VLRH-H1791055794596): decide si la salida
+   * ya se dio por terminada cuando no hay expediente abierto. La empresa va
+   * explícita porque el modelo no compone el mixin (R4).
+   */
+  findMostRecentCaseForReactivation(
+    employeeId: number,
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboarding | null>
+
+  /**
+   * Tipos distintos de documento VIVO emitidos en el expediente, vigentes o
+   * reemplazados (regla 1 de VLRH-H1791055794596: una versión reemplazada
+   * pudo entregarse o firmarse). El expediente ya quedó acotado por empresa
+   * al resolverse; `forShare()` lo serializa con la emisión, que toma
+   * `forUpdate` del expediente.
+   */
+  findIssuedExitDocumentTypes(
+    employeeOffboardingId: number,
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboardingDocumentType[]>
+
+  /**
+   * Persiste el expediente ya mutado por el servicio (cierre/reapertura). Con
+   * `trx`, participa en la transacción de la reactivación (VLRH-H1790812613829).
+   */
+  saveCase(offboarding: EmployeeOffboarding, trx?: TransactionClientContract): Promise<void>
 
   /**
    * Colaborador del expediente con `withTrashed()` y sin alcance: para armar
