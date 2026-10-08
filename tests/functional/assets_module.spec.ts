@@ -577,6 +577,20 @@ test.group('Activos — módulo de lectura y reglas de servidor', (group) => {
     )
   })
 
+  test('asset-types: expone teleworkCategory nula en un tipo sin categoría (CA-5)', async ({
+    client,
+    assert,
+  }) => {
+    const actor = required(owner, 'owner')
+    const response = await call(client, actor, 'get', '/api/asset-types')
+    response.assertStatus(200)
+    const laptop = (response.body().data as AssetTypeDto[]).find(
+      (type) => type.supplyTypeId === laptopTypeId
+    )
+    assert.property(laptop, 'teleworkCategory')
+    assert.isNull(laptop?.teleworkCategory)
+  })
+
   test('borrar un tipo con activos y un activo asignado responde 409', async ({
     client,
     assert,
