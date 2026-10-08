@@ -12,7 +12,10 @@ import {
   EMPLOYEE_OFFBOARDING_STATUS,
   EMPLOYEE_OFFBOARDING_ITEM_STATUS,
 } from './offboardings.constants.js'
-import { EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE } from '../documents/documents.constants.js'
+import {
+  EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE,
+  type EmployeeOffboardingDocumentType,
+} from '../documents/documents.constants.js'
 import type {
   EmployeeOffboardingCreateData,
   EmployeeOffboardingItemCreateData,
@@ -94,6 +97,18 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
       .first()
   }
 
+  async lockOpenByEmployee(
+    employeeId: number,
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboarding | null> {
+    return await EmployeeOffboarding.query({ client: trx })
+      .where('employee_id', employeeId)
+      .where('employee_offboarding_status', EMPLOYEE_OFFBOARDING_STATUS.OPEN)
+      .whereNull('employee_offboarding_deleted_at')
+      .forUpdate()
+      .first()
+  }
+
   async createCase(
     data: EmployeeOffboardingCreateData,
     trx: TransactionClientContract
@@ -133,10 +148,7 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
     )
   }
 
-  async findSuppliesByIds(
-    supplyIds: number[],
-    businessUnitId: number
-  ): Promise<EmployeeSupplie[]> {
+  async findSuppliesByIds(supplyIds: number[], businessUnitId: number): Promise<EmployeeSupplie[]> {
     if (supplyIds.length === 0) return []
     // `runUnscoped`: el criterio de esta lectura es el BU SNAPSHOTEADO del
     // expediente (filtro explícito de abajo), no el alcance del request.
@@ -169,9 +181,7 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
       .whereNull('employee_offboarding_item_evidence_deleted_at')
       .groupBy('employee_offboarding_item_id')
       .count('* as total')
-    return new Map(
-      rows.map((row) => [row.employeeOffboardingItemId, Number(row.$extras.total)])
-    )
+    return new Map(rows.map((row) => [row.employeeOffboardingItemId, Number(row.$extras.total)]))
   }
 
   async findByIdWithItems(
@@ -218,97 +228,99 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
     businessUnitIds: number[],
     todayIso: string
   ) {
-    return db
-      .from('employee_offboardings as eo')
-      .leftJoin('employees as e', 'e.employee_id', 'eo.employee_id')
-      .leftJoin('departments as d', 'd.department_id', 'e.department_id')
-      .leftJoin('positions as p', 'p.position_id', 'e.position_id')
-      .leftJoin('employee_offboarding_items as eoi', (join) => {
-        join
-          .on('eoi.employee_offboarding_id', 'eo.employee_offboarding_id')
-          .andOnNull('eoi.employee_offboarding_item_deleted_at')
-      })
-      .whereNull('eo.employee_offboarding_deleted_at')
-      .if(businessUnitIds.length > 0, (query) => {
-        query.whereIn('eo.business_unit_id', businessUnitIds)
-      })
-      .if(businessUnitIds.length === 0, (query) => {
-        // Defensa en profundidad: por API el middleware businessScope nunca
-        // deja llegar un alcance vacío (se verifica por lectura de código).
-        query.whereRaw('1 = 0')
-      })
-      .if(!!filters.status, (query) => {
-        query.where('eo.employee_offboarding_status', filters.status!)
-      })
-      .if(!!filters.search, (query) => {
-        const searchUpper = filters.search!.toUpperCase()
-        query.where((subQuery) => {
-          subQuery
-            .whereRaw(`UPPER(${FULL_NAME_EXPRESSION}) LIKE ?`, [`%${searchUpper}%`])
-            .orWhereRaw('UPPER(e.employee_payroll_code) = ?', [searchUpper])
+    return (
+      db
+        .from('employee_offboardings as eo')
+        .leftJoin('employees as e', 'e.employee_id', 'eo.employee_id')
+        .leftJoin('departments as d', 'd.department_id', 'e.department_id')
+        .leftJoin('positions as p', 'p.position_id', 'e.position_id')
+        .leftJoin('employee_offboarding_items as eoi', (join) => {
+          join
+            .on('eoi.employee_offboarding_id', 'eo.employee_offboarding_id')
+            .andOnNull('eoi.employee_offboarding_item_deleted_at')
         })
-      })
-      .if(!!filters.withoutSeparationLetter, (query) => {
-        // Regla 3: sin baja ejecutada no hay faltante; regla 1: la misma
-        // subconsulta del select, negada — el filtro y la marca no divergen
-        query
-          .whereNotNull('e.employee_deleted_at')
-          .whereRaw(`NOT EXISTS (${SEPARATION_LETTER_EXISTS_SUBQUERY})`, [
+        .whereNull('eo.employee_offboarding_deleted_at')
+        .if(businessUnitIds.length > 0, (query) => {
+          query.whereIn('eo.business_unit_id', businessUnitIds)
+        })
+        .if(businessUnitIds.length === 0, (query) => {
+          // Defensa en profundidad: por API el middleware businessScope nunca
+          // deja llegar un alcance vacío (se verifica por lectura de código).
+          query.whereRaw('1 = 0')
+        })
+        .if(!!filters.status, (query) => {
+          query.where('eo.employee_offboarding_status', filters.status!)
+        })
+        .if(!!filters.search, (query) => {
+          const searchUpper = filters.search!.toUpperCase()
+          query.where((subQuery) => {
+            subQuery
+              .whereRaw(`UPPER(${FULL_NAME_EXPRESSION}) LIKE ?`, [`%${searchUpper}%`])
+              .orWhereRaw('UPPER(e.employee_payroll_code) = ?', [searchUpper])
+          })
+        })
+        .if(!!filters.withoutSeparationLetter, (query) => {
+          // Regla 3: sin baja ejecutada no hay faltante; regla 1: la misma
+          // subconsulta del select, negada — el filtro y la marca no divergen
+          query
+            .whereNotNull('e.employee_deleted_at')
+            .whereRaw(`NOT EXISTS (${SEPARATION_LETTER_EXISTS_SUBQUERY})`, [
+              EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER,
+            ])
+        })
+        .select(
+          'eo.employee_offboarding_id as employeeOffboardingId',
+          'eo.employee_id as employeeId',
+          'eo.employee_offboarding_status as status',
+          'eo.employee_offboarding_origin as origin',
+          'eo.employee_offboarding_planned_date as plannedDate',
+          'eo.employee_offboarding_closed_at as closedAt',
+          'eo.employee_offboarding_closed_by_user_id as closedByUserId',
+          'e.employee_code as employeeCode',
+          'e.employee_payroll_code as employeePayrollCode',
+          'e.employee_terminated_date as terminatedDate',
+          'e.employee_deleted_at as employeeDeletedAt',
+          'd.department_name as departmentName',
+          'p.position_name as positionName',
+          db.raw(`${FULL_NAME_EXPRESSION} as employeeFullName`),
+          db.raw('COUNT(eoi.employee_offboarding_item_id) as itemsTotal'),
+          db.raw(
+            "COALESCE(SUM(CASE WHEN eoi.employee_offboarding_item_status = 'completed' THEN 1 ELSE 0 END), 0) as itemsCompleted"
+          ),
+          db.raw(
+            "COALESCE(SUM(CASE WHEN eoi.employee_offboarding_item_status = 'pending' THEN 1 ELSE 0 END), 0) as itemsOpen"
+          ),
+          db.raw(`${OVERDUE_EXPRESSION} as itemsOverdue`, [todayIso]),
+          // Marca derivada, nunca persistida (USRH1788579938608): depende solo de
+          // `eo.employee_offboarding_id`, columna del GROUP BY (ONLY_FULL_GROUP_BY)
+          db.raw(`EXISTS (${SEPARATION_LETTER_EXISTS_SUBQUERY}) as hasSeparationLetter`, [
             EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER,
           ])
-      })
-      .select(
-        'eo.employee_offboarding_id as employeeOffboardingId',
-        'eo.employee_id as employeeId',
-        'eo.employee_offboarding_status as status',
-        'eo.employee_offboarding_origin as origin',
-        'eo.employee_offboarding_planned_date as plannedDate',
-        'eo.employee_offboarding_closed_at as closedAt',
-        'eo.employee_offboarding_closed_by_user_id as closedByUserId',
-        'e.employee_code as employeeCode',
-        'e.employee_payroll_code as employeePayrollCode',
-        'e.employee_terminated_date as terminatedDate',
-        'e.employee_deleted_at as employeeDeletedAt',
-        'd.department_name as departmentName',
-        'p.position_name as positionName',
-        db.raw(`${FULL_NAME_EXPRESSION} as employeeFullName`),
-        db.raw('COUNT(eoi.employee_offboarding_item_id) as itemsTotal'),
-        db.raw(
-          "COALESCE(SUM(CASE WHEN eoi.employee_offboarding_item_status = 'completed' THEN 1 ELSE 0 END), 0) as itemsCompleted"
-        ),
-        db.raw(
-          "COALESCE(SUM(CASE WHEN eoi.employee_offboarding_item_status = 'pending' THEN 1 ELSE 0 END), 0) as itemsOpen"
-        ),
-        db.raw(`${OVERDUE_EXPRESSION} as itemsOverdue`, [todayIso]),
-        // Marca derivada, nunca persistida (USRH1788579938608): depende solo de
-        // `eo.employee_offboarding_id`, columna del GROUP BY (ONLY_FULL_GROUP_BY)
-        db.raw(`EXISTS (${SEPARATION_LETTER_EXISTS_SUBQUERY}) as hasSeparationLetter`, [
-          EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER,
-        ])
-      )
-      // ONLY_FULL_GROUP_BY: todas las columnas no agregadas, una por una
-      .groupBy(
-        'eo.employee_offboarding_id',
-        'eo.employee_id',
-        'eo.employee_offboarding_status',
-        'eo.employee_offboarding_origin',
-        'eo.employee_offboarding_planned_date',
-        'eo.employee_offboarding_closed_at',
-        'eo.employee_offboarding_closed_by_user_id',
-        'e.employee_code',
-        'e.employee_payroll_code',
-        'e.employee_terminated_date',
-        'e.employee_deleted_at',
-        'e.employee_first_name',
-        'e.employee_last_name',
-        'e.employee_second_last_name',
-        'd.department_name',
-        'p.position_name'
-      )
-      .if(!!filters.overdueOnly, (query) => {
-        // HAVING repite la expresión completa con su binding, nunca el alias
-        query.havingRaw(`${OVERDUE_EXPRESSION} > 0`, [todayIso])
-      })
+        )
+        // ONLY_FULL_GROUP_BY: todas las columnas no agregadas, una por una
+        .groupBy(
+          'eo.employee_offboarding_id',
+          'eo.employee_id',
+          'eo.employee_offboarding_status',
+          'eo.employee_offboarding_origin',
+          'eo.employee_offboarding_planned_date',
+          'eo.employee_offboarding_closed_at',
+          'eo.employee_offboarding_closed_by_user_id',
+          'e.employee_code',
+          'e.employee_payroll_code',
+          'e.employee_terminated_date',
+          'e.employee_deleted_at',
+          'e.employee_first_name',
+          'e.employee_last_name',
+          'e.employee_second_last_name',
+          'd.department_name',
+          'p.position_name'
+        )
+        .if(!!filters.overdueOnly, (query) => {
+          // HAVING repite la expresión completa con su binding, nunca el alias
+          query.havingRaw(`${OVERDUE_EXPRESSION} > 0`, [todayIso])
+        })
+    )
   }
 
   async listAggregated(
@@ -329,9 +341,7 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
     const rows = (await aggregateQuery
       .clone()
       // Orden por fecha de referencia (R2) con desempate estable por id
-      .orderByRaw(
-        'COALESCE(e.employee_terminated_date, eo.employee_offboarding_planned_date) DESC'
-      )
+      .orderByRaw('COALESCE(e.employee_terminated_date, eo.employee_offboarding_planned_date) DESC')
       .orderBy('eo.employee_offboarding_id', 'desc')
       .limit(safeLimit)
       .offset((safePage - 1) * safeLimit)) as Record<string, unknown>[]
@@ -360,7 +370,40 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
       .first()
   }
 
-  async saveCase(offboarding: EmployeeOffboarding): Promise<void> {
+  async findMostRecentCaseForReactivation(
+    employeeId: number,
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboarding | null> {
+    return await EmployeeOffboarding.query({ client: trx })
+      .where('employee_id', employeeId)
+      .where('business_unit_id', businessUnitId)
+      .whereNull('employee_offboarding_deleted_at')
+      .orderBy('employee_offboarding_id', 'desc')
+      .forShare()
+      .first()
+  }
+
+  async findIssuedExitDocumentTypes(
+    employeeOffboardingId: number,
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboardingDocumentType[]> {
+    // Sin filtro `is_current` a propósito: una constancia o convenio reemplazado
+    // sigue contando como emitido (distinto de `SEPARATION_LETTER_EXISTS_SUBQUERY`).
+    const rows = await trx
+      .from('employee_offboarding_documents')
+      .distinct('employee_offboarding_document_type')
+      .where('employee_offboarding_id', employeeOffboardingId)
+      .whereNull('employee_offboarding_document_deleted_at')
+      .forShare()
+    return rows.map(
+      (row: { employee_offboarding_document_type: EmployeeOffboardingDocumentType }) =>
+        row.employee_offboarding_document_type
+    )
+  }
+
+  async saveCase(offboarding: EmployeeOffboarding, trx?: TransactionClientContract): Promise<void> {
+    if (trx) offboarding.useTransaction(trx)
     await offboarding.save()
   }
 

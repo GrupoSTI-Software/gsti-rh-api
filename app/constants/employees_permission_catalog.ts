@@ -540,6 +540,17 @@ const CATALOG_ENTRIES = [
     section: 'listado',
     exceptionProfile: 'standard',
   },
+  // Reactivar es independiente de editar la ficha y de dar de baja
+  // (VLRH-H1790812613828). Sin legacyEquivalence: el árbol de sesión la
+  // resolvería y el gate no, y el BO mostraría el botón a quien el API da 403.
+  // Quien daba de baja la recibe por la siembra de 0063, no por herencia.
+  {
+    slug: 'reactivate-employees',
+    displayName: 'Reactivar colaborador dado de baja',
+    kind: 'write',
+    section: 'listado',
+    exceptionProfile: 'standard',
+  },
 
   // --- D) Descargas (nuevas) ---
   {

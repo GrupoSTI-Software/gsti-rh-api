@@ -76,6 +76,7 @@ const HR_ADMIN_SLUGS = uniqueSlugs([
   'create',
   'update',
   'delete',
+  'reactivate-employees',
   'read',
   'read-terminated-employees',
   'update-information',
@@ -237,7 +238,8 @@ export const ROLE_PRESETS: readonly RolePresetDefinition[] = [
     name: 'Administrador de RH',
     description:
       'Perfil completo del módulo de Colaboradores: ve, edita y elimina el expediente, opera el listado, descarga todo y accede a las cinco categorías de datos delicados.',
-    version: '1.1.0',
+    // 1.2.0 (VLRH-H1790812613828): se suma reactivar colaborador dado de baja
+    version: '1.2.0',
     moduleSlug: ROLE_PRESET_MODULE_SLUG,
     permissionSlugs: HR_ADMIN_SLUGS,
   },
