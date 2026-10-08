@@ -56,6 +56,9 @@ import EmployeeShift from '#models/employee_shift'
 import EmployeeType from '#models/employee_type'
 import User from '#models/user'
 import Role from '#models/role'
+import { AUTO_RESPONSIBLE_ROLE_SLUGS } from '#constants/employee_responsible'
+import { applyEffectiveTenantRole } from '#helpers/effective_tenant_role'
+import { fetchTenantUsersByEffectiveRoleSlugs } from '#helpers/tenant_users_with_module_permission'
 import AssistsService from '#services/assist_service'
 import { EmployeeWorkDaysDisabilityFilterInterface } from '../interfaces/employee_work_days_disability_filter_interface.js'
 import RoleService from '#services/role_service'
@@ -1021,18 +1024,27 @@ export default class EmployeeController {
       })
       employee.positionLevelConfigId = positionLevelConfigId
 
-      const roles = await Role.query()
-        .whereIn('role_slug', ['rh-manager', 'admin', 'nominas'])
-        .whereNull('role_deleted_at')
-
-      let usersResponsible: Array<User> = []
-
-      if (roles.length) {
-        const roleIds = roles.map((role) => role.roleId)
-        usersResponsible = await User.query()
-          .whereIn('role_id', roleIds)
-          .preload('role')
+      const autoResponsibles = await fetchTenantUsersByEffectiveRoleSlugs({
+        businessUnitId: Number(employee.businessUnitId),
+        roleSlugs: [...AUTO_RESPONSIBLE_ROLE_SLUGS],
+      })
+      let usersResponsible: User[] = []
+      if (autoResponsibles.length > 0) {
+        const effectiveRoleIdByUser = new Map(autoResponsibles.map((row) => [row.userId, row.roleId]))
+        const roles = await Role.query().whereIn(
+          'role_id',
+          [...new Set(effectiveRoleIdByUser.values())]
+        )
+        const roleById = new Map(roles.map((role) => [role.roleId, role]))
+        const users = await User.query()
+          .whereIn('user_id', [...effectiveRoleIdByUser.keys()])
           .orderBy('user_id')
+        usersResponsible = users.flatMap((candidate) => {
+          const role = roleById.get(effectiveRoleIdByUser.get(candidate.userId) ?? -1)
+          if (!role) return []
+          applyEffectiveTenantRole(candidate, role)
+          return [candidate]
+        })
       }
       if (userResponsibleId && user) {
         const existUser = usersResponsible.find(a => a.userId === userResponsibleId)
