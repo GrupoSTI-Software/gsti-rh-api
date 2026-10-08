@@ -116,6 +116,28 @@ export class AssetError extends Error {
     )
   }
 
+  /** La categoría no es una de las tres que fija la norma. */
+  static teleworkCategoryInvalid(): AssetError {
+    return new AssetError(
+      422,
+      ASSET_ERROR_KEYS.TELEWORK_CATEGORY_INVALID,
+      'asset_type_telework_category_invalid',
+      'Categoría de insumo inválida',
+      'La categoría debe ser Silla ergonómica, Equipo de cómputo o impresión o Aditamento.'
+    )
+  }
+
+  /** El tipo no existe, es de otra empresa o es global. */
+  static assetTypeNotFound(): AssetError {
+    return new AssetError(
+      404,
+      ASSET_ERROR_KEYS.TYPE_NOT_FOUND,
+      'asset_type_not_found',
+      'Tipo de activo no encontrado',
+      'El tipo de activo no existe o no pertenece a la empresa.'
+    )
+  }
+
   /** El registro no existe, es de otra empresa o no tiene archivo. */
   static fileNotFound(): AssetError {
     return new AssetError(

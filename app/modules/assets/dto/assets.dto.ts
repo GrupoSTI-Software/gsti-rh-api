@@ -3,6 +3,7 @@ import type {
   AssetStatus,
   OpenAssignmentStatus,
 } from '../assets.constants.js'
+import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
 
 /** Colaborador que tiene el activo en resguardo. */
 export interface AssetEmployeeDto {
@@ -134,6 +135,8 @@ export interface AssetTypeDto {
   name: string
   slug: string
   description: string | null
+  /** Categoría de insumo de teletrabajo (NOM-037-STPS-2023); `null` sin marcar. */
+  teleworkCategory: SupplyTypeTeleworkCategory | null
   /** Activos no borrados del tipo. */
   suppliesCount: number
   characteristics: Array<{ characteristicId: number; name: string; type: AssetCharacteristicType }>

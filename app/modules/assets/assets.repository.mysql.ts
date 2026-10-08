@@ -1,5 +1,6 @@
 import db from '@adonisjs/lucid/services/db'
 import { isUploadFailureSentinel } from '#constants/upload_sentinels'
+import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
 import {
   OPEN_ASSIGNMENT_STATUSES,
   type AssetCharacteristicType,
@@ -563,6 +564,7 @@ export default class AssetsRepositoryMysql implements AssetsRepository {
       supply_type_name: string
       supply_type_slug: string
       supply_type_description: string | null
+      supply_type_telework_category: SupplyTypeTeleworkCategory | null
       supplies_count: number | string
     }> = await db
       .from('supply_types as st')
@@ -574,6 +576,7 @@ export default class AssetsRepositoryMysql implements AssetsRepository {
         'st.supply_type_name',
         'st.supply_type_slug',
         'st.supply_type_description',
+        'st.supply_type_telework_category',
         db.raw(
           `(SELECT COUNT(*) FROM supplies AS s
              WHERE s.supply_type_id = st.supply_type_id
@@ -607,6 +610,7 @@ export default class AssetsRepositoryMysql implements AssetsRepository {
       name: type.supply_type_name,
       slug: type.supply_type_slug,
       description: textOrNull(type.supply_type_description),
+      teleworkCategory: type.supply_type_telework_category ?? null,
       suppliesCount: Number(type.supplies_count),
       characteristics: characteristics
         .filter((characteristic) => characteristic.supply_type_id === type.supply_type_id)

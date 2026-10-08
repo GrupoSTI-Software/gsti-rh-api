@@ -22,7 +22,9 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   createEmployee: employeesStandard('create'),
   updateEmployee: employeesStandard('tab-trabajo-write'),
   terminateEmployee: employeesStandard('delete'),
-  reactivateEmployee: employeesStandard('tab-trabajo-write'),
+  // Permiso propio (VLRH-H1790812613828): editar la ficha laboral ya no basta
+  // para deshacer una baja, y dar de baja tampoco la concede.
+  reactivateEmployee: employeesStandard('reactivate-employees'),
   uploadEmployeePhoto: employeesStandard('tab-foto-write'),
   deleteEmployeePhoto: employeesStandard('tab-foto-delete'),
   createEmployeeContract: employeesStandard('tab-trabajo-write'),

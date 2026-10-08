@@ -9,6 +9,7 @@ import Supply from './supplie.js'
 import * as relations from '@adonisjs/lucid/types/relations'
 import SupplieCaracteristic from './supplie_caracteristic.js'
 import SupplieCaracteristicValue from './supplie_caracteristic_value.js'
+import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
 
 /**
  * @swagger
@@ -33,6 +34,11 @@ import SupplieCaracteristicValue from './supplie_caracteristic_value.js'
  *         supplyTypeSlug:
  *           type: string
  *           description: Supply type slug
+ *         supplyTypeTeleworkCategory:
+ *           type: string
+ *           nullable: true
+ *           enum: [ergonomic_chair, computing_equipment, accessory]
+ *           description: Categoría de insumo de teletrabajo (NOM-037-STPS-2023)
  *         supplyTypeCreatedAt:
  *           type: string
  *           format: date-time
@@ -94,6 +100,14 @@ export default class SupplyType extends compose(BaseModel, SoftDeletes, withBusi
 
   @column()
   declare supplyTypeIdentifier: string | null
+
+  /**
+   * Categoría de insumo de teletrabajo (NOM-037-STPS-2023). Nula mientras el
+   * tipo no se marque; atributo cerrado, valores en
+   * `SUPPLY_TYPE_TELEWORK_CATEGORY`.
+   */
+  @column()
+  declare supplyTypeTeleworkCategory: SupplyTypeTeleworkCategory | null
 
   @column()
   declare supplyTypeSlug: string

@@ -1,5 +1,7 @@
 import { vacationPeriodDates } from '#modules/employee-vacations/vacation_period_dates'
 import { parseEmployeeTerminatedDate } from '#helpers/employee_termination_record'
+import { stripTerminationCodeSuffix } from '#helpers/employee_termination_code'
+import { employeeReactivationCodeTakenError } from '#helpers/employee_reactivation_api_error'
 import { attendanceStatusCellColor } from '#helpers/attendance_report_cell_color'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
@@ -164,6 +166,15 @@ const EMPLOYEE_VISIBLE_POSITION_ORDER_SQL =
 export type EmployeeTerminationOutcome =
   | { kind: 'terminated'; employee: Employee }
   | { kind: 'already-terminated' }
+
+/**
+ * Resultado de `EmployeeService.reactivate` (VLRH-H1790812613829): la baja se
+ * deshizo, o el colaborador ya no estaba dado de baja al obtener el candado
+ * (otra reactivación lo devolvió) y no se escribió nada.
+ */
+export type EmployeeReactivationOutcome =
+  | { kind: 'reactivated'; employee: Employee }
+  | { kind: 'not-terminated' }
 
 export default class EmployeeService {
 
@@ -1038,24 +1049,80 @@ export default class EmployeeService {
   }
 
   /**
-   * Reactivar un empleado eliminado (soft delete)
-   * @param currentEmployee - Empleado a reactivar
-   * @returns Promise<Employee>
+   * Reactivar = deshacer la baja (VLRH-H1790812613829): todo o nada (R3),
+   * cupo primero, candado del colaborador, dentro de su empresa (R4). Orden
+   * fijo: (1) cupo con candado, (2) re-lectura `forUpdate` filtrando por la
+   * empresa de la fila leída, (3) código original libre, (4) hook del
+   * expediente (copia de los datos de baja; ahí se enganchan R2 y la
+   * cancelación), (5) [marca de checadores, VLRH-H1790812613831], (6) una sola
+   * escritura: código original, datos de baja limpios y `deletedAt` nulo. Sin
+   * efectos después del commit: reactivar no re-enrola en checadores.
+   *
+   * @param actorUserId - Quién reactiva; va al log y al hook, nunca a la fila.
+   * @throws EmployeeQuotaError sin lugar en el cupo o sin plan vigente.
+   * @throws EmployeeReactivationError si el código original lo usa otro colaborador vivo.
    */
-  async reactivate(currentEmployee: Employee) {
-    await this.verifyEmployeeLimit(currentEmployee.businessUnitId)
+  async reactivate(
+    currentEmployee: Employee,
+    actorUserId: number | null
+  ): Promise<EmployeeReactivationOutcome> {
+    const businessUnitId = currentEmployee.businessUnitId
+    const reactivated = await db.transaction(async (trx) => {
+      // (1) El candado de cupo va PRIMERO: en REPEATABLE-READ el snapshot se
+      // fija en la primera lectura, y un conteo previo ignoraría altas ya
+      // confirmadas por otra transacción.
+      await this.verifyEmployeeLimit(businessUnitId, trx)
 
-    // Restaurar el empleado eliminado
-    await currentEmployee.restore()
+      // (2) Filtro explícito de empresa además del mixin; `withTrashed` solo
+      // quita el filtro de borrado lógico.
+      const locked = await Employee.query({ client: trx })
+        .withTrashed()
+        .where('employee_id', currentEmployee.employeeId)
+        .where('business_unit_id', businessUnitId)
+        .forUpdate()
+        .first()
+      // Regla 1: solo se reactiva a quien sigue dado de baja
+      if (!locked || locked.deletedAt === null) return null
 
-    // Limpiar el código temporal si existe
-    if (typeof currentEmployee.employeeCode === 'string' && currentEmployee.employeeCode.includes('-IN')) {
-      const originalCode = currentEmployee.employeeCode.split('-IN')[0]
-      currentEmployee.employeeCode = originalCode
-      await currentEmployee.save()
-    }
+      // (3) Código original libre entre los vivos de la MISMA empresa (regla 4).
+      // `Employee.query()` excluye a los dados de baja: "vivo" = sin
+      // `employee_deleted_at`, el mismo criterio que el alta.
+      const originalCode = stripTerminationCodeSuffix(locked.employeeCode)
+      const taken = await Employee.query({ client: trx })
+        .where('business_unit_id', locked.businessUnitId)
+        .where('employee_code', originalCode)
+        .whereNot('employee_id', locked.employeeId)
+        .first()
+      if (taken) throw employeeReactivationCodeTakenError(originalCode)
 
-    return currentEmployee
+      // (4) Expediente, SIEMPRE (haya o no expediente abierto): candado,
+      // [R2 de VLRH-H1791055794596], copia, [cancelación de VLRH-H1790812613830]
+      await new OffboardingsService(this.i18n).onEmployeeReactivated(trx, locked, actorUserId)
+
+      // (5) [marca de checadores pendientes de VLRH-H1790812613831: aquí, antes de limpiar la fecha]
+
+      // (6) Restaurar y limpiar en una sola escritura (reglas 3 y 6)
+      locked.employeeCode = originalCode
+      locked.employeeTerminatedDate = null
+      locked.employeeTerminationModality = null
+      locked.employeeTerminationType = null
+      locked.deletedAt = null
+      locked.useTransaction(trx)
+      await locked.save()
+      return locked
+    })
+
+    // Regla 7: quién, a quién y en qué empresa; nunca nombres, códigos ni datos de baja
+    logger.info(
+      {
+        actorUserId,
+        employeeId: currentEmployee.employeeId,
+        businessUnitId,
+        outcome: reactivated ? 'reactivated' : 'not-terminated',
+      },
+      'EmployeeService.reactivate'
+    )
+    return reactivated ? { kind: 'reactivated', employee: reactivated } : { kind: 'not-terminated' }
   }
 
   async show(employeeId: number) {
