@@ -2,12 +2,10 @@ import logger from '@adonisjs/core/services/logger'
 import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { fetchTenantUsersWithModulePermission } from '#helpers/tenant_users_with_module_permission'
 import Complaint from '#models/complaint'
 import ComplaintNotificationLog from '#models/complaint_notification_log'
 import SystemSetting from '#models/system_setting'
-import SystemPermission from '#models/system_permission'
-import RoleSystemPermission from '#models/role_system_permission'
-import User from '#models/user'
 import {
   COMPLAINT_BOARD_MODULE_PATH,
   COMPLAINT_MANAGE_PERMISSION,
@@ -171,64 +169,16 @@ export default class ComplaintNotificationService {
   }
 
   /**
-   * Usuarios activos con permiso `complaint.update` y acceso
-   * a la unidad de negocio de la queja.
+   * Usuarios activos cuyo rol efectivo en la empresa de la queja tiene
+   * complaints:update. Sin root ni owner. Falla cerrada.
    */
   private async fetchManageRecipients(businessUnitId: number): Promise<ComplaintManageRecipient[]> {
-    const manageRoleIds = await this.fetchComplaintManageRoleIds()
-    if (manageRoleIds.length === 0) {
-      return []
-    }
-
-    const users = await User.query()
-      .whereNull('user_deleted_at')
-      .where('user_active', 1)
-      .whereNotNull('user_email')
-      .whereRaw("TRIM(user_email) <> ''")
-      .whereIn('role_id', manageRoleIds)
-      .whereHas('role', (roleQuery) => {
-        roleQuery.whereNull('role_deleted_at').where('role_active', 1)
-      })
-      .whereHas('businessUnits', (businessUnitQuery) => {
-        businessUnitQuery
-          .where('business_units.business_unit_id', businessUnitId)
-          .where('business_units.business_unit_active', 1)
-          .whereNull('business_units.business_unit_deleted_at')
-      })
-      .select('user_id', 'user_email')
-
-    return this.dedupeRecipients(
-      users.map((user) => ({
-        userId: user.userId,
-        email: user.userEmail.trim(),
-      }))
-    )
-  }
-
-  /** Roles con permiso `update` en el módulo `complaints`. */
-  private async fetchComplaintManageRoleIds(): Promise<number[]> {
-    const permission = await SystemPermission.query()
-      .whereNull('system_permission_deleted_at')
-      .where('system_permission_slug', COMPLAINT_MANAGE_PERMISSION)
-      .whereHas('systemModule', (moduleQuery) => {
-        moduleQuery
-          .whereNull('system_module_deleted_at')
-          .where('system_module_active', 1)
-          .where('system_module_slug', COMPLAINT_MODULE_SLUG)
-      })
-      .select('system_permission_id')
-      .first()
-
-    if (!permission) {
-      return []
-    }
-
-    const assignments = await RoleSystemPermission.query()
-      .whereNull('role_system_permission_deleted_at')
-      .where('system_permission_id', permission.systemPermissionId)
-      .select('role_id')
-
-    return [...new Set(assignments.map((assignment) => assignment.roleId))]
+    const users = await fetchTenantUsersWithModulePermission({
+      businessUnitId,
+      moduleSlug: COMPLAINT_MODULE_SLUG,
+      permissionSlug: COMPLAINT_MANAGE_PERMISSION,
+    })
+    return this.dedupeRecipients(users)
   }
 
   private dedupeRecipients(recipients: ComplaintManageRecipient[]): ComplaintManageRecipient[] {
