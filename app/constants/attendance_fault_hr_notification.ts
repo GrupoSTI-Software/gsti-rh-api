@@ -1,18 +1,20 @@
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 
 /**
- * Slugs de rol (comparación en minúsculas y sin espacios extremos) para notificar
- * faltas de registro de asistencia. Solo usuarios activos con empleado asociado
- * (`person_id`) y `user_email` reciben el correo (sin filtrar por unidad de negocio).
+ * Módulo del Monitor de asistencia. El aviso de faltas no mira el nombre del
+ * rol: mira esta acción en el rol efectivo de la empresa.
  */
-export const ATTENDANCE_FAULT_HR_ROLE_SLUGS: string[] = [
-  'RH Manager',
-  'Recursos Humanos'
-]
+export const ATTENDANCE_FAULT_HR_NOTIFY_MODULE_SLUG = 'employees-attendance-monitor'
+
+/**
+ * Permiso "Ver faltas consecutivas". Es la concesión que decide quién recibe
+ * el aviso de faltas de esa empresa.
+ */
+export const ATTENDANCE_FAULT_HR_NOTIFY_PERMISSION = 'consecutive-faults'
 
 /**
  * Rol cuyos usuarios reciben el correo al ejecutar `notify:attendance-fault-hr --test`.
- * Comparación case-insensitive contra `role_slug` en base de datos.
+ * Comparación case-insensitive contra el rol efectivo en la empresa del aviso.
  */
 export const ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG = 'TESTER'
 

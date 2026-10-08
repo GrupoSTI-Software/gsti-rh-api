@@ -21,7 +21,11 @@ import {
   discountSnapshotInconsistentError,
   discountPeriodsExceededError,
 } from '../helpers/billing_payment_error.js'
-import { todayInBusinessZone, toCalendarIsoDate } from '../utils/business_date.js'
+import {
+  getBusinessTimeZone,
+  todayInBusinessZone,
+  toCalendarIsoDate,
+} from '../utils/business_date.js'
 import { RECEIPT_MAX_BYTES, RECEIPT_ALLOWED_MIMES } from '../validators/billing_payment.js'
 import { BILLING_TAX_RECEIPT_LIVE_STATUS } from '#constants/billing_tax_receipt'
 import { hasFinancialSnapshot } from '#helpers/billing_payment_financial_snapshot'
@@ -79,6 +83,12 @@ export interface SettledReceipt {
   mime: string
 }
 
+/** Periodo cobrado por el proveedor; fechas civiles CDMX. `end` = inicio del siguiente. */
+export interface ProviderSettlementPeriod {
+  start: string
+  end: string
+}
+
 export interface SettlePaymentInput {
   subscriptionId: number
   amountCents?: number
@@ -88,6 +98,11 @@ export interface SettlePaymentInput {
   paidAt: string
   /** null = pago sin archivo (proveedor automático, USRH1790708507693). */
   receipt: SettledReceipt | null
+  /** Solo asentamiento automático Stripe (USRH1790724549115). */
+  providerPeriod?: ProviderSettlementPeriod
+  providerInvoiceId?: string
+  providerPaymentRef?: string | null
+  providerEventId?: string
 }
 
 export interface SettledPayment {
@@ -376,6 +391,10 @@ export default class BillingPaymentService {
 
     this.assertNotCanceled(subscriptionId, subscription)
 
+    if (input.providerPeriod !== undefined) {
+      this.assertValidProviderPeriod(input.providerPeriod)
+    }
+
     const paymentProvider = resolveBillingProvider(subscription.billingSubscriptionProvider).key
 
     // ── Regla 1, 14: monto asentado, resuelto ANTES de mutar el trato ──
@@ -418,6 +437,9 @@ export default class BillingPaymentService {
         billingPaymentReceiptPath: input.receipt?.path ?? null,
         billingPaymentReceiptMime: input.receipt?.mime ?? null,
         billingPaymentProvider: paymentProvider,
+        billingPaymentProviderInvoiceId: input.providerInvoiceId ?? null,
+        billingPaymentProviderPaymentRef: input.providerPaymentRef ?? null,
+        billingPaymentProviderEventId: input.providerEventId ?? null,
         billingPaymentPaidAt: paidAtDt,
         billingPaymentPeriodStart: null,
         billingPaymentPeriodEnd: null,
@@ -456,7 +478,18 @@ export default class BillingPaymentService {
       )
     }
 
-    const periodsCovered = Math.floor(saldoTrasAdeudo / periodAmountCents)
+    const providerPeriod = input.providerPeriod
+    const currentEndIso = toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodEnd)
+    const providerPeriodBehind =
+      providerPeriod !== undefined &&
+      currentEndIso !== null &&
+      providerPeriod.end <= currentEndIso
+
+    const periodsCovered = providerPeriod
+      ? providerPeriodBehind
+        ? 0
+        : Math.min(1, Math.floor(saldoTrasAdeudo / periodAmountCents))
+      : Math.floor(saldoTrasAdeudo / periodAmountCents)
 
     if (periodsCovered > MAX_PERIODS_PER_PAYMENT) {
       throw new BillingPaymentServiceError(
@@ -499,16 +532,22 @@ export default class BillingPaymentService {
 
     if (periodsCovered >= 1) {
       const today = todayInBusinessZone()
-      const rawPeriodEnd = subscription.billingSubscriptionCurrentPeriodEnd
-      const periodEndIso = rawPeriodEnd ? toCalendarIsoDate(rawPeriodEnd) : null
+      if (providerPeriod) {
+        const zone = getBusinessTimeZone()
+        newPeriodStart = DateTime.fromISO(providerPeriod.start, { zone })
+        newPeriodEnd = DateTime.fromISO(providerPeriod.end, { zone })
+      } else {
+        const rawPeriodEnd = subscription.billingSubscriptionCurrentPeriodEnd
+        const periodEndIso = rawPeriodEnd ? toCalendarIsoDate(rawPeriodEnd) : null
 
-      const anchor =
-        periodEndIso && periodEndIso >= today.toISODate()!
-          ? DateTime.fromISO(periodEndIso, { zone: today.zone })
-          : today
+        const anchor =
+          periodEndIso && periodEndIso >= today.toISODate()!
+            ? DateTime.fromISO(periodEndIso, { zone: today.zone })
+            : today
 
-      newPeriodStart = anchor
-      newPeriodEnd = anchor.plus({ months: periodsCovered })
+        newPeriodStart = anchor
+        newPeriodEnd = anchor.plus({ months: periodsCovered })
+      }
     }
 
     const snapshot = this.computeFinancialSnapshot(subscription, frozenDiscount)
@@ -619,6 +658,29 @@ export default class BillingPaymentService {
         'No se puede registrar un pago sobre una suscripción cancelada.'
       )
     }
+  }
+
+  private assertValidProviderPeriod(period: ProviderSettlementPeriod): void {
+    const isoDay = /^\d{4}-\d{2}-\d{2}$/
+    const zone = getBusinessTimeZone()
+    if (!isoDay.test(period.start) || !isoDay.test(period.end)) {
+      throw this.providerPeriodInvalidError()
+    }
+    const startDt = DateTime.fromISO(period.start, { zone })
+    const endDt = DateTime.fromISO(period.end, { zone })
+    if (!startDt.isValid || !endDt.isValid || startDt >= endDt) {
+      throw this.providerPeriodInvalidError()
+    }
+  }
+
+  private providerPeriodInvalidError(): BillingPaymentServiceError {
+    return new BillingPaymentServiceError(
+      'Periodo del proveedor inválido',
+      BILLING_PAYMENT_ERROR_CODES.SYS_UNHANDLED,
+      500,
+      'periodo-del-proveedor-invalido',
+      'No fue posible determinar el periodo cobrado por el proveedor.'
+    )
   }
 
   // ─── Monto gobernado (reglas 1-3, ampliado por USRH1787077544537) ────────

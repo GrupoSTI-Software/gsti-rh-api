@@ -8,14 +8,21 @@ export type BillingSubscriptionTransitionReason =
   | 'trial_expired_uncovered'
   | 'trial_expired_covered'
   | 'period_expired'
+  | 'provider_past_due'
+  | 'provider_unpaid'
+  | 'provider_canceled'
+
+export type BillingSubscriptionTransitionOrigin = 'clock' | 'provider'
+
+/** Clave fija de origen para transiciones escritas por el reloj diario. */
+export const BILLING_SUBSCRIPTION_TRANSITION_CLOCK_ORIGIN_KEY = 'clock'
 
 /**
- * Bitácora append-only de transiciones de estado disparadas por el reloj
- * de suscripción (USRH1784574994921).
+ * Bitácora append-only de transiciones de estado (USRH1784574994921; origen USRH1790724549026).
  *
- * El UNIQUE (billing_subscription_id, billing_subscription_transition_cut_date)
- * garantiza idempotencia a nivel de base de datos: dos corridas del barrido
- * el mismo día de corte no pueden registrar dos filas para la misma suscripción.
+ * UNIQUE (billing_subscription_id, billing_subscription_transition_cut_date,
+ * billing_subscription_transition_origin_key): el reloj conserva a lo más una
+ * fila por día (clave `clock`); el proveedor puede registrar una por aviso (`evt_…`).
  */
 export default class BillingSubscriptionTransition extends BaseModel {
   static readonly table = 'billing_subscription_transitions'
@@ -34,6 +41,12 @@ export default class BillingSubscriptionTransition extends BaseModel {
 
   @column()
   declare billingSubscriptionTransitionReason: BillingSubscriptionTransitionReason
+
+  @column()
+  declare billingSubscriptionTransitionOrigin: BillingSubscriptionTransitionOrigin
+
+  @column()
+  declare billingSubscriptionTransitionOriginKey: string
 
   @column.date({
     serialize: (value: DateTime | null) => value?.toISODate() ?? null,

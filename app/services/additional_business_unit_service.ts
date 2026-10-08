@@ -25,6 +25,7 @@ import { toCalendarIsoDate, toBusinessDateString } from '../utils/business_date.
 import TenantRoleProvisioningService from '#services/tenant_role_provisioning_service'
 import BranchOfficeProvisioningService from '#services/branch_office_provisioning_service'
 import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
+import { TenantContext } from '#utils/tenant_context'
 
 // ---------------------------------------------------------------------------
 // Tipos públicos
@@ -163,50 +164,56 @@ export default class AdditionalBusinessUnitService {
           buData.businessUnitOrigin = 'self_service'
           const newBu = await buService.create(buData, trx)
 
-          // 3.4b-bis Roles propios de la empresa nueva (dueño, administrador y
-          //     colaborador). Van antes del vínculo porque de aquí sale el rol
-          //     con el que el creador entra a SU empresa nueva: quien la da de
-          //     alta es su dueño, aunque en otra empresa sea otra cosa.
-          const tenantRoles = await tenantRoleProvisioningService.provision(
-            newBu.businessUnitId,
-            trx
-          )
+          // Lo que sigue provisiona la empresa nueva: corre con SU contexto, como el
+          // alta self-service. El del middleware es el de las empresas que el
+          // usuario ya tenía, así que las lecturas de la nueva quedarían filtradas a
+          // vacío en silencio (y fuera de HTTP lanzarían TenantContextMissingException).
+          return TenantContext.run([newBu.businessUnitId], async () => {
+            // 3.4b-bis Roles propios de la empresa nueva (dueño, administrador y
+            //     colaborador). Van antes del vínculo porque de aquí sale el rol
+            //     con el que el creador entra a SU empresa nueva: quien la da de
+            //     alta es su dueño, aunque en otra empresa sea otra cosa.
+            const tenantRoles = await tenantRoleProvisioningService.provision(
+              newBu.businessUnitId,
+              trx
+            )
 
-          // 3.4c Vincular usuario (UNIQUE business_unit_id + user_id)
-          //     useTransaction hace que related().attach() use la misma TRX.
-          user.useTransaction(trx)
-          await attachBusinessUnitsWithRole(
-            user,
-            [newBu.businessUnitId],
-            tenantRoles.owner.roleId
-          )
+            // 3.4c Vincular usuario (UNIQUE business_unit_id + user_id)
+            //     useTransaction hace que related().attach() use la misma TRX.
+            user.useTransaction(trx)
+            await attachBusinessUnitsWithRole(
+              user,
+              [newBu.businessUnitId],
+              tenantRoles.owner.roleId
+            )
 
-          // 3.4d Configuración mínima del tenant nuevo
-          await systemSettingService.createForTenant(
-            {
-              businessUnitId: newBu.businessUnitId,
-              businessUnitSlug: slug,
-              businessUnitName: newBu.businessUnitName,
-            },
-            trx
-          )
+            // 3.4d Configuración mínima del tenant nuevo
+            await systemSettingService.createForTenant(
+              {
+                businessUnitId: newBu.businessUnitId,
+                businessUnitSlug: slug,
+                businessUnitName: newBu.businessUnitName,
+              },
+              trx
+            )
 
-          // 3.4d-bis Sucursal default de la empresa nueva: mismo criterio que el
-          // alta self-service. Sin ella, su primer empleado nacería sin destino.
-          await BranchOfficeProvisioningService.ensureDefault(newBu.businessUnitId, trx)
+            // 3.4d-bis Sucursal default de la empresa nueva: mismo criterio que el
+            // alta self-service. Sin ella, su primer empleado nacería sin destino.
+            await BranchOfficeProvisioningService.ensureDefault(newBu.businessUnitId, trx)
 
-          // 3.4e Suscripción — sin periodo de prueba (ADDITIONAL_BUSINESS_UNIT_SKIPS_TRIAL)
-          const subscription = await subscriptionService.createSubscription(
-            {
-              businessUnitPublicId: newBu.businessUnitPublicId,
-              billingPlanId,
-              contractedEmployees,
-              skipTrial: ADDITIONAL_BUSINESS_UNIT_SKIPS_TRIAL,
-            },
-            trx
-          )
+            // 3.4e Suscripción — sin periodo de prueba (ADDITIONAL_BUSINESS_UNIT_SKIPS_TRIAL)
+            const subscription = await subscriptionService.createSubscription(
+              {
+                businessUnitPublicId: newBu.businessUnitPublicId,
+                billingPlanId,
+                contractedEmployees,
+                skipTrial: ADDITIONAL_BUSINESS_UNIT_SKIPS_TRIAL,
+              },
+              trx
+            )
 
-          return { newBu, subscription }
+            return { newBu, subscription }
+          })
         })
 
         // 4. Fuera de la transacción: cargar relación plan, contar empresas

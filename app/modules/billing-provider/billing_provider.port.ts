@@ -176,6 +176,10 @@ export interface ProviderInvoiceLine {
   valanserhPart: ValanserhInvoicePart | null
 }
 
+export interface ReadInvoiceOptions {
+  includePayments?: boolean
+}
+
 export interface ProviderInvoice {
   invoiceRef: string
   status: ProviderInvoiceStatus | null
@@ -186,6 +190,11 @@ export interface ProviderInvoice {
   totalCents: number
   autoAdvance: boolean
   lines: ProviderInvoiceLine[]
+  /** Presentes solo con `readInvoice(..., { includePayments: true })` (USRH1790724549115). */
+  amountPaidCents?: number
+  paidAt?: number | null
+  paymentIntentRef?: string | null
+  amountPaidOffStripeCents?: number
 }
 
 export interface InvoiceChargeDraft {
@@ -200,7 +209,7 @@ export interface InvoiceChargeDraft {
 
 /** Lectura y ajuste de facturas en borrador en Stripe (USRH1790718243208). */
 export interface BillingInvoiceProviderPort {
-  readInvoice(invoiceRef: string): Promise<ProviderInvoice>
+  readInvoice(invoiceRef: string, options?: ReadInvoiceOptions): Promise<ProviderInvoice>
   addInvoiceCharge(charge: InvoiceChargeDraft): Promise<ProviderObjectRef>
   holdInvoice(invoiceRef: string): Promise<void>
   resumeInvoice(invoiceRef: string): Promise<void>
@@ -215,5 +224,47 @@ export function isBillingInvoiceProvider(
     typeof candidate.addInvoiceCharge === 'function' &&
     typeof candidate.holdInvoice === 'function' &&
     typeof candidate.resumeInvoice === 'function'
+  )
+}
+
+export type ProviderSubscriptionStatus =
+  | 'trialing'
+  | 'active'
+  | 'past_due'
+  | 'unpaid'
+  | 'canceled'
+  | 'incomplete'
+  | 'incomplete_expired'
+  | 'paused'
+  | 'unknown'
+
+export interface ProviderSubscriptionState {
+  subscriptionRef: string
+  customerRef: string
+  status: ProviderSubscriptionStatus
+}
+
+/** Solo códigos del motivo y estado del intento; nunca payment_method ni titular (Regla 10). */
+export interface ProviderPaymentFailure {
+  invoiceRef: string
+  subscriptionRef: string | null
+  customerRef: string | null
+  errorCode: string | null
+  declineCode: string | null
+  intentStatus: string | null
+}
+
+export interface BillingSubscriptionStateProviderPort {
+  readSubscriptionState(subscriptionRef: string): Promise<ProviderSubscriptionState>
+  readInvoicePaymentFailure(invoiceRef: string): Promise<ProviderPaymentFailure>
+}
+
+export function isBillingSubscriptionStateProvider(
+  provider: BillingProviderPort
+): provider is BillingProviderPort & BillingSubscriptionStateProviderPort {
+  const candidate = provider as Partial<BillingSubscriptionStateProviderPort>
+  return (
+    typeof candidate.readSubscriptionState === 'function' &&
+    typeof candidate.readInvoicePaymentFailure === 'function'
   )
 }
