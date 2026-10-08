@@ -27,7 +27,10 @@ import { AssistSyncFilterInterface } from '../interfaces/assist_sync_filter_inte
 import AssistsService from './assist_service.js'
 import SystemSettingService from './system_setting_service.js'
 import Tolerance from '#models/tolerance'
-import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
+import type {
+  SyncAssistsIndexOptions,
+  SyncAssistsServiceIndexInterface,
+} from '../interfaces/sync_assists_service_index_interface.js'
 import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 import Department from '#models/department'
 import BusinessUnit from '#models/business_unit'
@@ -1138,7 +1141,11 @@ export default class SyncAssistsService {
    * 6. Cálculo del calendario con todas las validaciones
    * 7. Retorno del calendario completo
    */
-  async index(bodyParams: SyncAssistsServiceIndexInterface, paginator?: { page: number; limit: number }) {
+  async index(
+    bodyParams: SyncAssistsServiceIndexInterface,
+    paginator?: { page: number; limit: number },
+    options: SyncAssistsIndexOptions = {}
+  ) {
     let employee: Employee | null = null
 
     if (bodyParams.employeeID) {
@@ -1219,6 +1226,13 @@ export default class SyncAssistsService {
     const employeeShifts: ShiftRecordInterface[] = dailyShifts[0].employeeShifts as ShiftRecordInterface[]
     const assistList = await query.paginate(paginator?.page || 1, paginator?.limit || 500)
     const assistListFlat = assistList.toJSON().data as AssistInterface[]
+
+    // La marca no se serializa con el modelo (`serializeAs: null`): se copia de
+    // la instancia ya cargada, solo cuando el llamador la pidió.
+    if (options.includeAssistLocationFlag === true) {
+      const flags = new Map(assistList.all().map((model) => [model.assistId, model.assistLocationFlag ?? null]))
+      for (const item of assistListFlat) item.assistLocationFlag = flags.get(item.assistId ?? 0) ?? null
+    }
 
     // OPTIMIZACIÓN: Agrupar assists por día usando Map en lugar de buscar en cada iteración (O(n) vs O(n²))
     const assistsByDay = new Map<string, AssistInterface[]>()

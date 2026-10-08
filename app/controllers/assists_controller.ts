@@ -59,6 +59,7 @@ import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service
 import { employeeSynchronizeAssistsValidator } from '#validators/assist_employee_synchronize'
 import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 import { reportI18n } from '#helpers/report_locale'
+import { canSeeAssistLocationFlag } from '#helpers/assist_location_flag_visibility'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -405,7 +406,7 @@ export default class AssistsController {
    *                       nullable: true
    *                       example: null
    */
-  async index({ request, response, i18n }: HttpContext) {
+  async index({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     const syncAssistsService = new SyncAssistsService(i18n)
     const employeeID = request.input('employeeId')
@@ -425,6 +426,10 @@ export default class AssistsController {
       }
     }
 
+    // Marca de ubicación (VLRH-H1791056345261): solo para quien puede verla;
+    // a los demás la clave ni siquiera les llega.
+    const includeAssistLocationFlag = await canSeeAssistLocationFlag(auth.user, employeeID)
+
     try {
       const result = await syncAssistsService.index(
         {
@@ -432,7 +437,8 @@ export default class AssistsController {
           dateEnd: filterDateEnd,
           employeeID: employeeID,
         },
-        { page, limit }
+        { page, limit },
+        { includeAssistLocationFlag }
       )
       return response.status(result.status).json(result)
     } catch (error) {
