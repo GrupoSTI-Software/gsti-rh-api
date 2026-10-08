@@ -82,7 +82,7 @@ export default class TeleworkChecklistController {
     return assertComplianceRepsePermission(ctx, MODULE_SLUG, action, RBAC_FORBIDDEN)
   }
 
-  /** Catálogo global de puntos activos, con su etiqueta ya traducida. Sin permiso de módulo. */
+  /** Catálogo global de puntos activos, con su etiqueta traducida y su orden. Sin permiso de módulo. */
   async listItems(
     ctx: HttpContext,
     service: TeleworkChecklistService = new TeleworkChecklistService()
@@ -99,6 +99,7 @@ export default class TeleworkChecklistController {
           itemId: item.teleworkChecklistItemId,
           code: item.teleworkChecklistItemCode,
           label: i18n.formatMessage(item.teleworkChecklistItemLabelKey),
+          order: item.teleworkChecklistItemOrder,
         })),
       }
     } catch (error) {
@@ -142,7 +143,7 @@ export default class TeleworkChecklistController {
     try {
       const businessUnitId = ctx.businessUnitScope[0]
       const applicationId = Number(ctx.params.applicationId)
-      const data = await service.detail(businessUnitId, applicationId)
+      const data = await service.detail(businessUnitId, applicationId, ctx.i18n)
       return ctx.response.status(200).json({
         type: 'success',
         title: ctx.i18n.formatMessage('telework_checklist.title'),
@@ -173,7 +174,7 @@ export default class TeleworkChecklistController {
     try {
       const businessUnitId = ctx.businessUnitScope[0]
       const actorUserId = ctx.auth.user!.userId
-      const data = await service.registerVisit(businessUnitId, input, actorUserId)
+      const data = await service.registerVisit(businessUnitId, input, actorUserId, ctx.i18n)
       return ctx.response.status(201).json({
         type: 'success',
         title: ctx.i18n.formatMessage('telework_checklist.title'),

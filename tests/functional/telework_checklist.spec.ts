@@ -64,6 +64,7 @@ interface TestActor {
 interface CatalogItem {
   itemId: number
   code: string
+  order: number
 }
 
 interface Scenario {
@@ -225,10 +226,11 @@ async function listCatalogItems(): Promise<CatalogItem[]> {
     .from('telework_checklist_items')
     .where('telework_checklist_item_is_active', true)
     .orderBy('telework_checklist_item_order', 'asc')
-    .select('telework_checklist_item_id', 'telework_checklist_item_code')
+    .select('telework_checklist_item_id', 'telework_checklist_item_code', 'telework_checklist_item_order')
   return rows.map((row) => ({
     itemId: Number(row.telework_checklist_item_id),
     code: String(row.telework_checklist_item_code),
+    order: Number(row.telework_checklist_item_order),
   }))
 }
 
@@ -528,6 +530,17 @@ test.group('telework-checklists — permisos (CA-10)', (group) => {
       assert.equal(
         withPermission.body().data[0].label,
         'Iluminación suficiente del área de trabajo'
+      )
+
+      // §11: cada punto del catálogo trae su `order` con el número que le corresponde.
+      const orderByItemId = new Map(scenario.items.map((item) => [item.itemId, item.order]))
+      const data = withPermission.body().data as { itemId: number; order: number }[]
+      data.forEach((item) => {
+        assert.equal(item.order, orderByItemId.get(item.itemId))
+      })
+      assert.deepEqual(
+        data.map((item) => item.order),
+        scenario.items.map((item) => item.order)
       )
     } finally {
       await revokeGrant(grant)

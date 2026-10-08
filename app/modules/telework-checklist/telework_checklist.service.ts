@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import i18nManager from '@adonisjs/i18n/services/main'
+import type { I18n } from '@adonisjs/i18n'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import TeleworkComplianceSettingService from '#services/telework_compliance_setting_service'
 import type TeleworkChecklistItem from '#models/telework_checklist_item'
@@ -116,8 +117,16 @@ export default class TeleworkChecklistService {
     return this.toSummaryDto(record, today)
   }
 
-  /** Detalle de una aplicación de la empresa; ajena o inexistente → `aplicacion-no-encontrada`. */
-  async detail(businessUnitId: number, applicationId: number): Promise<ApplicationDetailDto> {
+  /**
+   * Detalle de una aplicación de la empresa; ajena o inexistente → `aplicacion-no-encontrada`.
+   * `i18n` es el traductor de la petición (idioma de la respuesta); sin él —el
+   * servicio se usa fuera de HTTP— la etiqueta sale con el idioma por defecto.
+   */
+  async detail(
+    businessUnitId: number,
+    applicationId: number,
+    i18n?: I18n
+  ): Promise<ApplicationDetailDto> {
     this.assertScopeResolved(businessUnitId, 'aplicacion-no-encontrada')
 
     const record = await this.repository.findApplication(businessUnitId, applicationId)
@@ -134,18 +143,20 @@ export default class TeleworkChecklistService {
       teleworkLocationId: record.teleworkLocationId,
       inspectorName: record.inspectorName,
       notes: record.notes,
-      answers: answers.map((answer) => this.toAnswerDto(answer)),
+      answers: answers.map((answer) => this.toAnswerDto(answer, i18n)),
     }
   }
 
   /**
    * Registra la visita de la Comisión (el servidor fija `mode: 'visita_csh'`) y
-   * devuelve el detalle de la aplicación creada.
+   * devuelve el detalle de la aplicación creada. `i18n` es el traductor de la
+   * petición; sin él, las etiquetas del detalle salen con el idioma por defecto.
    */
   async registerVisit(
     businessUnitId: number,
     input: TeleworkChecklistCreateInput,
-    actorUserId: number
+    actorUserId: number,
+    i18n?: I18n
   ): Promise<ApplicationDetailDto> {
     const registrationInput: TeleworkChecklistRegistrationInput = {
       mode: 'visita_csh',
@@ -160,7 +171,7 @@ export default class TeleworkChecklistService {
       })),
     }
 
-    return this.#register(businessUnitId, input.employeeId, registrationInput, actorUserId)
+    return this.#register(businessUnitId, input.employeeId, registrationInput, actorUserId, i18n)
   }
 
   /**
@@ -231,7 +242,8 @@ export default class TeleworkChecklistService {
     businessUnitId: number,
     employeeId: number,
     input: TeleworkChecklistRegistrationInput,
-    actorUserId: number
+    actorUserId: number,
+    i18n?: I18n
   ): Promise<ApplicationDetailDto> {
     this.assertScopeResolved(businessUnitId)
 
@@ -326,7 +338,7 @@ export default class TeleworkChecklistService {
       throw error
     }
 
-    return this.detail(businessUnitId, applicationId)
+    return this.detail(businessUnitId, applicationId, i18n)
   }
 
   /** Falla cerrado si el alcance de empresa no está resuelto (404 equivalente). */
@@ -439,24 +451,29 @@ export default class TeleworkChecklistService {
   }
 
   /** Respuesta leída → respuesta del detalle con la etiqueta del punto resuelta. */
-  private toAnswerDto(answer: TeleworkChecklistAnswerRecord): ApplicationDetailDto['answers'][number] {
+  private toAnswerDto(
+    answer: TeleworkChecklistAnswerRecord,
+    i18n?: I18n
+  ): ApplicationDetailDto['answers'][number] {
     return {
       itemId: answer.itemId,
       code: answer.code,
-      label: this.resolveItemLabel(answer.labelKey),
+      label: this.resolveItemLabel(answer.labelKey, i18n),
       result: answer.result,
       observation: answer.observation,
     }
   }
 
   /**
-   * Resuelve la etiqueta del punto desde su `labelKey` con la i18n del proceso
-   * (locale por defecto). No depende de `HttpContext`: el detalle es superficie
-   * HTTP, pero el servicio se mantiene utilizable fuera de una petición. La
-   * clave como `fallback` evita un texto raro si aún no está cargada.
+   * Resuelve la etiqueta del punto desde su `labelKey`. Con `i18n` (el traductor
+   * de la petición) sale en el idioma del request —el mismo que usa el catálogo—
+   * y sin él cae al idioma por defecto, para que el servicio siga siendo
+   * utilizable fuera de una petición HTTP (cron de alertas). La clave como
+   * `fallback` evita un texto raro si aún no está cargada.
    */
-  private resolveItemLabel(labelKey: string): string {
-    return i18nManager.locale().formatMessage(labelKey, undefined, labelKey)
+  private resolveItemLabel(labelKey: string, i18n?: I18n): string {
+    const translator = i18n ?? i18nManager.locale()
+    return translator.formatMessage(labelKey, undefined, labelKey)
   }
 
   /** Columna `date` del validador (JS `Date`) como `yyyy-MM-dd`. */
