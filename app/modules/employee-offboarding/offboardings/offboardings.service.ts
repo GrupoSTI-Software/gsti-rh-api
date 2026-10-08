@@ -1,14 +1,22 @@
 import db from '@adonisjs/lucid/services/db'
+import logger from '@adonisjs/core/services/logger'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { DateTime } from 'luxon'
 import type { I18n } from '@adonisjs/i18n'
 import type Employee from '#models/employee'
+import type EmployeeOffboarding from '#models/employee_offboarding'
 import RoleService from '#services/role_service'
 import EmployeeSupplieService from '#services/employee_supplie_service'
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
+import type { EmployeeReactivationExitConcludedReason } from '#constants/employee_reactivation_error_codes'
+import { employeeReactivationExitConcludedError } from '#helpers/employee_reactivation_api_error'
 import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
 import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constants.js'
+import {
+  EMPLOYEE_OFFBOARDING_DOCUMENT_TYPES,
+  type EmployeeOffboardingDocumentType,
+} from '../documents/documents.constants.js'
 import ConceptsRepositoryMysql from '../concepts/concepts.repository.mysql.js'
 import type { ConceptsRepository } from '../concepts/concepts.repository.js'
 import {
@@ -53,6 +61,19 @@ export interface ScheduleOffboardingInput {
 
 /** Largo máximo del snapshot de nombre (columna varchar(200)). */
 const ITEM_NAME_MAX_LENGTH = 200
+
+/**
+ * Qué documento emitido concreta la salida y con qué motivo se rechaza
+ * deshacer la baja (regla 1b de VLRH-H1791055794596). `Record` cerrado sobre
+ * la unión: un tipo nuevo de documento no compila sin decidir si concreta la
+ * salida. Se recorre en el orden de `EMPLOYEE_OFFBOARDING_DOCUMENT_TYPES`.
+ */
+const EXIT_DOCUMENT_REASON: Readonly<
+  Record<EmployeeOffboardingDocumentType, EmployeeReactivationExitConcludedReason>
+> = {
+  separation_letter: 'separation-letter-issued',
+  termination_agreement: 'termination-agreement-issued',
+}
 
 /**
  * Reglas de negocio del expediente de salida (USRH1786568279587): apertura
@@ -277,32 +298,86 @@ export default class OffboardingsService {
    * Punto de extensión de la reactivación (VLRH-H1790812613829), dentro de SU
    * transacción: la fila de `employees` ya la bloqueó la reactivación y aquí se
    * bloquea el expediente abierto (mismo orden de candados que `openCase`).
-   * Copia fecha, modalidad y tipo de baja al expediente antes de que la
-   * reactivación los limpie del colaborador (regla 5); sin expediente abierto
-   * no hay copia. Se llama SIEMPRE, haya o no expediente: aquí se enganchan
-   * la regla R2 de VLRH-C0040 (VLRH-H1791055794596) y la cancelación del
-   * expediente (VLRH-H1790812613830). No atrapa nada: cualquier fallo revierte
-   * la reactivación completa.
+   * Primero la guarda R2 de VLRH-C0040 (VLRH-H1791055794596): una salida ya
+   * concretada no se deshace. Después copia fecha, modalidad y tipo de baja al
+   * expediente antes de que la reactivación los limpie del colaborador
+   * (regla 5); sin expediente abierto no hay copia. Se llama SIEMPRE, haya o no
+   * expediente: aquí se engancha también la cancelación del expediente
+   * (VLRH-H1790812613830). No atrapa nada: cualquier fallo revierte la
+   * reactivación completa.
    *
-   * @param _actorUserId - Quién reactiva; lo consume la cancelación (VLRH-H1790812613830).
+   * @param actorUserId - Quién reactiva; va al log del rechazo y lo consume la cancelación (VLRH-H1790812613830).
    */
   async onEmployeeReactivated(
     trx: TransactionClientContract,
     employee: Employee,
-    _actorUserId: number | null
+    actorUserId: number | null
   ): Promise<void> {
     const openCase = await this.repository.lockOpenByEmployee(employee.employeeId, trx)
     if (openCase && openCase.businessUnitId !== employee.businessUnitId) {
       // R4: el expediente no compone el mixin de empresa; una discrepancia revierte todo
       throw new Error('onEmployeeReactivated: expediente de otra empresa')
     }
-    // [R2 de VLRH-C0040 — la agrega VLRH-H1791055794596 aquí, antes de la copia]
+    await this.assertExitNotConcluded(employee, openCase, trx, actorUserId)
     if (!openCase) return
     openCase.employeeOffboardingTerminationDate = toCalendarIsoDate(employee.employeeTerminatedDate)
     openCase.employeeOffboardingTerminationModality = employee.employeeTerminationModality ?? null
     openCase.employeeOffboardingTerminationType = employee.employeeTerminationType ?? null
     await this.repository.saveCase(openCase, trx)
     // [cancelación del expediente — la agrega VLRH-H1790812613830 aquí, con actorUserId]
+  }
+
+  /**
+   * R2 de VLRH-C0040 (VLRH-H1791055794596, regla 1): la salida está concretada
+   * si (a) no hay expediente abierto y el más reciente de la empresa está
+   * `closed`, o (b) el expediente abierto tiene emitida, vigente o
+   * reemplazada, una constancia de separación o un convenio de terminación.
+   * Igualdad positiva contra `CLOSED`: un expediente cancelado por una
+   * reactivación anterior (VLRH-H1790812613830) no bloquea. Lanza el 409 y
+   * la transacción de la reactivación revierte todo (R3).
+   */
+  private async assertExitNotConcluded(
+    employee: Employee,
+    openCase: EmployeeOffboarding | null,
+    trx: TransactionClientContract,
+    actorUserId: number | null
+  ): Promise<void> {
+    const reason = await this.resolveExitConcludedReason(employee, openCase, trx)
+    if (!reason) return
+    // Sin nombre, código ni datos de baja: solo quién, a quién y por qué
+    logger.warn(
+      {
+        actorUserId,
+        employeeId: employee.employeeId,
+        businessUnitId: employee.businessUnitId,
+        reason,
+      },
+      'OffboardingsService.onEmployeeReactivated: salida concretada'
+    )
+    throw employeeReactivationExitConcludedError(reason)
+  }
+
+  private async resolveExitConcludedReason(
+    employee: Employee,
+    openCase: EmployeeOffboarding | null,
+    trx: TransactionClientContract
+  ): Promise<EmployeeReactivationExitConcludedReason | null> {
+    if (!openCase) {
+      const mostRecent = await this.repository.findMostRecentCaseForReactivation(
+        employee.employeeId,
+        employee.businessUnitId,
+        trx
+      )
+      return mostRecent?.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CLOSED
+        ? 'case-closed'
+        : null
+    }
+    const issuedTypes = await this.repository.findIssuedExitDocumentTypes(
+      openCase.employeeOffboardingId,
+      trx
+    )
+    const issued = EMPLOYEE_OFFBOARDING_DOCUMENT_TYPES.find((type) => issuedTypes.includes(type))
+    return issued ? EXIT_DOCUMENT_REASON[issued] : null
   }
 
   /**

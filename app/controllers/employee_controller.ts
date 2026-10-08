@@ -4249,9 +4249,12 @@ export default class EmployeeController {
    *       '409':
    *         description: >-
    *           Cupo agotado (key cupo-empleados-agotado, code EMP.QUOTA.EXCEEDED), sin plan vigente
-   *           (key sin-plan-contratado, code EMP.QUOTA.NO_PLAN) o código original ocupado por otro
+   *           (key sin-plan-contratado, code EMP.QUOTA.NO_PLAN), código original ocupado por otro
    *           colaborador vivo de la empresa (key codigo-de-colaborador-ocupado,
-   *           code EMP.REACTIVATION.CODE_TAKEN, data.employeeCode). Nada cambió.
+   *           code EMP.REACTIVATION.CODE_TAKEN, data.employeeCode) o salida ya concretada
+   *           (key la-salida-ya-se-concreto, code EMP.REACTIVATION.EXIT_CONCLUDED, data.reason
+   *           case-closed | separation-letter-issued | termination-agreement-issued;
+   *           corresponde una reincorporación). Nada cambió.
    *         content:
    *           application/json:
    *             schema:
@@ -4271,6 +4274,15 @@ export default class EmployeeController {
    *                   type: string
    *                 data:
    *                   type: object
+   *             example:
+   *               type: error
+   *               title: La salida ya se concretó
+   *               message: No se puede deshacer esta baja porque la salida del colaborador ya se concretó. Si regresa a trabajar, corresponde una reincorporación.
+   *               detail: El expediente de salida ya se dio por terminado, o ya se emitió la constancia de separación o el convenio de terminación.
+   *               key: la-salida-ya-se-concreto
+   *               code: EMP.REACTIVATION.EXIT_CONCLUDED
+   *               data:
+   *                 reason: case-closed
    *       '500':
    *         description: Error inesperado; sin efectos parciales y sin detalle técnico
    */

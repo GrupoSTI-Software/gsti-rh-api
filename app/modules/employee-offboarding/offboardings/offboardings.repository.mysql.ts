@@ -12,7 +12,10 @@ import {
   EMPLOYEE_OFFBOARDING_STATUS,
   EMPLOYEE_OFFBOARDING_ITEM_STATUS,
 } from './offboardings.constants.js'
-import { EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE } from '../documents/documents.constants.js'
+import {
+  EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE,
+  type EmployeeOffboardingDocumentType,
+} from '../documents/documents.constants.js'
 import type {
   EmployeeOffboardingCreateData,
   EmployeeOffboardingItemCreateData,
@@ -365,6 +368,38 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
       .orderBy('employee_offboarding_created_at', 'desc')
       .orderBy('employee_offboarding_id', 'desc')
       .first()
+  }
+
+  async findMostRecentCaseForReactivation(
+    employeeId: number,
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboarding | null> {
+    return await EmployeeOffboarding.query({ client: trx })
+      .where('employee_id', employeeId)
+      .where('business_unit_id', businessUnitId)
+      .whereNull('employee_offboarding_deleted_at')
+      .orderBy('employee_offboarding_id', 'desc')
+      .forShare()
+      .first()
+  }
+
+  async findIssuedExitDocumentTypes(
+    employeeOffboardingId: number,
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboardingDocumentType[]> {
+    // Sin filtro `is_current` a propósito: una constancia o convenio reemplazado
+    // sigue contando como emitido (distinto de `SEPARATION_LETTER_EXISTS_SUBQUERY`).
+    const rows = await trx
+      .from('employee_offboarding_documents')
+      .distinct('employee_offboarding_document_type')
+      .where('employee_offboarding_id', employeeOffboardingId)
+      .whereNull('employee_offboarding_document_deleted_at')
+      .forShare()
+    return rows.map(
+      (row: { employee_offboarding_document_type: EmployeeOffboardingDocumentType }) =>
+        row.employee_offboarding_document_type
+    )
   }
 
   async saveCase(offboarding: EmployeeOffboarding, trx?: TransactionClientContract): Promise<void> {
