@@ -3,6 +3,7 @@ import { BaseModel, beforeCreate, beforeSave, column, computed } from '@adonisjs
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
 import type { AssistCreateFrom } from '#constants/assist_origin'
+import type { AssistLocationFlag } from '#constants/assist_location_flag'
 import { resolveAssistBusinessUnitId } from '#helpers/assist_business_unit_guard'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { assistChannelSentinel, computeAssistNaturalKey } from '#utils/assist_natural_key'
@@ -137,6 +138,13 @@ export default class Assist extends compose(BaseModel, SoftDeletes, withBusiness
   /** Procedencia del registro. NULL = origen no determinado (históricos). */
   @column()
   declare assistOrigin: AssistCreateFrom | null
+
+  /**
+   * Marca de ubicación (VLRH-H1790812613756). NULL = sin marca. La escribe sólo el
+   * motor de ingesta al insertar y nunca viaja en una respuesta.
+   */
+  @column({ serializeAs: null })
+  declare assistLocationFlag: AssistLocationFlag | null
 
   /** Metodo de verificacion del checador (1 huella, 15 rostro). Solo lo llena el canal ADMS. */
   @column()

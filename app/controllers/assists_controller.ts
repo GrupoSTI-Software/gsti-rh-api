@@ -1172,6 +1172,13 @@ export default class AssistsController {
    *                   Ausente: se deriva de si registra la propia persona (compatibilidad).
    *                 required: false
    *                 enum: [app, kiosk, backoffice, device]
+   *               assistIsMocked:
+   *                 type: boolean
+   *                 nullable: true
+   *                 description: |
+   *                   Indicador de ubicación simulada que reporta el teléfono.
+   *                   Solo tiene efecto con latitud y longitud.
+   *                 required: false
    *     responses:
    *       '201':
    *         description: |
@@ -1596,6 +1603,7 @@ export default class AssistsController {
             latitude: assistLatitude,
             longitude: assistLongitude,
             precision: assistPrecision,
+            isMocked: payload.assistIsMocked ?? null,
           },
           origin: assistOrigin,
           createdByUserId: assistCreatedByUserId,

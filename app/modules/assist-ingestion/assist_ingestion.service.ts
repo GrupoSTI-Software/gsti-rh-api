@@ -28,6 +28,7 @@ import {
 } from './assist_ingestion.rejections.js'
 import type { AssistIngestionRepository } from './assist_ingestion.repository.js'
 import { AssistGeoGuard } from './geo/assist_geo_guard.js'
+import { resolveAssistLocationFlag } from './geo/assist_location_flag.js'
 import type {
   AssistIngestionItem,
   AssistIngestionItemResult,
@@ -141,6 +142,9 @@ export default class AssistIngestionService {
         results[index].error = geoRejection
         continue
       }
+
+      // Solo la checada que pasó la zona recibe marca (VLRH-H1790812613756, regla 1).
+      record.locationFlag = resolveAssistLocationFlag(record.geo)
 
       // Los gemelos se resuelven en memoria, antes de tocar la base: si se dejaran
       // a la base, el segundo saldría como "ya estaba" —indistinguible de un
