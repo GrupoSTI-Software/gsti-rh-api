@@ -10,13 +10,14 @@ import { TenantContext } from '#utils/tenant_context'
  * cuando colaboradores exceden el plazo Fault sin registro de entrada.
  * Ejecutar vía CRON (p. ej. cada minuto). Los ya notificados no se repiten (tabla de log).
  *
- * Modo prueba: `node ace notify:attendance-fault-hr --test` envía al rol ELGUESO una vista
- * como si todos los colaboradores elegibles del día tuvieran falta (sin escribir en el log).
+ * Modo prueba: `node ace notify:attendance-fault-hr --test` envía al rol TESTER de la
+ * misma empresa una vista como si todos los colaboradores elegibles del día
+ * tuvieran falta (sin escribir en el log).
  */
 export default class NotifyAttendanceFaultHr extends BaseCommand {
   static commandName = 'notify:attendance-fault-hr'
   static description =
-    'Notifica por correo (RH) empleados sin registro de entrada tras vencer la tolerancia Fault'
+    'Notifica por correo empleados sin registro de entrada tras vencer la tolerancia Fault'
 
   static options: CommandOptions = {
     startApp: true,
@@ -24,7 +25,7 @@ export default class NotifyAttendanceFaultHr extends BaseCommand {
 
   @flags.boolean({
     description:
-      'Prueba: correo solo al rol ELGUESO, simulando faltas de todos los colaboradores elegibles del día (sin registrar en log)',
+      'Prueba: correo solo a usuarios de prueba con rol TESTER de la misma empresa, simulando faltas de todos los colaboradores elegibles del día (sin registrar en log)',
     alias: 't',
   })
   declare test: boolean
@@ -33,7 +34,7 @@ export default class NotifyAttendanceFaultHr extends BaseCommand {
     const isTest = this.test === true
     this.logger.info(
       isTest
-        ? 'Inicio: notificación de prueba (rol ELGUESO, faltas simuladas)'
+        ? 'Inicio: notificación de prueba (rol TESTER de la misma empresa, faltas simuladas)'
         : 'Inicio: notificación de faltas por asistencia a RH'
     )
     const service = new AttendanceFaultHrNotificationService()

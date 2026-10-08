@@ -77,6 +77,9 @@ export default class EvidenceRepositoryMysql implements EvidenceRepository {
       .if(filters.userId, (query) => {
         query.where('user_id', filters.userId as number)
       })
+      .if(filters.userConsentId, (query) => {
+        query.where('user_consent_id', filters.userConsentId as number)
+      })
       .if(filters.channel, (query) => {
         query.where('user_consent_channel', filters.channel as string)
       })

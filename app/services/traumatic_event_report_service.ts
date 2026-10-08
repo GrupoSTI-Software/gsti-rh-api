@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
+import logger from '@adonisjs/core/services/logger'
 import TraumaticEventReport from '#models/traumatic_event_report'
+import TraumaticEventReportNotificationService from '#services/traumatic_event_report_notification_service'
 import type { TraumaticEventReportOrigin } from '#models/traumatic_event_report'
 import TraumaticEventType from '#models/traumatic_event_type'
 import Employee from '#models/employee'
@@ -122,6 +124,8 @@ function parseDate(value: string | Date | DateTime): DateTime {
 }
 
 export default class TraumaticEventReportService {
+  private readonly notificationService = new TraumaticEventReportNotificationService()
+
   /**
    * Lista paginada de reportes visibles para el scope del usuario.
    * La unidad de negocio la aplica `withBusinessUnitScope()` sobre la
@@ -220,6 +224,17 @@ export default class TraumaticEventReportService {
 
     await report.load('employee')
     await report.load('traumaticEventType')
+    if (report.traumaticEventReportOrigin === 'employee') {
+      const { traumaticEventReportId, businessUnitId } = report
+      void this.notificationService
+        .notifyOnNewEmployeeReport(traumaticEventReportId, businessUnitId)
+        .catch((err: unknown) =>
+          logger.error(
+            { err, traumaticEventReportId, businessUnitId },
+            '[traumatic-event-report] Fallo al despachar el aviso a RH'
+          )
+        )
+    }
     return serializeReport(report)
   }
 

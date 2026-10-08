@@ -102,6 +102,13 @@ export const SYSTEM_SETTING_ERROR_CODES = {
       'are exceeded. The image should be compressed, optimized, or reduced in ' +
       'size before uploading. Recommended maximum size: 2-5MB for 512x512 PNG.',
   },
+
+  // VLRH-H1790812613753: margen de tolerancia de zona fuera de contrato
+  ZONE_TOLERANCE_METERS_INVALID: {
+    code: 'SYS.CNFG.VAL.019',
+    message: 'Invalid zone tolerance margin',
+    description: 'The zone tolerance margin must be a whole number of meters between 0 and 200.',
+  },
 } as const
 
 export type SystemSettingErrorCode = keyof typeof SYSTEM_SETTING_ERROR_CODES

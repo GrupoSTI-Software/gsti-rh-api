@@ -27,6 +27,8 @@ import {
   ASSIST_INGESTION_TENANT_UNRESOLVED,
 } from './assist_ingestion.rejections.js'
 import type { AssistIngestionRepository } from './assist_ingestion.repository.js'
+import { AssistGeoGuard } from './geo/assist_geo_guard.js'
+import { resolveAssistLocationFlag } from './geo/assist_location_flag.js'
 import type {
   AssistIngestionItem,
   AssistIngestionItemResult,
@@ -43,6 +45,8 @@ interface ResolvedSubject {
   employeeId: number
   employeeCode: string
   businessUnitId: number
+  /** "Puede registrar asistencia en cualquier zona": omite la comprobación de zona. */
+  authorizeAnyZones: boolean
 }
 
 type SubjectResolution =
@@ -74,15 +78,18 @@ export default class AssistIngestionService {
   private readonly repository: AssistIngestionRepository
   private readonly calendarRecalc: CalendarRecalcRepository
   private readonly siteTimeZones: SiteTimeZoneService
+  private readonly geoGuard: AssistGeoGuard
 
   constructor(
     repository: AssistIngestionRepository = new AssistIngestionRepositoryMysql(),
     calendarRecalc: CalendarRecalcRepository = new CalendarRecalcRepositoryMysql(),
-    siteTimeZones: SiteTimeZoneService = new SiteTimeZoneService()
+    siteTimeZones: SiteTimeZoneService = new SiteTimeZoneService(),
+    geoGuard: AssistGeoGuard = new AssistGeoGuard()
   ) {
     this.repository = repository
     this.calendarRecalc = calendarRecalc
     this.siteTimeZones = siteTimeZones
+    this.geoGuard = geoGuard
   }
 
   async ingest(
@@ -99,6 +106,7 @@ export default class AssistIngestionService {
 
     const records: AssistIngestionRecord[] = []
     const seenNaturalKeys = new Set<string>()
+    const geoCache = this.geoGuard.createCache()
 
     for (const [index, item] of items.entries()) {
       const resolution = await this.resolveSubject(item.subject)
@@ -121,6 +129,22 @@ export default class AssistIngestionService {
         terminalAlias: item.terminalAlias,
         verifyMethod: item.verifyMethod,
       }
+
+      // La zona se decide antes que los gemelos (VLRH-H1790812613754): un rechazo
+      // no entra a `records`, no ocupa la llave natural y no hay nada que
+      // revertir. El gemelo de una checada rechazada se evalúa por sí mismo.
+      const geoRejection = await this.geoGuard.check(
+        record,
+        { authorizeAnyZones: resolution.subject.authorizeAnyZones },
+        geoCache
+      )
+      if (geoRejection) {
+        results[index].error = geoRejection
+        continue
+      }
+
+      // Solo la checada que pasó la zona recibe marca (VLRH-H1790812613756, regla 1).
+      record.locationFlag = resolveAssistLocationFlag(record.geo)
 
       // Los gemelos se resuelven en memoria, antes de tocar la base: si se dejaran
       // a la base, el segundo saldría como "ya estaba" —indistinguible de un
@@ -227,6 +251,7 @@ export default class AssistIngestionService {
           employeeId: employee.employeeId,
           employeeCode: employee.employeeCode ? String(employee.employeeCode) : '',
           businessUnitId: resolveAssistBusinessUnitId(employee.businessUnitId),
+          authorizeAnyZones: employee.employeeAuthorizeAnyZones === 1,
         },
       }
     } catch (error) {

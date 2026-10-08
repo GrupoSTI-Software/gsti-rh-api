@@ -24,6 +24,9 @@ import BillingCatalogService from '#services/billing_catalog_service'
 import AdditionalBusinessUnitService from '#services/additional_business_unit_service'
 import { DEFAULT_BRANCH_OFFICE_NAME } from '#constants/branch_office'
 import { ensureRole } from '#tests/helpers/ensure_role'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
+import { blindIndexOrNull } from '#utils/blind_index'
 
 /**
  * Sucursal default del tenant — siembra en el alta y unicidad en la base.
@@ -107,11 +110,26 @@ async function createBareBusinessUnit(stamp: number): Promise<BusinessUnit> {
   return businessUnit
 }
 
+/**
+ * Corre `fn` con el contexto de UNA empresa, como lo hacen los llamadores reales
+ * de la provisión (alta self-service, alta adicional, middleware de scope).
+ */
+function inBusinessUnit<T>(businessUnitId: number, fn: () => Promise<T>): Promise<T> {
+  return TenantContext.run([businessUnitId], fn)
+}
+
 async function purgeBranchOffices(businessUnitId: number) {
   await db.from('branch_offices').where('business_unit_id', businessUnitId).delete()
 }
 
 async function cleanupTenant(businessUnitName: string, email: string) {
+  await TenantContext.runUnscoped(
+    () => purgeTenant(businessUnitName, email),
+    TENANT_UNSCOPED_REASON.TEST_FIXTURE
+  )
+}
+
+async function purgeTenant(businessUnitName: string, email: string) {
   const businessUnit = await BusinessUnit.query()
     .where('business_unit_name', businessUnitName)
     .first()
@@ -141,7 +159,8 @@ async function cleanupTenant(businessUnitName: string, email: string) {
     await BusinessUnitUser.query().where('user_id', user.userId).delete()
     await User.query().where('user_id', user.userId).delete()
   }
-  const person = await Person.query().where('person_email', email).first()
+  // `person_email` va cifrado: se busca por su índice ciego, como el código real.
+  const person = await Person.query().where('person_email_hash', blindIndexOrNull(email) ?? '').first()
   if (person) {
     await Person.query().where('person_id', person.personId).delete()
   }
@@ -215,7 +234,9 @@ test.group('Sucursal default del tenant — siembra en el alta', (group) => {
       .where('business_unit_name', businessUnitName)
       .firstOrFail()
 
-    const branches = await BranchOffice.query().where('business_unit_id', businessUnit.businessUnitId)
+    const branches = await inBusinessUnit(businessUnit.businessUnitId, async () =>
+      BranchOffice.query().where('business_unit_id', businessUnit.businessUnitId)
+    )
 
     assert.lengthOf(branches, 1, 'el tenant nuevo nace con exactamente una sucursal')
     assert.equal(branches[0].branchOfficeName, DEFAULT_BRANCH_OFFICE_NAME)
@@ -260,6 +281,10 @@ test.group('Sucursal default del tenant — alta de empresa adicional', (group) 
 
   group.teardown(async () => {
     if (mailFake) mail.restore()
+    await TenantContext.runUnscoped(purgeAdditional, TENANT_UNSCOPED_REASON.TEST_FIXTURE)
+  })
+
+  async function purgeAdditional() {
     if (createdBuId !== null) {
       await purgeBranchOffices(createdBuId)
       await BillingSubscription.query().where('business_unit_id', createdBuId).delete()
@@ -287,7 +312,7 @@ test.group('Sucursal default del tenant — alta de empresa adicional', (group) 
     if (plan) {
       await plan.delete()
     }
-  })
+  }
 
   test('la empresa adicional también nace con su sucursal default', async ({ assert }) => {
     const service = new AdditionalBusinessUnitService()
@@ -303,7 +328,10 @@ test.group('Sucursal default del tenant — alta de empresa adicional', (group) 
       .firstOrFail()
     createdBuId = businessUnit.businessUnitId
 
-    const branches = await BranchOffice.query().where('business_unit_id', createdBuId)
+    const buId = businessUnit.businessUnitId
+    const branches = await inBusinessUnit(buId, async () =>
+      BranchOffice.query().where('business_unit_id', buId)
+    )
 
     assert.lengthOf(branches, 1, 'la empresa adicional nace con exactamente una sucursal')
     assert.equal(branches[0].branchOfficeName, DEFAULT_BRANCH_OFFICE_NAME)
@@ -328,91 +356,101 @@ test.group('Sucursal default del tenant — ensureDefault y unicidad', (group) =
   test('ensureDefault crea la sucursal default cuando la empresa no la tiene', async ({
     assert,
   }) => {
-    const created = await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
+    await inBusinessUnit(businessUnit.businessUnitId, async () => {
+      const created = await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
 
-    assert.equal(created.branchOfficeName, DEFAULT_BRANCH_OFFICE_NAME)
-    assert.equal(created.branchOfficeIsDefault, 1)
-    assert.equal(created.businessUnitId, businessUnit.businessUnitId)
+      assert.equal(created.branchOfficeName, DEFAULT_BRANCH_OFFICE_NAME)
+      assert.equal(created.branchOfficeIsDefault, 1)
+      assert.equal(created.businessUnitId, businessUnit.businessUnitId)
+    })
   })
 
   test('ensureDefault es idempotente: la segunda invocación devuelve la misma sucursal', async ({
     assert,
   }) => {
-    const first = await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
-    const second = await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
+    await inBusinessUnit(businessUnit.businessUnitId, async () => {
+      const first = await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
+      const second = await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
 
-    assert.equal(second.branchOfficeId, first.branchOfficeId)
+      assert.equal(second.branchOfficeId, first.branchOfficeId)
 
-    const rows = await BranchOffice.query().where('business_unit_id', businessUnit.businessUnitId)
-    assert.lengthOf(rows, 1, 'reintentar la provisión no duplica la sucursal')
+      const rows = await BranchOffice.query().where('business_unit_id', businessUnit.businessUnitId)
+      assert.lengthOf(rows, 1, 'reintentar la provisión no duplica la sucursal')
+    })
   })
 
   test('ensureDefault adopta como default la sucursal que ya existía sola, sin crear otra', async ({
     assert,
   }) => {
-    const existing = await BranchOffice.create({
-      businessUnitId: businessUnit.businessUnitId,
-      branchOfficeName: 'Matriz Monterrey',
-      branchOfficeSlug: `matriz-monterrey-${stamp}`,
-      branchOfficeLocationAddress: null,
-      branchOfficeIdealTemplateCount: null,
-      branchOfficeMinActiveEmployeesPerShift: null,
-      empresaContratanteId: null,
+    await inBusinessUnit(businessUnit.businessUnitId, async () => {
+      const existing = await BranchOffice.create({
+        businessUnitId: businessUnit.businessUnitId,
+        branchOfficeName: 'Matriz Monterrey',
+        branchOfficeSlug: `matriz-monterrey-${stamp}`,
+        branchOfficeLocationAddress: null,
+        branchOfficeIdealTemplateCount: null,
+        branchOfficeMinActiveEmployeesPerShift: null,
+        empresaContratanteId: null,
+      })
+
+      const resolved = await BranchOfficeProvisioningService.ensureDefault(
+        businessUnit.businessUnitId
+      )
+
+      assert.equal(
+        resolved.branchOfficeId,
+        existing.branchOfficeId,
+        'una empresa con una sola sucursal la promueve en vez de estrenar "Oficina principal"'
+      )
+      assert.equal(resolved.branchOfficeIsDefault, 1)
+
+      const rows = await BranchOffice.query().where('business_unit_id', businessUnit.businessUnitId)
+      assert.lengthOf(rows, 1)
     })
-
-    const resolved = await BranchOfficeProvisioningService.ensureDefault(
-      businessUnit.businessUnitId
-    )
-
-    assert.equal(
-      resolved.branchOfficeId,
-      existing.branchOfficeId,
-      'una empresa con una sola sucursal la promueve en vez de estrenar "Oficina principal"'
-    )
-    assert.equal(resolved.branchOfficeIsDefault, 1)
-
-    const rows = await BranchOffice.query().where('business_unit_id', businessUnit.businessUnitId)
-    assert.lengthOf(rows, 1)
   })
 
   test('la base rechaza una segunda sucursal default viva en la misma empresa', async ({
     assert,
   }) => {
-    await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
+    await inBusinessUnit(businessUnit.businessUnitId, async () => {
+      await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
 
-    let dbError: { code?: string } | null = null
-    try {
-      await db.table('branch_offices').insert({
-        business_unit_id: businessUnit.businessUnitId,
-        branch_office_name: 'Segunda default ilegal',
-        branch_office_slug: `segunda-default-${stamp}`,
-        branch_office_is_default: 1,
-        branch_office_created_at: DateTime.now().toFormat('yyyy-MM-dd HH:mm:ss'),
-        branch_office_updated_at: DateTime.now().toFormat('yyyy-MM-dd HH:mm:ss'),
-      })
-    } catch (error) {
-      dbError = error as { code?: string }
-    }
+      let dbError: { code?: string } | null = null
+      try {
+        await db.table('branch_offices').insert({
+          business_unit_id: businessUnit.businessUnitId,
+          branch_office_name: 'Segunda default ilegal',
+          branch_office_slug: `segunda-default-${stamp}`,
+          branch_office_is_default: 1,
+          branch_office_created_at: DateTime.now().toFormat('yyyy-MM-dd HH:mm:ss'),
+          branch_office_updated_at: DateTime.now().toFormat('yyyy-MM-dd HH:mm:ss'),
+        })
+      } catch (error) {
+        dbError = error as { code?: string }
+      }
 
-    assert.exists(dbError, 'la segunda default viva debe reventar contra el UNIQUE')
-    assert.equal(
-      dbError?.code,
-      'ER_DUP_ENTRY',
-      'el rechazo lo hace el motor, no el código de aplicación'
-    )
+      assert.exists(dbError, 'la segunda default viva debe reventar contra el UNIQUE')
+      assert.equal(
+        dbError?.code,
+        'ER_DUP_ENTRY',
+        'el rechazo lo hace el motor, no el código de aplicación'
+      )
+    })
   })
 
   test('una sucursal default borrada libera el lugar para la siguiente', async ({ assert }) => {
-    const first = await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
-    await first.delete()
+    await inBusinessUnit(businessUnit.businessUnitId, async () => {
+      const first = await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
+      await first.delete()
 
-    const second = await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
+      const second = await BranchOfficeProvisioningService.ensureDefault(businessUnit.businessUnitId)
 
-    assert.notEqual(
-      second.branchOfficeId,
-      first.branchOfficeId,
-      'la borrada no ocupa el slot: el UNIQUE vive sobre la columna generada, que es NULL en borradas'
-    )
-    assert.equal(second.branchOfficeIsDefault, 1)
+      assert.notEqual(
+        second.branchOfficeId,
+        first.branchOfficeId,
+        'la borrada no ocupa el slot: el UNIQUE vive sobre la columna generada, que es NULL en borradas'
+      )
+      assert.equal(second.branchOfficeIsDefault, 1)
+    })
   })
 })

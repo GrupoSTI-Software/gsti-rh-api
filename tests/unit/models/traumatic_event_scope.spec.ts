@@ -6,6 +6,7 @@ import TraumaticEventReport from '#models/traumatic_event_report'
 import TraumaticEventExam from '#models/traumatic_event_exam'
 import TraumaticEventReferral from '#models/traumatic_event_referral'
 import TraumaticEventReportEvidence from '#models/traumatic_event_report_evidence'
+import TraumaticEventReportNotificationLog from '#models/traumatic_event_report_notification_log'
 
 /**
  * USRH1786595131490 — marca propia de empresa en el reporte de evento
@@ -32,6 +33,10 @@ const CHILDREN = [
   {
     fileName: 'traumatic_event_report_evidence.ts',
     Model: TraumaticEventReportEvidence,
+  },
+  {
+    fileName: 'traumatic_event_report_notification_log.ts',
+    Model: TraumaticEventReportNotificationLog,
   },
 ] as const
 

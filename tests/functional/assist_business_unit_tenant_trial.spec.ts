@@ -235,9 +235,7 @@ test.group('Assists — ensayo 2 empresas vivas (USRH1786566437097 / CA-21)', (g
       .json({
         employeeId: employee.employeeId,
         assistType: 'check',
-        assistLongitude: 0,
-        assistLatitude: 0,
-        assistPrecision: 0,
+        // Sin ubicación: la zona (VLRH-H1790812613754) no es el objeto de este caso.
         businessUnitId: BU1_ID,
       })
       .loginAs(user)
@@ -266,9 +264,7 @@ test.group('Assists — ensayo 2 empresas vivas (USRH1786566437097 / CA-21)', (g
       .json({
         employeeId: bu6EmployeeId,
         assistType: 'check',
-        assistLongitude: 0,
-        assistLatitude: 0,
-        assistPrecision: 0,
+        // Sin ubicación: la zona (VLRH-H1790812613754) no es el objeto de este caso.
       })
       .loginAs(user)
       .header('X-Business-Unit-Id', BU1_PUBLIC_ID)

@@ -2,6 +2,7 @@ import Stripe from 'stripe'
 import logger from '@adonisjs/core/services/logger'
 import {
   BILLING_PROVIDER_ERROR_CODES,
+  BILLING_PROVIDER_PROVIDER_STATE_UNAVAILABLE_DETAIL,
   BILLING_PROVIDER_STRIPE_NOT_CONFIGURED_DETAIL,
   BILLING_PROVIDER_WEBHOOK_MODE_MISMATCH_DETAIL,
   BILLING_PROVIDER_WEBHOOK_SIGNATURE_INVALID_DETAIL,
@@ -18,8 +19,13 @@ import {
   type BillingCheckoutProviderPort,
   type BillingInvoiceProviderPort,
   type BillingProviderPort,
+  type BillingSubscriptionStateProviderPort,
   type BillingWebhookProviderPort,
   type InvoiceChargeDraft,
+  type ProviderPaymentFailure,
+  type ProviderSubscriptionState,
+  type ProviderSubscriptionStatus,
+  type ReadInvoiceOptions,
   type ProviderInvoice,
   type ProviderInvoiceLine,
   type ProviderInvoiceStatus,
@@ -329,6 +335,79 @@ export function mapProviderInvoice(
   }
 }
 
+function readPaidAt(raw: Stripe.Invoice): number | null {
+  const paidAt = raw.status_transitions?.paid_at
+  if (paidAt === null || paidAt === undefined) {
+    return null
+  }
+  if (!Number.isInteger(paidAt)) {
+    throwReadInvoiceShapeError('status_transitions.paid_at')
+  }
+  return paidAt
+}
+
+function readAmountPaidOffStripe(raw: Stripe.Invoice): number {
+  const value = (raw as Stripe.Invoice & { amount_paid_off_stripe?: unknown }).amount_paid_off_stripe
+  if (value === undefined || value === null) {
+    return 0
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throwReadInvoiceShapeError('amount_paid_off_stripe')
+  }
+  return value
+}
+
+function readPaymentIntentRefFromInvoice(raw: Stripe.Invoice): string | null {
+  const payments = raw.payments
+  if (payments === undefined || payments === null) {
+    throwReadInvoiceShapeError('payments')
+  }
+  if (typeof payments !== 'object' || payments.object !== 'list' || !Array.isArray(payments.data)) {
+    throwReadInvoiceShapeError('payments')
+  }
+
+  const paidIntents = payments.data.filter(
+    (entry) =>
+      entry.status === 'paid' &&
+      entry.payment?.type === 'payment_intent'
+  )
+
+  if (paidIntents.length !== 1) {
+    return null
+  }
+
+  const paymentIntent = paidIntents[0]!.payment?.payment_intent
+  if (typeof paymentIntent === 'string') {
+    return paymentIntent
+  }
+  if (
+    typeof paymentIntent === 'object' &&
+    paymentIntent !== null &&
+    'id' in paymentIntent &&
+    typeof paymentIntent.id === 'string'
+  ) {
+    return paymentIntent.id
+  }
+  return null
+}
+
+export function mapProviderInvoicePayments(
+  raw: Stripe.Invoice,
+  base: ProviderInvoice
+): ProviderInvoice {
+  if (!Number.isInteger(raw.amount_paid)) {
+    throwReadInvoiceShapeError('amount_paid')
+  }
+
+  return {
+    ...base,
+    amountPaidCents: raw.amount_paid,
+    paidAt: readPaidAt(raw),
+    paymentIntentRef: readPaymentIntentRefFromInvoice(raw),
+    amountPaidOffStripeCents: readAmountPaidOffStripe(raw),
+  }
+}
+
 async function listAllInvoiceLineItems(
   client: Stripe,
   invoiceRef: string
@@ -543,6 +622,194 @@ function mapStripeEventToVerified(event: Stripe.Event): VerifiedProviderEvent {
 /**
  * Adaptador Stripe: guardia de configuración, catálogo (USRH1790708507553) y esqueleto de cobro (7496).
  */
+const KNOWN_PROVIDER_SUBSCRIPTION_STATUSES = new Set<ProviderSubscriptionStatus>([
+  'trialing',
+  'active',
+  'past_due',
+  'unpaid',
+  'canceled',
+  'incomplete',
+  'incomplete_expired',
+  'paused',
+])
+
+function providerStateUnavailable(operation: string): BillingProviderServiceError {
+  return new BillingProviderServiceError(
+    `Lectura de estado en Stripe fallida: ${operation}`,
+    BILLING_PROVIDER_ERROR_CODES.PROVIDER_STATE_UNAVAILABLE,
+    500,
+    'estado-del-proveedor-no-disponible',
+    BILLING_PROVIDER_PROVIDER_STATE_UNAVAILABLE_DETAIL
+  )
+}
+
+function assertProviderStateSubscriptionRef(ref: string, operation: string): void {
+  if (!ref.startsWith('sub_') || ref.includes('/')) {
+    throw providerStateUnavailable(operation)
+  }
+}
+
+function assertProviderStateInvoiceRef(ref: string, operation: string): void {
+  if (!ref.startsWith('in_') || ref.includes('/')) {
+    throw providerStateUnavailable(operation)
+  }
+}
+
+function readCustomerRefFromUnknown(customer: unknown): string | null {
+  if (typeof customer === 'string' && customer.length > 0) {
+    return customer
+  }
+  if (
+    typeof customer === 'object' &&
+    customer !== null &&
+    'id' in customer &&
+    typeof (customer as { id: unknown }).id === 'string' &&
+    (customer as { id: string }).id.length > 0
+  ) {
+    return (customer as { id: string }).id
+  }
+  return null
+}
+
+function readSubscriptionRefFromInvoiceUnknown(invoice: unknown): string | null {
+  if (invoice === null || typeof invoice !== 'object') {
+    return null
+  }
+  const parent = (invoice as { parent?: unknown }).parent
+  if (parent === null || typeof parent !== 'object') {
+    return null
+  }
+  const parentType = (parent as { type?: unknown }).type
+  if (
+    parentType !== undefined &&
+    parentType !== null &&
+    parentType !== 'subscription_details'
+  ) {
+    return null
+  }
+  const subscription = (parent as { subscription_details?: { subscription?: unknown } })
+    .subscription_details?.subscription
+  if (typeof subscription === 'string') {
+    return subscription
+  }
+  if (
+    typeof subscription === 'object' &&
+    subscription !== null &&
+    typeof (subscription as { id?: unknown }).id === 'string'
+  ) {
+    return (subscription as { id: string }).id
+  }
+  return null
+}
+
+function readLatestPaymentIntentRefFromInvoice(invoice: unknown): string | null {
+  if (invoice === null || typeof invoice !== 'object') {
+    return null
+  }
+  const payments = (invoice as { payments?: unknown }).payments
+  if (payments === null || typeof payments !== 'object') {
+    return null
+  }
+  const data = (payments as { data?: unknown }).data
+  if (!Array.isArray(data)) {
+    return null
+  }
+
+  let bestRef: string | null = null
+  let bestCreated = -1
+
+  for (const entry of data) {
+    if (entry === null || typeof entry !== 'object') {
+      continue
+    }
+    const payment = (entry as { payment?: unknown }).payment
+    if (payment === null || typeof payment !== 'object') {
+      continue
+    }
+    if ((payment as { type?: unknown }).type !== 'payment_intent') {
+      continue
+    }
+    const createdRaw = (entry as { created?: unknown }).created
+    const created = typeof createdRaw === 'number' ? createdRaw : -1
+    const paymentIntent = (payment as { payment_intent?: unknown }).payment_intent
+    let ref: string | null = null
+    if (typeof paymentIntent === 'string') {
+      ref = paymentIntent
+    } else if (
+      typeof paymentIntent === 'object' &&
+      paymentIntent !== null &&
+      typeof (paymentIntent as { id?: unknown }).id === 'string'
+    ) {
+      ref = (paymentIntent as { id: string }).id
+    }
+    if (ref !== null && created >= bestCreated) {
+      bestCreated = created
+      bestRef = ref
+    }
+  }
+
+  return bestRef
+}
+
+export function toProviderSubscriptionState(subscription: unknown): ProviderSubscriptionState | null {
+  if (subscription === null || typeof subscription !== 'object') {
+    return null
+  }
+  const raw = subscription as Record<string, unknown>
+  const subscriptionRef = typeof raw.id === 'string' ? raw.id : null
+  if (subscriptionRef === null || subscriptionRef === '') {
+    return null
+  }
+  const customerRef = readCustomerRefFromUnknown(raw.customer)
+  if (customerRef === null) {
+    return null
+  }
+  const statusRaw = typeof raw.status === 'string' ? raw.status : null
+  let status: ProviderSubscriptionStatus = 'unknown'
+  if (statusRaw !== null && KNOWN_PROVIDER_SUBSCRIPTION_STATUSES.has(statusRaw as ProviderSubscriptionStatus)) {
+    status = statusRaw as ProviderSubscriptionStatus
+  }
+  return { subscriptionRef, customerRef, status }
+}
+
+export function toProviderPaymentFailure(
+  invoice: unknown,
+  intent: unknown | null
+): ProviderPaymentFailure | null {
+  if (invoice === null || typeof invoice !== 'object') {
+    return null
+  }
+  const inv = invoice as Record<string, unknown>
+  const invoiceRef = typeof inv.id === 'string' ? inv.id : null
+  if (invoiceRef === null || invoiceRef === '') {
+    return null
+  }
+
+  let errorCode: string | null = null
+  let declineCode: string | null = null
+  let intentStatus: string | null = null
+
+  if (intent !== null && typeof intent === 'object') {
+    const pi = intent as Record<string, unknown>
+    intentStatus = typeof pi.status === 'string' ? pi.status : null
+    const lastError = pi.last_payment_error
+    if (lastError !== null && typeof lastError === 'object') {
+      const err = lastError as Record<string, unknown>
+      errorCode = typeof err.code === 'string' ? err.code : null
+      declineCode = typeof err.decline_code === 'string' ? err.decline_code : null
+    }
+  }
+
+  return {
+    invoiceRef,
+    subscriptionRef: readSubscriptionRefFromInvoiceUnknown(invoice),
+    customerRef: readCustomerRefFromUnknown(inv.customer),
+    errorCode,
+    declineCode,
+    intentStatus,
+  }
+}
+
 function setupIntentMatchesDraft(
   setupIntent: Stripe.SetupIntent,
   customerRef: string,
@@ -562,7 +829,8 @@ export default class StripeBillingProviderAdapter
     BillingCatalogProviderPort,
     BillingWebhookProviderPort,
     BillingCheckoutProviderPort,
-    BillingInvoiceProviderPort
+    BillingInvoiceProviderPort,
+    BillingSubscriptionStateProviderPort
 {
   readonly key = BILLING_PROVIDER_KEYS.STRIPE
 
@@ -668,13 +936,19 @@ export default class StripeBillingProviderAdapter
     }
   }
 
-  async readInvoice(invoiceRef: string): Promise<ProviderInvoice> {
+  async readInvoice(invoiceRef: string, options?: ReadInvoiceOptions): Promise<ProviderInvoice> {
     assertInvoiceRef(invoiceRef, 'readInvoice')
     const client = this.#requireClient()
     try {
-      const invoice = await client.invoices.retrieve(invoiceRef)
+      const invoice = options?.includePayments
+        ? await client.invoices.retrieve(invoiceRef, { expand: ['payments'] })
+        : await client.invoices.retrieve(invoiceRef)
       const lines = await listAllInvoiceLineItems(client, invoiceRef)
-      return mapProviderInvoice(invoice, lines)
+      const base = mapProviderInvoice(invoice, lines)
+      if (!options?.includePayments) {
+        return base
+      }
+      return mapProviderInvoicePayments(invoice, base)
     } catch (error) {
       throw this.#wrap('readInvoice', error)
     }
@@ -901,6 +1175,73 @@ export default class StripeBillingProviderAdapter
       )
     } catch (error) {
       throw this.#wrap('cancelProviderSubscription', error)
+    }
+  }
+
+  async readSubscriptionState(subscriptionRef: string): Promise<ProviderSubscriptionState> {
+    assertProviderStateSubscriptionRef(subscriptionRef, 'readSubscriptionState')
+    return this.#readProviderState('readSubscriptionState', async (client) => {
+      const subscription = await client.subscriptions.retrieve(subscriptionRef)
+      const mapped = toProviderSubscriptionState(subscription)
+      if (mapped === null) {
+        throw providerStateUnavailable('readSubscriptionState')
+      }
+      return mapped
+    })
+  }
+
+  async readInvoicePaymentFailure(invoiceRef: string): Promise<ProviderPaymentFailure> {
+    assertProviderStateInvoiceRef(invoiceRef, 'readInvoicePaymentFailure')
+    return this.#readProviderState('readInvoicePaymentFailure', async (client) => {
+      const invoice = await client.invoices.retrieve(invoiceRef, { expand: ['payments'] })
+      const paymentIntentRef = readLatestPaymentIntentRefFromInvoice(invoice)
+      const intent =
+        paymentIntentRef !== null ? await client.paymentIntents.retrieve(paymentIntentRef) : null
+      const mapped = toProviderPaymentFailure(invoice, intent)
+      if (mapped === null) {
+        throw providerStateUnavailable('readInvoicePaymentFailure')
+      }
+      return mapped
+    })
+  }
+
+  async #readProviderState<T>(
+    operation: string,
+    run: (client: Stripe) => Promise<T>
+  ): Promise<T> {
+    const client = this.#requireClient()
+    try {
+      return await run(client)
+    } catch (error) {
+      if (error instanceof BillingProviderServiceError) {
+        throw error
+      }
+      if (error instanceof Stripe.errors.StripeError) {
+        logger.warn(
+          {
+            provider: BILLING_PROVIDER_KEYS.STRIPE,
+            operation,
+            stripeErrorType: error.type ?? null,
+            stripeErrorCode: error.code ?? null,
+            stripeRequestId: error.requestId ?? null,
+            statusCode: error.statusCode ?? null,
+          },
+          'Lectura de estado en el proveedor de cobro fallida'
+        )
+        throw providerStateUnavailable(operation)
+      }
+      logger.warn(
+        {
+          provider: BILLING_PROVIDER_KEYS.STRIPE,
+          operation,
+          stripeErrorType: null,
+          stripeErrorCode: null,
+          stripeRequestId: null,
+          statusCode: null,
+        },
+        'Lectura de estado en el proveedor de cobro fallida'
+      )
+      throw providerStateUnavailable(operation)
     }
   }
 

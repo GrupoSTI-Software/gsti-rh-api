@@ -1172,6 +1172,13 @@ export default class AssistsController {
    *                   Ausente: se deriva de si registra la propia persona (compatibilidad).
    *                 required: false
    *                 enum: [app, kiosk, backoffice, device]
+   *               assistIsMocked:
+   *                 type: boolean
+   *                 nullable: true
+   *                 description: |
+   *                   Indicador de ubicación simulada que reporta el teléfono.
+   *                   Solo tiene efecto con latitud y longitud.
+   *                 required: false
    *     responses:
    *       '201':
    *         description: |
@@ -1235,7 +1242,9 @@ export default class AssistsController {
    *           Parámetros inválidos. Incluye `employeeId` ausente o no entero positivo
    *           y cuerpo fuera de la lista blanca (code `AST.VAL.002`), o colaborador
    *           inexistente o de otra empresa (key `colaborador-no-encontrado`, code
-   *           `AST.VAL.008`), indistinguibles entre sí por diseño.
+   *           `AST.VAL.008`), indistinguibles entre sí por diseño. También
+   *           coordenadas imposibles: solo una de las dos, o fuera de rango (key
+   *           `coordenadas-invalidas`, code `AST.VAL.013`, VLRH-H1790812613754).
    *         content:
    *           application/json:
    *             examples:
@@ -1266,6 +1275,15 @@ export default class AssistsController {
    *                   detail: El colaborador indicado no existe en la empresa activa.
    *                   key: colaborador-no-encontrado
    *                   code: AST.VAL.008
+   *               coordinatesInvalid:
+   *                 summary: Coordenadas imposibles
+   *                 value:
+   *                   type: warning
+   *                   title: Ubicación inválida
+   *                   message: La ubicación que envió el dispositivo no es válida. Activa la ubicación e inténtalo de nuevo.
+   *                   detail: La ubicación que envió el dispositivo no es válida. Activa la ubicación e inténtalo de nuevo.
+   *                   key: coordenadas-invalidas
+   *                   code: AST.VAL.013
    *       '403':
    *         description: Captura ajena sin permiso `add-assist-manual` (key `sin-autorizacion-para-registrar-asistencia-ajena`, code `AST.AUTHZ.002`).
    *         content:
@@ -1284,15 +1302,53 @@ export default class AssistsController {
    *           tolerancia (key `hora-de-captura-en-el-futuro`, code `AST.VAL.005`) u
    *           hora de captura fuera de la ventana permitida (key
    *           `hora-de-captura-fuera-de-la-ventana-permitida`, code `AST.VAL.006`).
+   *           Con ubicación, la checada se compara contra las zonas autorizadas
+   *           del empleado (VLRH-H1790812613754): fuera de toda zona con la
+   *           holgura de su empresa (key `checada-fuera-de-zona`, code
+   *           `AST.GEO.001`), sin zonas asignadas (key
+   *           `empleado-sin-zona-autorizada`, code `AST.GEO.002`) o con zonas que
+   *           no se pueden evaluar (key `zona-no-evaluable`, code `AST.GEO.003`).
+   *           El rechazo no incluye coordenadas, distancias ni datos de zonas, y
+   *           no guarda la checada.
    *         content:
    *           application/json:
-   *             example:
-   *               type: warning
-   *               title: Colaborador dado de baja
-   *               message: No se puede registrar asistencia de un colaborador dado de baja.
-   *               detail: No se puede registrar asistencia de un colaborador dado de baja.
-   *               key: colaborador-dado-de-baja
-   *               code: AST.AUTHZ.001
+   *             examples:
+   *               employeeTerminated:
+   *                 summary: Colaborador dado de baja
+   *                 value:
+   *                   type: warning
+   *                   title: Colaborador dado de baja
+   *                   message: No se puede registrar asistencia de un colaborador dado de baja.
+   *                   detail: No se puede registrar asistencia de un colaborador dado de baja.
+   *                   key: colaborador-dado-de-baja
+   *                   code: AST.AUTHZ.001
+   *               outsideZone:
+   *                 summary: Checada fuera de las zonas autorizadas
+   *                 value:
+   *                   type: warning
+   *                   title: Fuera de tu zona de asistencia
+   *                   message: Tu registro se hizo fuera de las zonas donde tienes autorizado registrar asistencia.
+   *                   detail: Tu registro se hizo fuera de las zonas donde tienes autorizado registrar asistencia.
+   *                   key: checada-fuera-de-zona
+   *                   code: AST.GEO.001
+   *               withoutAuthorizedZone:
+   *                 summary: Empleado sin zona asignada
+   *                 value:
+   *                   type: warning
+   *                   title: Sin zona de asistencia asignada
+   *                   message: No tienes una zona de asistencia asignada. Pide a Recursos Humanos que te asigne una.
+   *                   detail: No tienes una zona de asistencia asignada. Pide a Recursos Humanos que te asigne una.
+   *                   key: empleado-sin-zona-autorizada
+   *                   code: AST.GEO.002
+   *               zoneNotEvaluable:
+   *                 summary: Zona asignada no evaluable
+   *                 value:
+   *                   type: warning
+   *                   title: Zona de asistencia no disponible
+   *                   message: Tu zona de asistencia no se puede usar para validar el registro. Pide a Recursos Humanos que la revise.
+   *                   detail: Tu zona de asistencia no se puede usar para validar el registro. Pide a Recursos Humanos que la revise.
+   *                   key: zona-no-evaluable
+   *                   code: AST.GEO.003
    *       '429':
    *         description: Límite de volumen superado (20 registros cada 5 minutos por usuario; respuesta estándar de `@adonisjs/limiter`, code documental `AST.RATE.001`).
    *         content:
@@ -1547,6 +1603,7 @@ export default class AssistsController {
             latitude: assistLatitude,
             longitude: assistLongitude,
             precision: assistPrecision,
+            isMocked: payload.assistIsMocked ?? null,
           },
           origin: assistOrigin,
           createdByUserId: assistCreatedByUserId,

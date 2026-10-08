@@ -4,9 +4,14 @@ import SystemSetting from '#models/system_setting'
 import BusinessUnit from '#models/business_unit'
 import Tolerance from '#models/tolerance'
 import {
-  ATTENDANCE_FAULT_HR_ROLE_SLUGS,
+  ATTENDANCE_FAULT_HR_NOTIFY_MODULE_SLUG,
+  ATTENDANCE_FAULT_HR_NOTIFY_PERMISSION,
   ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG,
 } from '#constants/attendance_fault_hr_notification'
+import {
+  fetchTenantUsersByEffectiveRoleSlugs,
+  fetchTenantUsersWithModulePermission,
+} from '#helpers/tenant_users_with_module_permission'
 import AssistsService from '#services/assist_service'
 import mail from '@adonisjs/mail/services/main'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
@@ -359,80 +364,61 @@ export default class AttendanceFaultHrNotificationService {
   }
 
   /**
-   * `user_email` de usuarios activos con rol permitido y empleado asociado (`person_id`).
-   * No filtra por unidad de negocio: el alcance del correo lo define solo el rol.
+   * Correos de quienes tienen "Ver faltas consecutivas" en el rol efectivo de
+   * esta empresa. El nombre del rol no cuenta y no se exige expediente.
+   *
+   * @param businessUnitId Empresa del aviso.
    */
-  async fetchHrRecipientUserEmails(): Promise<string[]> {
-    if (ATTENDANCE_FAULT_HR_ROLE_SLUGS.length === 0) {
-      return []
-    }
-
-    const roleSlugsLower = ATTENDANCE_FAULT_HR_ROLE_SLUGS.map((s) => s.toLowerCase().trim())
-    const rolePlaceholders = roleSlugsLower.map(() => '?').join(', ')
-
-    const rows = await Database.from('users as u')
-      .innerJoin('roles as r', 'r.role_id', 'u.role_id')
-      .innerJoin('employees as e', 'e.person_id', 'u.person_id')
-      .whereNull('u.user_deleted_at')
-      .where('u.user_active', 1)
-      .whereNotNull('u.user_email')
-      .whereRaw('TRIM(u.user_email) <> \'\'')
-      .whereNull('r.role_deleted_at')
-      .where('r.role_active', 1)
-      .whereNull('e.employee_deleted_at')
-      .whereRaw(`LOWER(TRIM(r.role_slug)) IN (${rolePlaceholders})`, roleSlugsLower)
-      .select(Database.raw('DISTINCT TRIM(u.user_email) as email'))
-
-    const seen = new Set<string>()
-    const out: string[] = []
-    for (const row of rows as { email: string }[]) {
-      const raw = row.email ? String(row.email).trim() : ''
-      if (!raw) {
-        continue
-      }
-      const key = raw.toLowerCase()
-      if (seen.has(key)) {
-        continue
-      }
-      seen.add(key)
-      out.push(raw)
-    }
-    return out.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+  async fetchHrRecipientUserEmails(businessUnitId: number): Promise<string[]> {
+    const users = await fetchTenantUsersWithModulePermission({
+      businessUnitId,
+      moduleSlug: ATTENDANCE_FAULT_HR_NOTIFY_MODULE_SLUG,
+      permissionSlug: ATTENDANCE_FAULT_HR_NOTIFY_PERMISSION,
+    })
+    return this.dedupeRecipientEmails(users.map((user) => user.email))
   }
 
   /**
-   * Correos de usuarios activos con un rol concreto (slug), empleado asociado y `user_email`.
+   * Correos de usuarios de prueba (u otro slug) con ese rol efectivo en la
+   * empresa. Descarta correos nulos y deja uno solo por persona.
+   *
+   * @param roleSlug Slug del rol, sin distinguir mayúsculas.
+   * @param businessUnitId Empresa del aviso.
    */
-  async fetchRecipientUserEmailsByRoleSlug(roleSlug: string): Promise<string[]> {
-    const slugLower = roleSlug.trim().toLowerCase()
-    if (!slugLower) {
-      return []
-    }
+  async fetchRecipientUserEmailsByRoleSlug(
+    roleSlug: string,
+    businessUnitId: number
+  ): Promise<string[]> {
+    const users = await fetchTenantUsersByEffectiveRoleSlugs({
+      businessUnitId,
+      roleSlugs: [roleSlug],
+    })
+    return this.dedupeRecipientEmails(users.map((user) => user.email))
+  }
 
-    const rows = await Database.from('users as u')
-      .innerJoin('roles as r', 'r.role_id', 'u.role_id')
-      .innerJoin('employees as e', 'e.person_id', 'u.person_id')
-      .whereNull('u.user_deleted_at')
-      .where('u.user_active', 1)
-      .whereNotNull('u.user_email')
-      .whereRaw('TRIM(u.user_email) <> \'\'')
-      .whereNull('r.role_deleted_at')
-      .where('r.role_active', 1)
-      .whereNull('e.employee_deleted_at')
-      .whereRaw('LOWER(TRIM(r.role_slug)) = ?', [slugLower])
-      .select(Database.raw('DISTINCT TRIM(u.user_email) as email'))
+  /**
+   * Deja fuera las filas de otra empresa antes de armar el correo.
+   *
+   * @param rows Filas ya deduplicadas por colaborador.
+   * @param businessUnitId Empresa del ajuste.
+   */
+  keepRowsOfBusinessUnit(
+    rows: AttendanceFaultHrNotifyRow[],
+    businessUnitId: number
+  ): { kept: AttendanceFaultHrNotifyRow[]; droppedCount: number } {
+    const kept = rows.filter((row) => row.businessUnitId === businessUnitId)
+    return { kept, droppedCount: rows.length - kept.length }
+  }
 
+  /** Un correo por persona, sin distinguir mayúsculas, en orden alfabético. */
+  private dedupeRecipientEmails(emails: Array<string | null>): string[] {
     const seen = new Set<string>()
     const out: string[] = []
-    for (const row of rows as { email: string }[]) {
-      const raw = row.email ? String(row.email).trim() : ''
-      if (!raw) {
-        continue
-      }
+    for (const email of emails) {
+      const raw = email ? String(email).trim() : ''
+      if (!raw) continue
       const key = raw.toLowerCase()
-      if (seen.has(key)) {
-        continue
-      }
+      if (seen.has(key)) continue
       seen.add(key)
       out.push(raw)
     }
@@ -575,7 +561,7 @@ export default class AttendanceFaultHrNotificationService {
   /**
    * Procesa un system setting de punta a punta: faltas pendientes, correo y log de deduplicación.
    */
-  private async processSetting(
+  async processSetting(
     systemSetting: SystemSetting,
     context: {
       isTest: boolean
@@ -617,15 +603,24 @@ export default class AttendanceFaultHrNotificationService {
       return { sent: false, reason: 'no_business_units' }
     }
 
+    const businessUnitId = systemSetting.businessUnitId
+    if (typeof businessUnitId !== 'number' || !Number.isInteger(businessUnitId) || businessUnitId <= 0) {
+      log.warning(`${settingLabel}: el system setting no tiene empresa dueña`)
+      return { sent: false, reason: 'no_business_units' }
+    }
+
     const recipients = isTest
-      ? await this.fetchRecipientUserEmailsByRoleSlug(ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG)
-      : await this.fetchHrRecipientUserEmails()
+      ? await this.fetchRecipientUserEmailsByRoleSlug(
+          ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG,
+          businessUnitId
+        )
+      : await this.fetchHrRecipientUserEmails(businessUnitId)
 
     if (recipients.length === 0) {
       log.warning(
         isTest
-          ? `${settingLabel}: no hay destinatarios de prueba con rol "${ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG}", empleado asociado y user_email`
-          : `${settingLabel}: no hay destinatarios con roles configurados, empleado asociado y user_email`
+          ? `${settingLabel}: no hay usuarios de prueba con rol TESTER y correo en la empresa`
+          : `${settingLabel}: no hay usuarios con permiso 'Ver faltas consecutivas' y correo en la empresa`
       )
       return { sent: false, reason: 'no_recipients' }
     }
@@ -643,7 +638,13 @@ export default class AttendanceFaultHrNotificationService {
           ),
           calendarDay
         )
-    const pending = this.dedupePendingByEmployeeId(pendingRaw)
+    const deduped = this.dedupePendingByEmployeeId(pendingRaw)
+    const { kept: pending, droppedCount } = this.keepRowsOfBusinessUnit(deduped, businessUnitId)
+    if (droppedCount > 0) {
+      log.error(
+        `${settingLabel}: se omitieron ${droppedCount} fila(s) de otra empresa antes de armar el correo`
+      )
+    }
     if (pending.length === 0) {
       log.info(
         isTest
@@ -751,7 +752,7 @@ export default class AttendanceFaultHrNotificationService {
           employeeAssistCalendarId: r.employeeAssistCalendarId,
           employeeId: p.employeeId,
           systemSettingId: systemSetting.systemSettingId,
-          businessUnitId: employeeById.get(p.employeeId)?.businessUnitId ?? 1,
+          businessUnitId: p.businessUnitId,
         }
       })
 

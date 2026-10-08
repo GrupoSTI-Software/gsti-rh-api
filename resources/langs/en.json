@@ -552,6 +552,14 @@
   "role_scope_day_out_of_range_message": "Your role cannot modify that date. Ask a role with a wider range to register it.",
   "assist_punch_time_role_scope_title": "Outside your role's range",
   "assist_punch_time_role_scope_message": "Your role cannot register attendance for that date. Ask a role with a wider range to register it.",
+  "assist_coordinates_invalid_title": "Invalid location",
+  "assist_coordinates_invalid_message": "The location sent by the device is not valid. Turn on location and try again.",
+  "assist_outside_zone_title": "Outside your attendance zone",
+  "assist_outside_zone_message": "Your check-in was made outside the zones where you are allowed to record attendance.",
+  "assist_without_authorized_zone_title": "No attendance zone assigned",
+  "assist_without_authorized_zone_message": "You do not have an attendance zone assigned. Ask Human Resources to assign one.",
+  "assist_zone_not_evaluable_title": "Attendance zone unavailable",
+  "assist_zone_not_evaluable_message": "Your attendance zone cannot be used to validate the check-in. Ask Human Resources to review it.",
   "assist_punch_time_out_of_window_title": "Punch time outside the allowed window",
   "assist_punch_time_out_of_window_message": "This punch was captured outside the period allowed for this channel. Ask Human Resources to register it.",
   "assist_duplicate_natural_key_title": "Duplicate punch",
@@ -1584,6 +1592,19 @@
     "folio_label": "Case folio",
     "pending_count": "There {pendingNewCount, plural, one {is # complaint with status nuevo} other {are # complaints with status nuevo}} pending in your board.",
     "confidentiality_note": "For confidentiality, this notice does not include the reporter's identity. Use the folio and the backoffice board for timely follow-up.",
+    "fallback_url": "If the button does not open, copy and paste this URL into your browser:",
+    "footer": "© {tradeName} · Automatic message, do not reply to this address."
+  },
+  "traumatic_event_new_hr_notification": {
+    "subject": "{companyName}: a new report requires your attention",
+    "preheader": "There is a new report in the system that requires your attention.",
+    "greeting": "Hello:",
+    "intro": "A worker at {companyName} reported a severe traumatic event from the employee app. Sign in to review it and start their care and referral.",
+    "worker_label": "Worker",
+    "event_type_label": "Event type",
+    "occurred_at_label": "Date it occurred",
+    "cta": "View traumatic events",
+    "confidentiality_note": "For confidentiality, this email does not include the description of the event or the people involved. Review them in the system.",
     "fallback_url": "If the button does not open, copy and paste this URL into your browser:",
     "footer": "© {tradeName} · Automatic message, do not reply to this address."
   },
@@ -2890,6 +2911,14 @@
       "parametros-de-historial-invalidos": {
         "title": "Invalid history parameters",
         "detail": "Check the company identifier (UUID), the page and the page size (maximum 100)."
+      },
+      "aceptacion-no-encontrada": {
+        "title": "Acceptance not found",
+        "detail": "There is no terms or privacy notice acceptance with that identifier in this company."
+      },
+      "no-fue-posible-revelar-la-evidencia": {
+        "title": "Could not reveal the evidence",
+        "detail": "The access could not be logged, so the data was not shown. Try again."
       }
     }
   },
@@ -2941,6 +2970,16 @@
       }
     }
   },
+  "telework_settings": {
+    "title": "Telework settings",
+    "get_success": "Telework settings retrieved successfully.",
+    "upsert_success": "Telework settings saved successfully.",
+    "val_input": "The submitted data is not valid.",
+    "invalid_revalidation": "The revalidation period must be a whole number of months between 1 and 12.",
+    "invalid_notice": "The notice window must be a whole number of days, greater than or equal to 1 and less than the revalidation period in months multiplied by 30.",
+    "invalid_allowance": "Amounts must be greater than or equal to zero, with at most two decimals, and no greater than 99999999.99.",
+    "forbidden_scope": "The business unit for consulting the telework settings could not be resolved."
+  },
   "consent_evidence_title": "Consent evidence",
   "consent_evidence_list_success": "Consent evidence retrieved successfully.",
   "consent_evidence_download_url_success": "Download URL generated successfully.",
@@ -2953,6 +2992,10 @@
   "telework_policy_forbidden_read_message": "You do not have permission to view the Telework Policy.",
   "telework_policy_forbidden_write_title": "No permission",
   "telework_policy_forbidden_write_message": "You do not have permission to manage the Telework Policy.",
+  "telework_settings_forbidden_read_title": "No read permission",
+  "telework_settings_forbidden_read_message": "You do not have permission to view the telework settings.",
+  "telework_settings_forbidden_write_title": "No permission",
+  "telework_settings_forbidden_write_message": "You do not have permission to edit the telework settings.",
   "employee_temporary_assignment_unauthorized_title": "Unauthorized",
   "employee_temporary_assignment_unauthorized_message": "The user must be authenticated.",
   "employee_temporary_assignment_resource_not_found_title": "Resource not found",
@@ -3092,6 +3135,8 @@
   "session_permission_tree_unresolved_detail": "The session role could not be determined to build the permission list.",
   "system_setting_trade_name_taken_title": "Trade name already in use",
   "system_setting_trade_name_taken_detail": "Your company already has a configuration with that trade name; use a different name.",
+  "system_setting_zone_tolerance_meters_invalid_title": "Invalid zone tolerance margin",
+  "system_setting_zone_tolerance_meters_invalid_message": "The margin must be a whole number of meters between 0 and 200.",
   "user_access_email_masked_title": "The access email could not be saved",
   "user_access_email_masked_detail": "The access email contains the mask of a protected value. Type the full email or use the other email type; no changes were saved.",
   "user_access_email_duplicated_title": "This access email is already in use",

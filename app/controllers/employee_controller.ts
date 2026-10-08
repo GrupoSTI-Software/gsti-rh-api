@@ -89,6 +89,7 @@ import {
 } from '#constants/employee_work_schedule'
 import { I18n } from '@adonisjs/i18n'
 import { TenantContext } from '#utils/tenant_context'
+import { parseZoneGeometries } from '#utils/zone_geometry_parser'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { getBusinessTimeZone, toCalendarIsoDate } from '#utils/business_date'
 import { EMPLOYEE_WORK_SCHEDULE, type EmployeeWorkSchedule } from '#constants/employee_work_schedule'
@@ -4940,13 +4941,19 @@ export default class EmployeeController {
 
   /**
     * @swagger
-    * /api/employees/{employeeId}/banks:
+    * /api/employees/{employeeId}/zones:
     *   get:
     *     security:
     *       - bearerAuth: []
     *     tags:
     *       - Employees
-    *     summary: get banks by employee id
+    *     summary: Zonas autorizadas del empleado y el contorno de cada área
+    *     parameters:
+    *       - in: path
+    *         name: employeeId
+    *         required: true
+    *         schema:
+    *           type: integer
     *     responses:
     *       '200':
     *         description: Resource processed successfully
@@ -4966,7 +4973,22 @@ export default class EmployeeController {
     *                   description: Message of response
     *                 data:
     *                   type: object
-    *                   description: Processed object
+    *                   properties:
+    *                     data:
+    *                       type: object
+    *                       description: Asignaciones paginadas (`meta` y `data`), cada una con su `zone`; incluye las zonas con dibujo dañado
+    *                     coordinates:
+    *                       type: array
+    *                       description: Un anillo cerrado por cada área de las zonas de la empresa del empleado; los puntos y los dibujos dañados no aportan anillos
+    *                       items:
+    *                         type: array
+    *                         items:
+    *                           type: array
+    *                           description: Par [longitud, latitud]
+    *                           minItems: 2
+    *                           maxItems: 2
+    *                           items:
+    *                             type: number
     *       '404':
     *         description: Resource not found
     *         content:
@@ -5056,15 +5078,35 @@ export default class EmployeeController {
       }
 
       const zones = await employeeService.getZones(employeeId)
-      const coordinates = []
-      for (const zone of zones) {
-        // `zone.zone` puede llegar nulo desde que Zone está acotada por empresa:
-        // una asignación cuya zona no pertenece al alcance activo (o sigue sin
-        // empresa porque falta el backfill) no precarga la relación. Antes esto
-        // reventaba el mapa del Monitor con un 500; ahora se omite la geocerca.
-        if (!zone.zone?.zonePolygon) continue
-        const polygon = JSON.parse(zone.zone.zonePolygon)
-        coordinates.push(polygon.features[0].geometry.coordinates)
+      // Un anillo `[lng, lat][]` cerrado por cada área de cada zona, leído con el
+      // mismo parser que decide si una checada entra (VLRH-H1791056339679).
+      const coordinates: Array<Array<[number, number]>> = []
+      for (const assignment of zones) {
+        // `assignment.zone` puede llegar nulo desde que Zone está acotada por
+        // empresa: una asignación cuya zona no pertenece al alcance activo (o sigue
+        // sin empresa porque falta el backfill) no precarga la relación. Segunda
+        // barrera: aunque el alcance abarque varias empresas, solo aportan dibujo
+        // las zonas de la empresa del empleado.
+        const zone = assignment.zone
+        if (!zone?.zonePolygon) continue
+        if (zone.businessUnitId !== showEmployee.businessUnitId) continue
+
+        // Un dibujo dañado no aporta anillos, pero la asignación sigue en la lista.
+        const geometries = parseZoneGeometries(zone.zonePolygon)
+        if (geometries.length === 0) {
+          logger.warn(
+            { zoneId: zone.zoneId, businessUnitId: zone.businessUnitId },
+            'Zona sin geometría interpretable en el expediente'
+          )
+          continue
+        }
+        for (const geometry of geometries) {
+          if (geometry.kind !== 'ring') continue
+          // El parser quita el vértice de cierre; la respuesta conserva el anillo
+          // cerrado de GeoJSON, también para las polilíneas históricas.
+          const ring = geometry.ring.map((point): [number, number] => [point.lng, point.lat])
+          coordinates.push([...ring, ring[0]])
+        }
       }
 
       response.status(200)

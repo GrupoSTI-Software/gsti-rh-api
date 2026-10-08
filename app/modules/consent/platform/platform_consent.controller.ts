@@ -1,5 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import PlatformConsentError from '#exceptions/platform_consent_error'
+import PlatformConsentError, { type PlatformConsentErrorKey } from '#exceptions/platform_consent_error'
 import { PLATFORM_CONSENT_ERROR_CODES_BY_KEY } from '#constants/platform_consent_error_codes'
 import { PLATFORM_ACCEPTANCES_DEFAULT_LIMIT } from '#modules/consent/platform/platform_consent.constants'
 import PlatformConsentService from '#modules/consent/platform/platform_consent.service'
@@ -7,11 +7,26 @@ import { listPlatformLegalAcceptancesValidator } from '#modules/consent/platform
 import {
   platformTenantLegalAcceptancesParamsValidator,
   platformTenantLegalAcceptancesQueryValidator,
+  revealTenantLegalAcceptanceValidator,
+  type RevealTenantLegalAcceptanceParamsPayload,
   type TenantHistoryParamsPayload,
   type TenantHistoryQueryPayload,
 } from '#modules/consent/platform/validators/platform_tenant_legal_acceptances.validator'
 
 type ListPayload = Awaited<ReturnType<typeof listPlatformLegalAcceptancesValidator.validate>>
+
+/**
+ * Estado HTTP de cada key de `PlatformConsentError` (`Record` sobre la unión: agregar una
+ * key al error sin mapearla aquí no compila). `index` y `tenantHistory` conservan sus
+ * 422/404 exactos; el revelado agrega 404 de aceptación y 500.
+ */
+const PLATFORM_CONSENT_ERROR_STATUS: Record<PlatformConsentErrorKey, number> = {
+  'filtros-de-aceptaciones-invalidos': 422,
+  'empresa-no-encontrada': 404,
+  'parametros-de-historial-invalidos': 422,
+  'aceptacion-no-encontrada': 404,
+  'no-fue-posible-revelar-la-evidencia': 500,
+}
 
 /**
  * Aceptaciones legales de plataforma por empresa (USRH1790610965452; historial por
@@ -415,6 +430,198 @@ export default class PlatformConsentController {
   }
 
   /**
+   * @swagger
+   * /api/platform/tenants/{businessUnitPublicId}/legal-acceptances/{userConsentId}/reveal:
+   *   post:
+   *     tags:
+   *       - Platform · Legal Acceptances
+   *     summary: Revela la IP y el agente de usuario de una aceptación
+   *     description: |
+   *       Devuelve la IP y el agente de usuario en claro de UNA aceptación del expediente de
+   *       una empresa, identificada por el `businessUnitPublicId` (UUID) y el `userConsentId`.
+   *       Antes de entregar el dato, registra cada columna con valor en la bitácora de acceso a
+   *       datos personales (una fila por columna). El consentimiento biométrico, las
+   *       aceptaciones de otra empresa, las cuentas de plataforma y las inexistentes responden
+   *       el mismo 404 sin escribir bitácora. `POST` sin cuerpo; el query se ignora.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: businessUnitPublicId
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: Identificador público (UUID) de la empresa
+   *       - in: path
+   *         name: userConsentId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *           minimum: 1
+   *         description: Identificador interno de la aceptación
+   *     responses:
+   *       '200':
+   *         description: IP y agente de usuario en claro de la aceptación
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     userConsentId:
+   *                       type: integer
+   *                     ip:
+   *                       type: string
+   *                       nullable: true
+   *                     userAgent:
+   *                       type: string
+   *                       nullable: true
+   *       '401':
+   *         description: Sin sesión válida (respuesta existente del middleware auth)
+   *       '403':
+   *         description: Sin permisos de administrador de plataforma
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: Acceso restringido a plataforma
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: AUTH.PLATFORM.FORBIDDEN
+   *       '404':
+   *         description: La empresa no existe (empresa-no-encontrada) o la aceptación no pertenece a la empresa, es biométrica, inexistente o de una cuenta de plataforma (aceptacion-no-encontrada)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   example: Aceptación no encontrada
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: aceptacion-no-encontrada
+   *                 code:
+   *                   type: string
+   *                   example: CONSENT.PLATFORM.012
+   *       '422':
+   *         description: Parámetros de ruta inválidos
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   example: Parámetros de historial inválidos
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: parametros-de-historial-invalidos
+   *                 code:
+   *                   type: string
+   *                   example: CONSENT.PLATFORM.011
+   *       '500':
+   *         description: No fue posible registrar la consulta en la bitácora; los datos no se muestran
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: error
+   *                 title:
+   *                   type: string
+   *                   example: No fue posible revelar la evidencia
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: no-fue-posible-revelar-la-evidencia
+   *                 code:
+   *                   type: string
+   *                   example: CONSENT.PLATFORM.013
+   *
+   * @index
+   * @summary Revela la IP y el agente de usuario de una aceptación
+   * @description Devuelve la IP y el agente de usuario en claro de UNA aceptación del\
+   *   expediente de la empresa, registrando cada columna con valor en la bitácora de acceso\
+   *   a datos personales antes de entregar el dato. El consentimiento biométrico, otra\
+   *   empresa, las cuentas de plataforma y los ids inexistentes responden el mismo 404 sin\
+   *   escribir bitácora. POST sin cuerpo.
+   * @tag Platform · Legal Acceptances
+   * @operationId revealTenantLegalAcceptanceEvidence
+   * @security [{"bearerAuth": []}]
+   * @paramPath businessUnitPublicId - Identificador público (UUID) de la empresa - string
+   * @paramPath userConsentId - Identificador interno de la aceptación - integer
+   * @responseBody 200 - {"type": "success", "data": {"userConsentId": 812, "ip": "189.203.10.4", "userAgent": "Mozilla/5.0 (X11)"}}
+   * @responseBody 401 - {"type": "warning", "title": "Token requerido", "detail": "No se envió un access token válido", "message": "No se envió un access token válido", "key": "AUTH.TOKEN.MISSING", "data": {"refreshable": false}}
+   * @responseBody 403 - {"title": "Acceso restringido a plataforma", "detail": "Esta sección es exclusiva de administradores de plataforma.", "key": "AUTH.PLATFORM.FORBIDDEN"}
+   * @responseBody 404 - {"type": "error", "title": "Aceptación no encontrada", "detail": "string", "key": "aceptacion-no-encontrada", "code": "CONSENT.PLATFORM.012"}
+   * @responseBody 422 - {"type": "error", "title": "Parámetros de historial inválidos", "detail": "string", "key": "parametros-de-historial-invalidos", "code": "CONSENT.PLATFORM.011"}
+   * @responseBody 500 - {"type": "error", "title": "No fue posible revelar la evidencia", "detail": "string", "key": "no-fue-posible-revelar-la-evidencia", "code": "CONSENT.PLATFORM.013"}
+   */
+  async reveal(ctx: HttpContext, service: PlatformConsentService = new PlatformConsentService()) {
+    // El encabezado va antes de todo: aplica a 200, 401, 403, 404, 422 y 500.
+    ctx.response.header('Cache-Control', 'no-store')
+
+    try {
+      const { businessUnitPublicId, userConsentId } = await this.validateRevealParams(ctx)
+      const data = await service.revealEvidence(businessUnitPublicId, userConsentId, {
+        accessorUserId: ctx.auth.user!.userId,
+        accessorIp: ctx.request.ip(),
+        accessorUserAgent: ctx.request.header('user-agent') ?? null,
+      })
+      return ctx.response.status(200).json({ type: 'success', data })
+    } catch (error) {
+      return this.domainError(ctx, error)
+    }
+  }
+
+  /**
+   * Valida los params de ruta del revelado. Espeja `validateHistoryParams`: se valida
+   * explícitamente con `{ data: { params: request.params() } }` (la ruta no lo hace sola) y
+   * cualquier error de VineJS se traduce al error de dominio `parametros-de-historial-invalidos`.
+   * Devuelve el objeto interno de params ya tipado.
+   */
+  private async validateRevealParams(
+    { request }: HttpContext
+  ): Promise<RevealTenantLegalAcceptanceParamsPayload['params']> {
+    try {
+      const payload = await request.validateUsing(revealTenantLegalAcceptanceValidator, {
+        data: { params: request.params() },
+      })
+      return payload.params
+    } catch (error) {
+      if (this.isValidationError(error)) {
+        throw new PlatformConsentError('parametros-de-historial-invalidos')
+      }
+      throw error
+    }
+  }
+
+  /**
    * Valida los params de ruta. Se validan explícitamente con `data: request.params()`
    * (la ruta no lo hace sola). Cualquier error de VineJS se traduce al error de dominio
    * `parametros-de-historial-invalidos`.
@@ -471,14 +678,13 @@ export default class PlatformConsentController {
   }
 
   /**
-   * Traduce el error de dominio a la respuesta del contrato: `empresa-no-encontrada` responde
-   * 404 y cualquier otra key 422. El cuerpo es el mismo en ambos casos (título, detalle i18n,
-   * key y código por key). Lo que no sea `PlatformConsentError` se relanza al manejador global.
+   * Traduce el error de dominio a la respuesta del contrato: el estado HTTP sale del `Record`
+   * por key (422/404/500) y el cuerpo es el mismo (título, detalle i18n, key y código por key).
+   * Lo que no sea `PlatformConsentError` se relanza al manejador global.
    */
   private domainError({ response, i18n }: HttpContext, error: unknown) {
     if (error instanceof PlatformConsentError) {
-      const status = error.key === 'empresa-no-encontrada' ? 404 : 422
-      return response.status(status).json({
+      return response.status(PLATFORM_CONSENT_ERROR_STATUS[error.key]).json({
         type: 'error',
         title: i18n.formatMessage(`platformLegalAcceptances.errors.${error.key}.title`),
         detail: i18n.formatMessage(`platformLegalAcceptances.errors.${error.key}.detail`),

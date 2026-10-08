@@ -1,4 +1,7 @@
 import type BillingSubscription from '#models/billing_subscription'
+import BillingProviderInvoiceCreatedHandler from '#modules/billing-provider/billing_provider_invoice_created.handler'
+import BillingProviderInvoicePaidHandler from '#modules/billing-provider/billing_provider_invoice_paid.handler'
+import BillingProviderSubscriptionStateHandler from '#modules/billing-provider/billing_provider_subscription_state.handler'
 import type {
   BillingProviderPort,
   VerifiedProviderEvent,
@@ -8,6 +11,8 @@ export interface BillingProviderEventContext {
   event: VerifiedProviderEvent
   billingSubscription: BillingSubscription | null
   provider: BillingProviderPort
+  /** Intento de atención del aviso (1 = primera entrega). USRH1790724549115. */
+  attempt?: number
 }
 
 export type BillingProviderEventOutcome =
@@ -37,3 +42,15 @@ export class BillingProviderEventHandlerRegistry {
 }
 
 export const billingProviderEventHandlers = new BillingProviderEventHandlerRegistry()
+
+billingProviderEventHandlers.register(
+  'invoice.created',
+  new BillingProviderInvoiceCreatedHandler()
+)
+
+billingProviderEventHandlers.register('invoice.paid', new BillingProviderInvoicePaidHandler())
+
+const subscriptionStateHandler = new BillingProviderSubscriptionStateHandler()
+billingProviderEventHandlers.register('invoice.payment_failed', subscriptionStateHandler)
+billingProviderEventHandlers.register('customer.subscription.updated', subscriptionStateHandler)
+billingProviderEventHandlers.register('customer.subscription.deleted', subscriptionStateHandler)

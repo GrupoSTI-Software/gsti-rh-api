@@ -116,3 +116,46 @@ export const ASSIST_INGESTION_PUNCH_TIME_ROLE_SCOPE: AssistIngestionRejection = 
   key: 'hora-de-captura-fuera-del-alcance-del-rol',
   i18nBase: 'assist_punch_time_role_scope',
 }
+
+/**
+ * Coordenadas imposibles: solo una de las dos, no finitas o fuera de rango
+ * (VLRH-H1790812613754, regla 3). No se asumen válidas ni se tratan como
+ * checada sin ubicación.
+ */
+export const ASSIST_INGESTION_COORDINATES_INVALID: AssistIngestionRejection = {
+  status: 400,
+  code: ASSIST_ERROR_CODES.VAL_COORDINATES_INVALID,
+  key: 'coordenadas-invalidas',
+  i18nBase: 'assist_coordinates_invalid',
+}
+
+/**
+ * La checada cae fuera de toda zona evaluable del empleado, con la holgura de su
+ * empresa (regla 4). El rechazo no dice la distancia ni cuál zona: sería una
+ * sonda para dibujar el contorno.
+ */
+export const ASSIST_INGESTION_OUTSIDE_ZONE: AssistIngestionRejection = {
+  status: 422,
+  code: ASSIST_ERROR_CODES.GEO_OUTSIDE_ZONE,
+  key: 'checada-fuera-de-zona',
+  i18nBase: 'assist_outside_zone',
+}
+
+/** Sin zonas asignadas en su empresa y sin "cualquier zona" (regla 6). */
+export const ASSIST_INGESTION_NO_AUTHORIZED_ZONE: AssistIngestionRejection = {
+  status: 422,
+  code: ASSIST_ERROR_CODES.GEO_NO_AUTHORIZED_ZONE,
+  key: 'empleado-sin-zona-autorizada',
+  i18nBase: 'assist_without_authorized_zone',
+}
+
+/**
+ * Con zonas asignadas, ninguna evaluable: mal dibujada, sin empresa o de otra
+ * empresa (regla 7). Nunca se acepta por omisión.
+ */
+export const ASSIST_INGESTION_ZONE_NOT_EVALUABLE: AssistIngestionRejection = {
+  status: 422,
+  code: ASSIST_ERROR_CODES.GEO_ZONE_NOT_EVALUABLE,
+  key: 'zona-no-evaluable',
+  i18nBase: 'assist_zone_not_evaluable',
+}

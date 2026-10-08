@@ -6,6 +6,15 @@ import BillingSubscription from '#models/billing_subscription'
 import BillingInternalNotificationService from '#services/billing_internal_notification_service'
 import SelfServiceSubscriptionCreatedMail from '#mails/self_service_subscription_created_mail'
 import SubscriptionChangeNotApplicableMail from '#mails/subscription_change_not_applicable_mail'
+import BillingProviderInvoiceHeldMail from '#mails/billing_provider_invoice_held_mail'
+import BillingProviderPaymentUnsettledMail, {
+  PROVIDER_PAYMENT_UNSETTLED_REASON_LABELS,
+  type ProviderPaymentUnsettledReason,
+} from '#mails/billing_provider_payment_unsettled_mail'
+import BillingProviderPaymentMisalignedMail from '#mails/billing_provider_payment_misaligned_mail'
+import BillingProviderSubscriptionStateMail, {
+  PROVIDER_SUBSCRIPTION_STATE_ALERT_LABELS,
+} from '#mails/billing_provider_subscription_state_mail'
 import type { SubscriptionChangeRecord } from '#services/billing_subscription_change_service'
 
 /**
@@ -18,6 +27,9 @@ import type { SubscriptionChangeRecord } from '#services/billing_subscription_ch
 const TEST_SMTP_SENDER = 'smtp-billing-notif@gsti.local'
 const INTERNAL_RECIPIENT_A = 'billing-notif-a@gsti-tests.local'
 const INTERNAL_RECIPIENT_B = 'billing-notif-b@gsti-tests.local'
+/** Destinatarios de la lista blanca de no-producción (`DEVELOPMENT_EMAIL_LIST`). */
+const DEV_GATE_RECIPIENT_A = 'wramirez@gruposti.com'
+const DEV_GATE_RECIPIENT_B = 'jsoto@gruposti.com'
 
 function makeSubscription(overrides: Partial<BillingSubscription> = {}): BillingSubscription {
   const subscription = new BillingSubscription()
@@ -143,7 +155,7 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
       await withSmtpConfigured(async () => {
         await withEnvVars(
           {
-            BILLING_INTERNAL_NOTIFICATION_EMAILS: `${INTERNAL_RECIPIENT_A},${INTERNAL_RECIPIENT_B}`,
+            BILLING_INTERNAL_NOTIFICATION_EMAILS: `${DEV_GATE_RECIPIENT_A},${DEV_GATE_RECIPIENT_B}`,
           },
           async () => {
             const service = new BillingInternalNotificationService()
@@ -159,15 +171,14 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
       fake.mails.assertSentCount(SelfServiceSubscriptionCreatedMail, 1)
       fake.mails.assertSent(SelfServiceSubscriptionCreatedMail, ({ message }) => {
         const json = message.toJSON() as { message: { subject: string } }
-        assert.match(json.message.subject, /Contratación self-service/i)
+        assert.match(json.message.subject, /\[Interno\] Nueva contratación/i)
         assert.include(json.message.subject, 'Acme Self Service SA')
-        assert.include(json.message.subject, 'Plan Profesional')
-        assert.include(json.message.subject, '40 empleados')
         message.assertHtmlIncludes('Acme Self Service SA')
         message.assertHtmlIncludes('Plan Profesional')
-        message.assertHtmlIncludes('Contratación')
+        message.assertHtmlIncludes('Nueva contratación')
+        message.assertHtmlIncludes('40')
         message.assertHtmlIncludes('Importes y cobro')
-        return message.hasTo(INTERNAL_RECIPIENT_A) && message.hasTo(INTERNAL_RECIPIENT_B)
+        return message.hasTo(DEV_GATE_RECIPIENT_A) && message.hasTo(DEV_GATE_RECIPIENT_B)
       })
     } finally {
       mail.restore()
@@ -179,7 +190,7 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
     try {
       await withSmtpConfigured(async () => {
         await withEnvVars(
-          { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A },
           async () => {
             const service = new BillingInternalNotificationService()
             await service.notifySelfServiceSubscriptionCreated({
@@ -213,7 +224,7 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
     try {
       await withSmtpConfigured(async () => {
         await withEnvVars(
-          { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A },
           async () => {
             const service = new BillingInternalNotificationService()
             await service.notifySelfServiceSubscriptionCreated({
@@ -293,7 +304,7 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
     try {
       await withEnvVars(
         {
-          BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A,
+          BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A,
           SMTP_USERNAME: '',
           SMTP_FROM_ADDRESS: '',
         },
@@ -329,7 +340,7 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
     try {
       await withSmtpConfigured(async () => {
         await withEnvVars(
-          { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A, NODE_ENV: 'test' },
           async () => {
             const service = new BillingInternalNotificationService()
             await service.notifySelfServiceSubscriptionCreated({
@@ -344,10 +355,263 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
       fake.mails.assertSent(SelfServiceSubscriptionCreatedMail, ({ message }) => {
         const json = message.toJSON() as { message: { subject: string } }
         assert.match(json.message.subject, /^\[TEST\] /)
-        assert.include(json.message.subject, '[Contratación self-service]')
+        assert.include(json.message.subject, '[Interno] Nueva contratación')
+        assert.include(json.message.subject, 'Ambiente Test SA')
         return true
       })
     } finally {
+      mail.restore()
+    }
+  })
+})
+
+test.group('BillingInternalNotificationService — notifyProviderInvoiceHeld (7665 / CA-13)', () => {
+  test('envía aviso con ids y code sin PII en asunto', async ({ assert }) => {
+    const fake = mail.fake()
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await service.notifyProviderInvoiceHeld({
+              billingSubscriptionId: 3501,
+              businessUnitId: 9001,
+              invoiceRef: 'in_fixtureM1',
+              subscriptionRef: 'sub_fixtureM1',
+              eventRef: 'evt_fixtureM1',
+              errorCode: 'PLT.PRV.INVOICE_AMOUNT_UNAVAILABLE',
+            })
+          }
+        )
+      })
+
+      fake.mails.assertSentCount(BillingProviderInvoiceHeldMail, 1)
+      fake.mails.assertSent(BillingProviderInvoiceHeldMail, ({ message }) => {
+        const json = message.toJSON() as { message: { subject: string } }
+        assert.match(json.message.subject, /Factura retenida/i)
+        assert.notInclude(json.message.subject, 'in_fixtureM1')
+        assert.notInclude(json.message.subject, 'Acme')
+        message.assertHtmlIncludes('in_fixtureM1')
+        message.assertHtmlIncludes('sub_fixtureM1')
+        message.assertHtmlIncludes('evt_fixtureM1')
+        message.assertHtmlIncludes('PLT.PRV.INVOICE_AMOUNT_UNAVAILABLE')
+        message.assertHtmlIncludes('3501')
+        return message.hasTo(INTERNAL_RECIPIENT_A)
+      })
+    } finally {
+      mail.restore()
+    }
+  })
+
+  test('fallo SMTP no lanza', async ({ assert }) => {
+    mail.fake()
+    const originalSend = mail.send.bind(mail)
+    ;(mail as unknown as { send: typeof mail.send }).send = async () => {
+      throw new Error('SMTP caído (simulado)')
+    }
+
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await assert.doesNotReject(async () => {
+              await service.notifyProviderInvoiceHeld({
+                billingSubscriptionId: null,
+                businessUnitId: null,
+                invoiceRef: 'in_fixtureM1',
+                subscriptionRef: 'sub_fixtureM1',
+                eventRef: 'evt_fixtureM1',
+                errorCode: 'PLT.PRV.INVOICE_UNEXPECTED_LINES',
+              })
+            })
+          }
+        )
+      })
+    } finally {
+      ;(mail as unknown as { send: typeof mail.send }).send = originalSend
+      mail.restore()
+    }
+  })
+})
+
+test.group('BillingInternalNotificationService — notifyProviderPaymentUnsettled/Misaligned (9115 / CA-16)', () => {
+  const baseUnsettled = {
+    billingSubscriptionId: 41,
+    businessUnitId: 7,
+    invoiceRef: 'in_fixtureP1',
+    subscriptionRef: 'sub_fixtureP1',
+    eventRef: 'evt_fixtureP1',
+    errorCode: null as string | null,
+    amountPaidCents: 1_044_000,
+    currency: 'mxn',
+  }
+
+  test('envía avisos sin PII en asunto para cada razón', async ({ assert }) => {
+    const fake = mail.fake()
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          {
+            BILLING_INTERNAL_NOTIFICATION_EMAILS: 'wramirez@gruposti.com',
+            NODE_ENV: 'test',
+          },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            const reasons = Object.keys(
+              PROVIDER_PAYMENT_UNSETTLED_REASON_LABELS
+            ) as ProviderPaymentUnsettledReason[]
+
+            for (const reason of reasons) {
+              await service.notifyProviderPaymentUnsettled({ ...baseUnsettled, reason })
+            }
+
+            await service.notifyProviderPaymentMisaligned({
+              billingSubscriptionId: 41,
+              businessUnitId: 7,
+              billingPaymentId: 90,
+              invoiceRef: 'in_fixtureP1',
+              eventRef: 'evt_fixtureP1',
+              amountPaidCents: 1_222_523,
+              periodsCovered: 1,
+              debtAppliedCents: 0,
+              invoiceDebtCents: 4523,
+              providerPeriod: { start: '2026-11-01', end: '2026-12-01' },
+              providerPeriodApplied: true,
+            })
+          }
+        )
+      })
+
+      fake.mails.assertSentCount(BillingProviderPaymentUnsettledMail, 10)
+      fake.mails.assertSentCount(BillingProviderPaymentMisalignedMail, 1)
+      fake.mails.assertSent(BillingProviderPaymentUnsettledMail, ({ message }) => {
+        const json = message.toJSON() as { message: { subject: string } }
+        assert.match(json.message.subject, /Cobro sin asiento/i)
+        assert.notInclude(json.message.subject, 'in_fixtureP1')
+        assert.notInclude(json.message.subject, 'Acme')
+        message.assertHtmlIncludes('in_fixtureP1')
+        message.assertHtmlIncludes('sub_fixtureP1')
+        return message.hasTo('wramirez@gruposti.com')
+      })
+    } finally {
+      mail.restore()
+    }
+  })
+
+  test('fallo SMTP no lanza en unsettled ni misaligned', async ({ assert }) => {
+    mail.fake()
+    const originalSend = mail.send.bind(mail)
+    ;(mail as unknown as { send: typeof mail.send }).send = async () => {
+      throw new Error('SMTP caído (simulado)')
+    }
+
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: 'wramirez@gruposti.com' },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await assert.doesNotReject(async () => {
+              await service.notifyProviderPaymentUnsettled({
+                ...baseUnsettled,
+                reason: 'settlement-failed',
+                errorCode: 'PLT.PRV.PROVIDER_REQUEST_FAILED',
+              })
+              await service.notifyProviderPaymentMisaligned({
+                billingSubscriptionId: 41,
+                businessUnitId: 7,
+                billingPaymentId: 90,
+                invoiceRef: 'in_fixtureP1',
+                eventRef: 'evt_fixtureP1',
+                amountPaidCents: 100,
+                periodsCovered: 0,
+                debtAppliedCents: 0,
+                invoiceDebtCents: 0,
+                providerPeriod: null,
+                providerPeriodApplied: false,
+              })
+            })
+          }
+        )
+      })
+    } finally {
+      ;(mail as unknown as { send: typeof mail.send }).send = originalSend
+      mail.restore()
+    }
+  })
+})
+
+test.group('BillingInternalNotificationService - notifyProviderSubscriptionStateUnexpected (7723)', () => {
+  test('envía aviso con ids y estados, sin PII', async ({ assert }) => {
+    const fake = mail.fake()
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          {
+            BILLING_INTERNAL_NOTIFICATION_EMAILS: `${DEV_GATE_RECIPIENT_A},${DEV_GATE_RECIPIENT_B}`,
+          },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await service.notifyProviderSubscriptionStateUnexpected({
+              billingSubscriptionId: 7723,
+              businessUnitId: 88,
+              subscriptionRef: 'sub_fixtureS2',
+              eventRef: 'evt_fixtureS2alive',
+              providerStatus: 'active',
+              localStatus: 'canceled',
+              alert: 'local-canceled',
+            })
+          }
+        )
+      })
+
+      fake.mails.assertSentCount(BillingProviderSubscriptionStateMail, 1)
+      fake.mails.assertSent(BillingProviderSubscriptionStateMail, ({ message }) => {
+        message.assertHtmlIncludes('7723')
+        message.assertHtmlIncludes('evt_fixtureS2alive')
+        message.assertHtmlIncludes('sub_fixtureS2')
+        message.assertHtmlIncludes(PROVIDER_SUBSCRIPTION_STATE_ALERT_LABELS['local-canceled'])
+        const html = (message.toJSON() as { message: { html: string } }).message.html
+        assert.notInclude(html, 'Acme')
+        return message.hasTo(DEV_GATE_RECIPIENT_A) && message.hasTo(DEV_GATE_RECIPIENT_B)
+      })
+    } finally {
+      mail.restore()
+    }
+  })
+
+  test('fallo SMTP no lanza al caller', async ({ assert }) => {
+    mail.fake()
+    const originalSend = mail.send.bind(mail)
+    ;(mail as unknown as { send: typeof mail.send }).send = async () => {
+      throw new Error('SMTP caído (simulado)')
+    }
+
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await assert.doesNotReject(async () => {
+              await service.notifyProviderSubscriptionStateUnexpected({
+                billingSubscriptionId: 7724,
+                businessUnitId: 89,
+                subscriptionRef: 'sub_fixturePaused',
+                eventRef: 'evt_fixturePaused',
+                providerStatus: 'paused',
+                localStatus: 'active',
+                alert: 'unexpected-status',
+              })
+            })
+          }
+        )
+      })
+    } finally {
+      ;(mail as unknown as { send: typeof mail.send }).send = originalSend
       mail.restore()
     }
   })
