@@ -2954,6 +2954,16 @@
       }
     }
   },
+  "telework_settings": {
+    "title": "Telework settings",
+    "get_success": "Telework settings retrieved successfully.",
+    "upsert_success": "Telework settings saved successfully.",
+    "val_input": "The submitted data is not valid.",
+    "invalid_revalidation": "The revalidation period must be a whole number of months between 1 and 12.",
+    "invalid_notice": "The notice window must be a whole number of days, greater than or equal to 1 and less than the revalidation period in months multiplied by 30.",
+    "invalid_allowance": "Amounts must be greater than or equal to zero, with at most two decimals, and no greater than 99999999.99.",
+    "forbidden_scope": "The business unit for consulting the telework settings could not be resolved."
+  },
   "consent_evidence_title": "Consent evidence",
   "consent_evidence_list_success": "Consent evidence retrieved successfully.",
   "consent_evidence_download_url_success": "Download URL generated successfully.",
@@ -2966,6 +2976,10 @@
   "telework_policy_forbidden_read_message": "You do not have permission to view the Telework Policy.",
   "telework_policy_forbidden_write_title": "No permission",
   "telework_policy_forbidden_write_message": "You do not have permission to manage the Telework Policy.",
+  "telework_settings_forbidden_read_title": "No read permission",
+  "telework_settings_forbidden_read_message": "You do not have permission to view the telework settings.",
+  "telework_settings_forbidden_write_title": "No permission",
+  "telework_settings_forbidden_write_message": "You do not have permission to edit the telework settings.",
   "employee_temporary_assignment_unauthorized_title": "Unauthorized",
   "employee_temporary_assignment_unauthorized_message": "The user must be authenticated.",
   "employee_temporary_assignment_resource_not_found_title": "Resource not found",
