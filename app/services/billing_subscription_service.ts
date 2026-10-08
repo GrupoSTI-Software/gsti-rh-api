@@ -938,7 +938,7 @@ export default class BillingSubscriptionService {
    * (la del acto de reemplazo nunca llega aquí con una ya cancelada, porque
    * `existingLive` solo trae suscripciones vivas).
    */
-  private async cancelWithin(
+  async cancelWithin(
     subscription: BillingSubscription,
     trx: TransactionClientContract
   ): Promise<BillingSubscription> {

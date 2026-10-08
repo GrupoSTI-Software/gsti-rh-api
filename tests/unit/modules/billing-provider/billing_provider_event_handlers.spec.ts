@@ -5,6 +5,7 @@ import {
 } from '#modules/billing-provider/billing_provider_event_handlers'
 import BillingProviderInvoiceCreatedHandler from '#modules/billing-provider/billing_provider_invoice_created.handler'
 import BillingProviderInvoicePaidHandler from '#modules/billing-provider/billing_provider_invoice_paid.handler'
+import BillingProviderSubscriptionStateHandler from '#modules/billing-provider/billing_provider_subscription_state.handler'
 
 test.group('BillingProviderEventHandlerRegistry (7579 / CA-11)', () => {
   test('registra, resuelve y da de baja un tipo', ({ assert }) => {
@@ -39,5 +40,14 @@ test.group('BillingProviderEventHandlerRegistry (7579 / CA-11)', () => {
   test('CA-14: registro global de invoice.paid (7693)', ({ assert }) => {
     const handler = billingProviderEventHandlers.resolve('invoice.paid')
     assert.instanceOf(handler, BillingProviderInvoicePaidHandler)
+  })
+
+  test('CA-14: registro global de estado Stripe (7723)', ({ assert }) => {
+    const failed = billingProviderEventHandlers.resolve('invoice.payment_failed')
+    const updated = billingProviderEventHandlers.resolve('customer.subscription.updated')
+    const deleted = billingProviderEventHandlers.resolve('customer.subscription.deleted')
+    assert.instanceOf(failed, BillingProviderSubscriptionStateHandler)
+    assert.strictEqual(failed, updated)
+    assert.strictEqual(updated, deleted)
   })
 })

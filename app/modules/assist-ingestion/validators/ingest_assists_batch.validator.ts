@@ -37,6 +37,9 @@ export const assistBatchItemValidator = vine.compile(
     assistLongitude: optionalDecimal(),
     assistPrecision: optionalDecimal(),
     assistChannel: vine.enum(ASSIST_CHANNEL_VALUES).nullable().optional(),
+    // Indicador de ubicación simulada del teléfono (VLRH-H1790812613756). Anulable:
+    // un `null` rechazado dejaría la checada atorada en la cola sin red de la app.
+    assistIsMocked: vine.boolean().nullable().optional(),
   })
 )
 

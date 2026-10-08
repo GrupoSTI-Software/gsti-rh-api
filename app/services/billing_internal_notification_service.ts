@@ -19,7 +19,11 @@ import BillingProviderPaymentUnsettledMail, {
   type ProviderPaymentUnsettledReason,
 } from '../mails/billing_provider_payment_unsettled_mail.js'
 import BillingProviderPaymentMisalignedMail from '../mails/billing_provider_payment_misaligned_mail.js'
+import BillingProviderSubscriptionStateMail from '../mails/billing_provider_subscription_state_mail.js'
 import type { ProviderSettlementPeriod } from '#services/billing_payment_service'
+import type { BillingSubscriptionStatus } from '#models/billing_subscription'
+import type { ProviderSubscriptionStatus } from '#modules/billing-provider/billing_provider.port'
+import type { ProviderSubscriptionStateAlert } from '../mails/billing_provider_subscription_state_mail.js'
 
 export type NotifyProviderInvoiceHeldParams = {
   billingSubscriptionId: number | null
@@ -42,6 +46,16 @@ export type NotifyProviderPaymentUnsettledParams = {
   errorCode: string | null
   amountPaidCents: number | null
   currency: string | null
+}
+
+export type NotifyProviderSubscriptionStateUnexpectedParams = {
+  billingSubscriptionId: number
+  businessUnitId: number
+  subscriptionRef: string
+  eventRef: string
+  providerStatus: ProviderSubscriptionStatus
+  localStatus: BillingSubscriptionStatus
+  alert: ProviderSubscriptionStateAlert
 }
 
 export type NotifyProviderPaymentMisalignedParams = {
@@ -634,6 +648,50 @@ export default class BillingInternalNotificationService {
           recipients: recipients.map((email) => this.redactEmail(email)),
         },
         'BillingInternalNotificationService: fallo al enviar aviso de pago desalineado.'
+      )
+    }
+  }
+
+  /**
+   * Estado de Stripe inesperado o suscripción cancelada local (USRH1790708507723). Nunca lanza.
+   */
+  async notifyProviderSubscriptionStateUnexpected(
+    params: NotifyProviderSubscriptionStateUnexpectedParams
+  ): Promise<void> {
+    const { billingSubscriptionId, eventRef, alert } = params
+
+    try {
+      const recipients = this.resolveRecipients()
+      if (recipients.length === 0) {
+        logger.warn(
+          { billingSubscriptionId, eventRef, alert },
+          'BillingInternalNotificationService: sin destinatarios; se omite aviso de estado Stripe.'
+        )
+        return
+      }
+
+      const recipientsToSend = this.filterRecipientsForDelivery(recipients, {
+        billingSubscriptionId,
+        eventRef,
+        alert,
+      })
+      if (recipientsToSend.length === 0) {
+        return
+      }
+
+      const from = resolveMailSender()
+      await mail.send(
+        new BillingProviderSubscriptionStateMail({
+          to: recipientsToSend,
+          from,
+          tradeName: SENDER_TRADE_NAME,
+          ...params,
+        })
+      )
+    } catch {
+      logger.error(
+        { billingSubscriptionId, eventRef, alert, errorCode: alert },
+        'BillingInternalNotificationService: fallo al enviar aviso de estado Stripe.'
       )
     }
   }

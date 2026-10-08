@@ -12,6 +12,9 @@ import BillingProviderPaymentUnsettledMail, {
   type ProviderPaymentUnsettledReason,
 } from '#mails/billing_provider_payment_unsettled_mail'
 import BillingProviderPaymentMisalignedMail from '#mails/billing_provider_payment_misaligned_mail'
+import BillingProviderSubscriptionStateMail, {
+  PROVIDER_SUBSCRIPTION_STATE_ALERT_LABELS,
+} from '#mails/billing_provider_subscription_state_mail'
 import type { SubscriptionChangeRecord } from '#services/billing_subscription_change_service'
 
 /**
@@ -529,6 +532,79 @@ test.group('BillingInternalNotificationService — notifyProviderPaymentUnsettle
                 invoiceDebtCents: 0,
                 providerPeriod: null,
                 providerPeriodApplied: false,
+              })
+            })
+          }
+        )
+      })
+    } finally {
+      ;(mail as unknown as { send: typeof mail.send }).send = originalSend
+      mail.restore()
+    }
+  })
+})
+
+test.group('BillingInternalNotificationService - notifyProviderSubscriptionStateUnexpected (7723)', () => {
+  test('envía aviso con ids y estados, sin PII', async ({ assert }) => {
+    const fake = mail.fake()
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          {
+            BILLING_INTERNAL_NOTIFICATION_EMAILS: `${DEV_GATE_RECIPIENT_A},${DEV_GATE_RECIPIENT_B}`,
+          },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await service.notifyProviderSubscriptionStateUnexpected({
+              billingSubscriptionId: 7723,
+              businessUnitId: 88,
+              subscriptionRef: 'sub_fixtureS2',
+              eventRef: 'evt_fixtureS2alive',
+              providerStatus: 'active',
+              localStatus: 'canceled',
+              alert: 'local-canceled',
+            })
+          }
+        )
+      })
+
+      fake.mails.assertSentCount(BillingProviderSubscriptionStateMail, 1)
+      fake.mails.assertSent(BillingProviderSubscriptionStateMail, ({ message }) => {
+        message.assertHtmlIncludes('7723')
+        message.assertHtmlIncludes('evt_fixtureS2alive')
+        message.assertHtmlIncludes('sub_fixtureS2')
+        message.assertHtmlIncludes(PROVIDER_SUBSCRIPTION_STATE_ALERT_LABELS['local-canceled'])
+        const html = (message.toJSON() as { message: { html: string } }).message.html
+        assert.notInclude(html, 'Acme')
+        return message.hasTo(DEV_GATE_RECIPIENT_A) && message.hasTo(DEV_GATE_RECIPIENT_B)
+      })
+    } finally {
+      mail.restore()
+    }
+  })
+
+  test('fallo SMTP no lanza al caller', async ({ assert }) => {
+    mail.fake()
+    const originalSend = mail.send.bind(mail)
+    ;(mail as unknown as { send: typeof mail.send }).send = async () => {
+      throw new Error('SMTP caído (simulado)')
+    }
+
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await assert.doesNotReject(async () => {
+              await service.notifyProviderSubscriptionStateUnexpected({
+                billingSubscriptionId: 7724,
+                businessUnitId: 89,
+                subscriptionRef: 'sub_fixturePaused',
+                eventRef: 'evt_fixturePaused',
+                providerStatus: 'paused',
+                localStatus: 'active',
+                alert: 'unexpected-status',
               })
             })
           }

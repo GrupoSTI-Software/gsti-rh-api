@@ -1,6 +1,7 @@
 import type BillingSubscription from '#models/billing_subscription'
 import BillingProviderInvoiceCreatedHandler from '#modules/billing-provider/billing_provider_invoice_created.handler'
 import BillingProviderInvoicePaidHandler from '#modules/billing-provider/billing_provider_invoice_paid.handler'
+import BillingProviderSubscriptionStateHandler from '#modules/billing-provider/billing_provider_subscription_state.handler'
 import type {
   BillingProviderPort,
   VerifiedProviderEvent,
@@ -48,3 +49,8 @@ billingProviderEventHandlers.register(
 )
 
 billingProviderEventHandlers.register('invoice.paid', new BillingProviderInvoicePaidHandler())
+
+const subscriptionStateHandler = new BillingProviderSubscriptionStateHandler()
+billingProviderEventHandlers.register('invoice.payment_failed', subscriptionStateHandler)
+billingProviderEventHandlers.register('customer.subscription.updated', subscriptionStateHandler)
+billingProviderEventHandlers.register('customer.subscription.deleted', subscriptionStateHandler)
