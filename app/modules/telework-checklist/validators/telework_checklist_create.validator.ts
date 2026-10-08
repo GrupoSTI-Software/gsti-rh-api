@@ -9,7 +9,8 @@ import { TELEWORK_CHECKLIST_ANSWER_RESULT } from '#constants/telework_checklist'
  * fecha no futura, visitador presente, lugar vivo) las decide el servicio y
  * salen con su propio `key`/`code`. `inspectorName` es opcional en el esquema:
  * su ausencia es `TWC.VAL.006` (`visitador-requerido`), no `TWC.VAL.001`.
- * `mode` y `photos` no se declaran: Vine descarta las llaves extra (CA-7/CA-8).
+ * `mode` y los campos ajenos al esquema no se declaran: Vine descarta las
+ * llaves extra (CA-7/CA-8).
  */
 const ANSWER_RESULTS = [
   TELEWORK_CHECKLIST_ANSWER_RESULT.COMPLIANT,
@@ -19,15 +20,15 @@ const ANSWER_RESULTS = [
 
 export const teleworkChecklistCreateValidator = vine.compile(
   vine.object({
-    employeeId: vine.number().positive().withoutDecimals(),
+    employeeId: vine.number().min(1).withoutDecimals(),
     appliedAt: vine.date({ formats: ['YYYY-MM-DD'] }),
     inspectorName: vine.string().trim().maxLength(150).optional(),
-    teleworkLocationId: vine.number().positive().withoutDecimals().optional(),
+    teleworkLocationId: vine.number().min(1).withoutDecimals().optional(),
     notes: vine.string().trim().maxLength(2000).optional(),
     answers: vine
       .array(
         vine.object({
-          itemId: vine.number().positive().withoutDecimals(),
+          itemId: vine.number().min(1).withoutDecimals(),
           result: vine.enum([...ANSWER_RESULTS]),
           observation: vine.string().trim().maxLength(1000).optional(),
         })

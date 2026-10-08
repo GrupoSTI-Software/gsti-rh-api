@@ -2976,6 +2976,68 @@
       }
     }
   },
+  "telework_checklist": {
+    "title": "Listas de verificación de teletrabajo",
+    "items_success": "Puntos de la lista de verificación obtenidos correctamente.",
+    "list_success": "Historial de la lista de verificación obtenido correctamente.",
+    "detail_success": "Aplicación de la lista de verificación obtenida correctamente.",
+    "register_success": "Visita de la Comisión registrada correctamente.",
+    "items": {
+      "iluminacion": "Iluminación suficiente del área de trabajo",
+      "ventilacion_temperatura": "Ventilación y temperatura adecuadas",
+      "mobiliario": "Silla y mesa adecuadas",
+      "instalacion_electrica": "Instalación eléctrica sin riesgos visibles",
+      "orden_y_limpieza": "Espacio ordenado y libre de obstáculos",
+      "ruido": "Nivel de ruido que permite trabajar",
+      "primeros_auxilios_emergencia": "Medios para atender una emergencia"
+    },
+    "errors": {
+      "entrada-invalida": {
+        "title": "Entrada inválida",
+        "detail": "Revisa los campos de la petición."
+      },
+      "respuestas-incompletas": {
+        "title": "Respuestas incompletas",
+        "detail": "La lista debe responder todos los puntos activos; en 'data' están los códigos que faltan."
+      },
+      "respuesta-duplicada": {
+        "title": "Respuesta duplicada",
+        "detail": "Un punto de la lista se respondió más de una vez."
+      },
+      "punto-no-reconocido": {
+        "title": "Punto no reconocido",
+        "detail": "La respuesta incluye un punto que no existe o no está activo."
+      },
+      "fecha-de-aplicacion-invalida": {
+        "title": "Fecha de aplicación inválida",
+        "detail": "La fecha de la visita no puede ser futura."
+      },
+      "visitador-requerido": {
+        "title": "Visitador requerido",
+        "detail": "Indica el nombre de quien realizó la visita por parte de la Comisión."
+      },
+      "lugar-de-teletrabajo-invalido": {
+        "title": "Lugar de teletrabajo inválido",
+        "detail": "El lugar indicado no pertenece al colaborador o está dado de baja."
+      },
+      "solo-teletrabajadores": {
+        "title": "Solo teletrabajadores",
+        "detail": "La lista de verificación solo aplica a colaboradores en Home Office o Híbrido."
+      },
+      "colaborador-no-encontrado": {
+        "title": "Colaborador no encontrado",
+        "detail": "El colaborador no existe en esta empresa."
+      },
+      "aplicacion-no-encontrada": {
+        "title": "Aplicación no encontrada",
+        "detail": "La aplicación de la lista no existe en esta empresa."
+      },
+      "aplicacion-concurrente": {
+        "title": "Aplicación concurrente",
+        "detail": "Otra persona está registrando la lista de este colaborador; inténtalo de nuevo."
+      }
+    }
+  },
   "telework_settings": {
     "title": "Ajustes de teletrabajo",
     "get_success": "Ajustes de teletrabajo obtenidos correctamente.",
@@ -2998,6 +3060,10 @@
   "telework_policy_forbidden_read_message": "No tienes permiso para consultar la Política de Teletrabajo.",
   "telework_policy_forbidden_write_title": "Sin permiso",
   "telework_policy_forbidden_write_message": "No tienes permiso para gestionar la Política de Teletrabajo.",
+  "telework_checklist_forbidden_read_title": "Sin permiso de consulta",
+  "telework_checklist_forbidden_read_message": "No tienes permiso para consultar las listas de verificación de teletrabajo.",
+  "telework_checklist_forbidden_write_title": "Sin permiso",
+  "telework_checklist_forbidden_write_message": "No tienes permiso para registrar listas de verificación de teletrabajo.",
   "telework_settings_forbidden_read_title": "Sin permiso de consulta",
   "telework_settings_forbidden_read_message": "No tienes permiso para consultar los ajustes de teletrabajo.",
   "telework_settings_forbidden_write_title": "Sin permiso",
