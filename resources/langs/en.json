@@ -1592,6 +1592,19 @@
     "fallback_url": "If the button does not open, copy and paste this URL into your browser:",
     "footer": "© {tradeName} · Automatic message, do not reply to this address."
   },
+  "traumatic_event_new_hr_notification": {
+    "subject": "{companyName}: a new report requires your attention",
+    "preheader": "There is a new report in the system that requires your attention.",
+    "greeting": "Hello:",
+    "intro": "A worker at {companyName} reported a severe traumatic event from the employee app. Sign in to review it and start their care and referral.",
+    "worker_label": "Worker",
+    "event_type_label": "Event type",
+    "occurred_at_label": "Date it occurred",
+    "cta": "View traumatic events",
+    "confidentiality_note": "For confidentiality, this email does not include the description of the event or the people involved. Review them in the system.",
+    "fallback_url": "If the button does not open, copy and paste this URL into your browser:",
+    "footer": "© {tradeName} · Automatic message, do not reply to this address."
+  },
   "regulatory": {
     "authorities": {
       "stps": {

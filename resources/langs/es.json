@@ -1595,6 +1595,19 @@
     "fallback_url": "Si el botón no abre, copia y pega esta URL en tu navegador:",
     "footer": "© {tradeName} · Mensaje automático, no respondas a esta dirección."
   },
+  "traumatic_event_new_hr_notification": {
+    "subject": "{companyName}: nuevo reporte que requiere tu atención",
+    "preheader": "Hay un nuevo reporte en el sistema que requiere tu atención.",
+    "greeting": "Hola:",
+    "intro": "Un trabajador de {companyName} reportó un acontecimiento traumático severo desde la app del empleado. Entra al sistema para revisarlo y dar inicio a su atención y canalización.",
+    "worker_label": "Trabajador",
+    "event_type_label": "Tipo de evento",
+    "occurred_at_label": "Fecha en que ocurrió",
+    "cta": "Ver eventos traumáticos",
+    "confidentiality_note": "Por confidencialidad, este correo no incluye la descripción del suceso ni las personas involucradas. Consúltalos en el sistema.",
+    "fallback_url": "Si el botón no abre, copia y pega esta URL en tu navegador:",
+    "footer": "© {tradeName} · Mensaje automático, no respondas a esta dirección."
+  },
   "regulatory": {
     "authorities": {
       "stps": {
