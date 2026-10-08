@@ -8,7 +8,7 @@ test.group('billing_provider_error_codes (USRH1790708507467 / CA-10, 7496, 7553)
     const path = join(process.cwd(), 'app/constants/billing_provider_error_codes.ts')
     const source = readFileSync(path, 'utf8')
     const matches = source.match(/PLT\.PRV\./g)
-    assert.equal(matches?.length ?? 0, 16)
+    assert.equal(matches?.length ?? 0, 17)
     assert.equal(
       BILLING_PROVIDER_ERROR_CODES.PAYMENT_SETTLEMENT_FAILED,
       'PLT.PRV.PAYMENT_SETTLEMENT_FAILED'
@@ -32,6 +32,10 @@ test.group('billing_provider_error_codes (USRH1790708507467 / CA-10, 7496, 7553)
     assert.equal(
       BILLING_PROVIDER_ERROR_CODES.PROVIDER_STATE_UNAVAILABLE,
       'PLT.PRV.PROVIDER_STATE_UNAVAILABLE'
+    )
+    assert.equal(
+      BILLING_PROVIDER_ERROR_CODES.PROVIDER_STATE_MISMATCH,
+      'PLT.PRV.PROVIDER_STATE_MISMATCH'
     )
   })
 })
