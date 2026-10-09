@@ -399,7 +399,9 @@ export default class AssetsRepositoryMysql implements AssetsRepository {
       supply_deleted_at: Date | string | null
       supply_type_id: number
       supply_type_name: string | null
-      assigned_at: string | null
+      // `employee_supply_created_at` es NOT NULL y el alias sale de
+      // COALESCE(assignament_date, created_at): nunca llega null.
+      assigned_at: string
       expires_at: string | null
       retirement_date: string | null
     }> = await db
@@ -513,7 +515,7 @@ export default class AssetsRepositoryMysql implements AssetsRepository {
         : 'unsigned'
       const base = {
         employeeSupplyId: row.employee_supply_id,
-        assignedAt: row.assigned_at ?? '',
+        assignedAt: row.assigned_at,
         expiresAt: row.expires_at,
         custodyStatus,
         asset,
