@@ -33,7 +33,7 @@ Aviso importante sobre los datos: **esta historia no siembra datos de QA** y no 
 
 | Escenario | Lo que el ambiente debe traer |
 |---|---|
-| 4.1 Ficha completa | Un colaborador con una **laptop vigente con resguardo firmado** y un **celular devuelto** con motivo **Cambio de equipo**. Si hay más de un devuelto, que las fechas de devolución permitan ver el orden (el más reciente primero). |
+| 4.1 Ficha completa | Un colaborador con una **laptop vigente con resguardo firmado** y un **celular devuelto** con motivo **Cambio de equipo**. Para poder comprobar el orden de los devueltos, que traiga **dos o más devueltos** cuyas fechas de devolución inviertan el orden por fecha de asignación. |
 | 4.2 Resguardo sin firmar | Un activo **vigente sin resguardo cargado** (por ejemplo un monitor) asignado al mismo colaborador. |
 | 4.3 En envío | Un activo **vigente en envío** (con su asignación en estado "en envío"). |
 | 4.4 Extraviado y eliminado | Un activo **vigente con estado de catálogo "Extraviado"** y un activo **eliminado del catálogo** que ya se haya devuelto (que quede en el histórico). |
@@ -79,7 +79,7 @@ Objetivo: comprobar que en la ficha de un colaborador con activos, la sección *
 3. Aparece la card **Activos vigentes** (con su conteo **Total: …**) y, debajo, la card **Activos devueltos**.
 4. En **Activos vigentes**, el renglón de la laptop muestra: su nombre, **Folio …**, **Tipo: …**, **Serie …** (solo si el activo tiene serie), cada característica capturada como **Nombre: valor**, **Asignado el …**, el chip **Asignado** y el chip **Resguardo firmado**.
 5. En **Activos devueltos**, el renglón del celular muestra: su nombre, **Tipo: …**, **Devuelto el …** (la fecha de devolución), **Motivo: Cambio de equipo** y su chip de resguardo.
-6. El orden de **Activos devueltos** va del más reciente al más antiguo **por fecha de devolución**, no por fecha de asignación.
+6. El orden de **Activos devueltos** va del más reciente al más antiguo **por fecha de devolución** (no por fecha de asignación). Este orden solo se puede distinguir si la ficha trae **dos o más devueltos** cuyas fechas de devolución inviertan el orden por fecha de asignación; con un solo devuelto no hay nada que ordenar. Si el colaborador solo tiene un devuelto, este punto se reporta como **no verificable aquí**.
 
 Evidencia: una captura de la sección con las dos cards visibles (donde se lean los textos de los chips y "Motivo: …" en el devuelto) y una captura del orden de **Activos devueltos** si hay más de un renglón.
 
@@ -109,7 +109,7 @@ Objetivo: comprobar que un activo con estado **Extraviado** sigue apareciendo co
 
 1. Con el Usuario A, abre la ficha del colaborador que toque y entra a **Activos**.
 2. En **Activos vigentes**, el renglón del activo **extraviado** muestra, además de su chip de asignación, el chip **Extraviado**. Su nombre sigue siendo un enlace (color y subrayado de enlace al pasar el cursor).
-3. En **Activos devueltos**, el renglón del activo **eliminado del catálogo** muestra su nombre como **texto normal**, sin enlace; si pasas el cursor y pulsas, no navega a ninguna parte. El renglón conserva el folio, el tipo y la fecha de devolución que tenía.
+3. En **Activos devueltos**, el renglón del activo **eliminado del catálogo** muestra su nombre como **texto normal**, sin enlace; si pasas el cursor y pulsas, no navega a ninguna parte. El renglón conserva el tipo y la fecha de devolución que tenía.
 4. **Negativo a comprobar a propósito:** el renglón eliminado no se puede abrir; el extraviado sí.
 
 Evidencia: una captura del renglón con **Extraviado** (que se note que el nombre se ve como enlace) y una captura del renglón eliminado (que se note que su nombre es texto, sin enlace).
@@ -167,12 +167,12 @@ Evidencia: una captura del submenú sin la opción **Activos** (que se vea que t
 
 ### 6.1 A 360 px
 
-Objetivo: comprobar que a 360 px de ancho la sección no produce desplazamiento horizontal y que cada renglón apila el nombre y los chips en una columna, con los metadatos debajo.
+Objetivo: comprobar que a 360 px de ancho la sección no produce desplazamiento horizontal y que cada renglón apila en una sola columna el nombre, los metadatos y los chips, en ese orden.
 
 1. Con el Usuario A, en la ficha del colaborador del escenario 4.1, entra a **Activos**.
 2. Estrecha la ventana del navegador hasta unos **360 px** de ancho (o usa el modo de dispositivo móvil).
 3. La página **no se desplaza en horizontal**: no hay barra inferior de desplazamiento y el contenido no se sale hacia los lados.
-4. En cada renglón, el nombre y los chips quedan **apilados en una columna** (el nombre arriba y los chips debajo), y los metadatos (**Folio …**, **Tipo: …**, **Asignado el …**) van **debajo**.
+4. En cada renglón, el contenido queda **apilado en una sola columna**, en este orden de arriba a abajo: primero el nombre, luego los metadatos (**Folio …**, **Tipo: …**, **Asignado el …**) y al final los chips debajo de los metadatos.
 5. **Contraste:** al ensanchar la ventana a un ancho de escritorio, cada renglón pasa a **dos columnas**, los datos a un lado y los chips al otro.
 
 Evidencia: una captura a 360 px de ancho (que se vea la regla o el ancho en el modo dispositivo) y una captura del mismo renglón en ancho de escritorio para el contraste de dos columnas.
@@ -203,6 +203,6 @@ Cada casilla se marca contra el objetivo de su escenario, no contra "se hicieron
 - [ ] 4.6 El colaborador sin activos muestra **Sin activos asignados** y ninguna card de devueltos
 - [ ] 4.7 El colaborador dado de baja sigue mostrando sus vigentes y devueltos
 - [ ] 5.1 Con el rol sin permiso, la opción **Activos** no está en el submenú y la URL directa deja la página vacía, sin petición al servicio
-- [ ] 6.1 A 360 px no hay desplazamiento horizontal y nombre y chips se apilan en una columna, con los metadatos debajo
+- [ ] 6.1 A 360 px no hay desplazamiento horizontal y cada renglón se apila en una sola columna: nombre, luego metadatos y al final los chips
 
 Recorrido completo el ___ de ________ de 2026: cada casilla se marca **contra el objetivo de su escenario**, no contra "se hicieron los pasos".
