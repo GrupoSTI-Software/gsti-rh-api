@@ -88,6 +88,22 @@ Objetivo: comprobar que en la ficha de un colaborador con activos, la sección *
 5. En **Activos devueltos**, el renglón del **Celular QA Activos** (`QA-ACT-CEL-01`) muestra: su nombre, **Tipo: Celular QA Activos**, **Devuelto el …** (**1 de septiembre de 2026**) y **Motivo: Cambio de equipo**, con su chip de resguardo.
 6. El orden de **Activos devueltos** va del más reciente al más antiguo **por fecha de devolución** (no por fecha de asignación). La colaboradora trae **tres devueltos** y sus fechas invierten el orden por asignación, así que debe verse primero el **Celular QA Activos** (devuelto en septiembre de 2026), luego el **Teclado QA Activos** (julio de 2026) y al final la **Tablet QA Activos** (junio de 2026); por fecha de asignación el primero habría sido la **Tablet**.
 
+**Qué significa cada cosa que se ve:**
+
+- **Activos vigentes**: lo que la persona tiene hoy a su cargo, incluido lo que va en camino. Su **Total: …** dice cuántos trae.
+- **Activos devueltos**: el historial de lo que ya regresó. Su **Total: …** dice cuántos devolvió.
+- **Estado de la asignación** (el distintivo junto al nombre): puede valer **Asignado** (ya está en manos de la persona y responde por él) o **En envío** (va en camino; todavía no lo tiene).
+- **Estado del resguardo**: puede valer **Resguardo firmado** (ya se subió el vale con el que la persona responde por el activo) o **Resguardo sin firmar** (todavía no).
+- **Estado del activo en el catálogo**: puede valer **Inactivo** (el bien ya no se usa, aunque la persona todavía lo tenga), **Extraviado** (no se sabe dónde está) o **Dañado** (está averiado). Con el ambiente sembrado solo se puede ver **Extraviado** (Escenario 4.4); los otros dos se listan aquí para que se sepa qué quieren decir.
+- **Folio …**: el número que identifica al activo en el inventario.
+- **Serie …**: el número de serie del aparato; algunos activos no lo traen.
+- **Tipo: …**: la clase de bien de la que cuelga el activo.
+- Las **características** (**Modelo: Latitude 5440**, **RAM en GB: 16**, **Tiene garantia: Sí**, **Ultimo mantenimiento: …**): los datos que se capturaron al dar de alta el activo, cada uno con su nombre y su valor. Un **Sí** o un **No** quiere decir que el activo sí cumple o no cumple esa condición (aquí, que tiene garantía).
+- **Asignado el …**: la fecha en que el activo quedó a cargo de la persona.
+- **Devuelto el …**: la fecha en que la persona lo regresó.
+- **Motivo: …**: por qué lo devolvió. El del ambiente, **Cambio de equipo**, quiere decir que se le cambió por otro equipo.
+- El **orden** de los devueltos: del más reciente al más antiguo por **fecha de devolución**.
+
 ### 4.2 Resguardo sin firmar
 
 Objetivo: comprobar que un activo vigente al que todavía no se le ha subido el resguardo muestra el chip **Resguardo sin firmar**, en lugar de "Resguardo firmado".
@@ -96,6 +112,8 @@ Objetivo: comprobar que un activo vigente al que todavía no se le ha subido el 
 2. En **Activos vigentes**, busca el renglón del **Monitor QA Activos** (`QA-ACT-MON-01`), el activo que **no tiene resguardo cargado**.
 3. Ese renglón muestra el chip **Resguardo sin firmar**; el renglón sigue en **Activos vigentes**, con sus datos y su chip de asignación **Asignado**.
 
+(Lo que se ve es lo ya explicado en el Escenario 4.1.)
+
 ### 4.3 En envío
 
 Objetivo: comprobar que un activo que va en camino aparece entre los vigentes con el chip **En envío**.
@@ -103,6 +121,8 @@ Objetivo: comprobar que un activo que va en camino aparece entre los vigentes co
 1. Con el Usuario A, abre la ficha de **Carla Soto Nava** (`QA-EMP-03`) y entra a **Activos**.
 2. En **Activos vigentes** (no en devueltos), el renglón de la **Bocina QA Activos** (`QA-ACT-BOC-01`) muestra el chip **En envío**.
 3. El mismo renglón trae sus datos (folio, tipo, etc.) como cualquier vigente.
+
+(Lo que se ve es lo ya explicado en el Escenario 4.1.)
 
 ### 4.4 Extraviado y activo eliminado
 
@@ -113,6 +133,11 @@ Objetivo: comprobar que un activo con estado **Extraviado** sigue apareciendo co
 3. En **Activos devueltos**, el renglón del **Teclado QA Activos** (`QA-ACT-TEC-01`), que fue **eliminado del catálogo**, muestra su nombre como **texto normal**, sin enlace; si pasas el cursor y pulsas, no navega a ninguna parte. El renglón conserva el tipo y la fecha de devolución que tenía.
 4. **Negativo a comprobar a propósito:** el renglón eliminado no se puede abrir; el extraviado sí.
 
+**Qué significa lo nuevo aquí:**
+
+- **`Extraviado` junto al estado de la asignación**: la persona sigue siendo responsable del activo, pero del inventario se sabe que no está localizado; el renglón no deja de ser vigente ni se abre distinto.
+- **Un activo eliminado del catálogo** (su nombre se ve como texto, sin enlace): el bien ya no existe en **Activos e insumos**, pero el registro de que estuvo con la persona se conserva; por eso se sigue viendo, y por eso no se puede abrir.
+
 ### 4.5 Enlace al activo
 
 Objetivo: comprobar que al pulsar el nombre de un activo que sigue en el catálogo, se abre **Activos e insumos** con la ficha de ese activo en su pestaña de resguardo.
@@ -121,6 +146,10 @@ Objetivo: comprobar que al pulsar el nombre de un activo que sigue en el catálo
 2. En **Activos vigentes**, pulsa el nombre de la **Laptop QA Activos** (`QA-ACT-LAP-01`).
 3. La app navega a **Activos e insumos** y abre la ficha de ese activo. La pestaña **Resguardo** (junto a **Ficha** y **Valor**) es la que queda seleccionada.
 4. En la barra de direcciones se lee la pantalla de activos con el activo y la pestaña en la dirección: `http://127.0.0.1:3000/supplies?activo=<número>&tab=resguardo` (la dirección **no** lleva `/es`).
+
+**Qué significa lo nuevo aquí:**
+
+- **`Resguardo`** (la pestaña y el `tab=resguardo` de la dirección): la vista del activo donde se ve y se firma el vale de ese activo. Las otras dos pestañas, **Ficha** y **Valor**, son las demás vistas del mismo activo.
 
 ### 4.6 Colaborador nuevo, sin activos
 
@@ -131,6 +160,10 @@ Objetivo: comprobar que la ficha de un colaborador sin ninguna asignación muest
 3. Se ve un aviso con **Sin activos asignados** y, debajo, **Los activos se asignan desde Activos e insumos y aparecen aquí.**
 4. **Negativo a comprobar a propósito:** no aparece la card **Activos vigentes** ni la card **Activos devueltos**.
 
+**Qué significa lo nuevo aquí:**
+
+- **`Sin activos asignados`**: la persona no tiene ningún activo, ni vigente ni devuelto. El renglón de abajo (**Los activos se asignan desde Activos e insumos y aparecen aquí.**) dice dónde se le asignan. No aparece ninguna card con **Total** porque no hay nada que contar.
+
 ### 4.7 Colaborador dado de baja
 
 Objetivo: comprobar que la ficha de un colaborador dado de baja sigue mostrando sus activos: lo que no ha devuelto y su histórico.
@@ -139,6 +172,10 @@ Objetivo: comprobar que la ficha de un colaborador dado de baja sigue mostrando 
 2. Entra a **Activos**.
 3. La sección aparece igual que en un colaborador vigente: se ven sus **Activos vigentes** (la **Laptop QA Activos**, folio `QA-ACT-BAJA-LAP`) y sus **Activos devueltos** (el **Monitor QA Activos**, folio `QA-ACT-BAJA-MON`, motivo **Cambio de equipo**).
 4. **Negativo a comprobar a propósito:** la baja del colaborador no deja la sección vacía ni con un error.
+
+**Qué significa lo nuevo aquí:**
+
+- **Un colaborador dado de baja conserva sus activos**: la sección se ve igual que en alguien vigente, porque lo que no ha devuelto sigue a su nombre y su historial no se borra al darlo de baja.
 
 ## 5. Con el Usuario B (sin lectura de Activos e insumos)
 
@@ -154,6 +191,10 @@ Objetivo: comprobar que con un rol sin lectura de Activos e insumos la sección 
 4. La página queda **vacía**: no aparecen las cards **Activos vigentes** ni **Activos devueltos**, ni el aviso **Sin activos asignados**, ni un mensaje de error. No se ve nada dentro de la sección.
 5. Abre la pestaña de red del navegador (F12 → Red) y recarga esa dirección: **no sale ninguna petición** al servicio de activos del colaborador. La pantalla no consultó nada.
 
+**Qué significa lo nuevo aquí:**
+
+- **Que la opción no esté** no es un fallo de la pantalla: el rol no tiene la lectura del módulo de activos, así que la sección no se le ofrece y su dirección directa no consulta nada.
+
 ## 6. Responsivo
 
 ### 6.1 A 360 px
@@ -165,6 +206,8 @@ Objetivo: comprobar que a 360 px de ancho la sección no produce desplazamiento 
 3. La página **no se desplaza en horizontal**: no hay barra inferior de desplazamiento y el contenido no se sale hacia los lados.
 4. En cada renglón, el contenido queda **apilado en una sola columna**, en este orden de arriba a abajo: primero el nombre, luego los metadatos (**Folio …**, **Tipo: …**, **Asignado el …**) y al final los chips debajo de los metadatos.
 5. **Contraste:** al ensanchar la ventana a un ancho de escritorio, cada renglón pasa a **dos columnas**, los datos a un lado y los chips al otro.
+
+(Lo que se ve es lo ya explicado en el Escenario 4.1.)
 
 ## 7. Lo que no se revisa aquí
 
