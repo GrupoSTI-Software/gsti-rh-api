@@ -74,6 +74,10 @@ export const BILLING_PROVIDER_WEBHOOK_PROCESSING_FAILED_DETAIL =
 export const BILLING_PROVIDER_CARD_NOT_CONFIRMED_DETAIL =
   'Confirma tu tarjeta en el paso de pago para completar el registro.'
 
+/** Texto fijo cuando el SetupIntent no califica para fijar método (USRH1790724549203). */
+export const BILLING_PROVIDER_CARD_NOT_CONFIRMED_SAVE_DETAIL =
+  'Confirma tu tarjeta para guardarla como método de pago.'
+
 /** Texto fijo cuando el snapshot de apertura no coincide (USRH1790708507607). */
 export const BILLING_PROVIDER_SUBSCRIPTION_OPENING_MISMATCH_DETAIL =
   'No fue posible abrir la suscripción con el proveedor de cobro. Intenta de nuevo.'

@@ -12,6 +12,7 @@ import {
   noLiveSubscriptionChangeError,
   noLiveSubscriptionError,
   onlyAccountOwnerCanContractError,
+  onlyAccountOwnerCanManagePaymentMethodError,
   onlyAccountOwnerError,
   originNotSelfServiceError,
   periodNotProratableError,
@@ -185,6 +186,16 @@ test.group('billing_tenant_error — previsualización de cambio (USRH1786107870
     assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE)
     assert.equal(error.httpStatus, 403)
     assert.include(error.message, 'contratar la suscripción')
+  })
+
+  test('onlyAccountOwnerCanManagePaymentMethodError habla de tarjeta de cobro', ({
+    assert,
+  }) => {
+    const error = onlyAccountOwnerCanManagePaymentMethodError()
+    assert.equal(error.key, 'solo-el-dueno-de-la-cuenta')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE)
+    assert.equal(error.httpStatus, 403)
+    assert.include(error.detail ?? '', 'tarjeta de cobro')
   })
 })
 

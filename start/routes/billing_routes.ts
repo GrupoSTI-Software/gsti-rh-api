@@ -36,9 +36,28 @@ const billingSubscriptionChangeRateLimit = limiter.define('billing-subscription-
     .usingKey(`billing-subscription-change:${userId}`)
 })
 
+/**
+ * Lectura de tarjeta predeterminada en Stripe (USRH1790724549203).
+ * Clave por usuario autenticado con respaldo por IP.
+ */
+const billingPaymentMethodReadRateLimit = limiter.define('billing-payment-method-read', (ctx) => {
+  const userId = ctx.auth.user?.userId
+  const key =
+    userId !== undefined && userId !== null
+      ? `billing-payment-method-read:${userId}`
+      : `billing-payment-method-read:${ctx.request.ip()}`
+  return limiter.allowRequests(30).every('1 minute').usingKey(key)
+})
+
 router
   .group(() => {
     router.get('/subscription/me', '#controllers/billing_tenant_controller.mySubscription')
+    router
+      .get(
+        '/subscription/payment-method',
+        '#controllers/billing_payment_method_controller.show'
+      )
+      .use(billingPaymentMethodReadRateLimit)
     router.post(
       '/subscription',
       '#controllers/billing_tenant_controller.contractSubscription'

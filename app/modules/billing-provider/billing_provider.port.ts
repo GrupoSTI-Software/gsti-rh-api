@@ -268,3 +268,46 @@ export function isBillingSubscriptionStateProvider(
     typeof candidate.readInvoicePaymentFailure === 'function'
   )
 }
+
+/** Resumen de tarjeta expuesto al cliente (sin ids de Stripe). */
+export interface ProviderCard {
+  brand: string
+  last4: string
+  expMonth: number
+  expYear: number
+}
+
+export type BillingSubscriptionCardSetupOwner = {
+  kind: 'billing_subscription'
+  billingSubscriptionId: number
+}
+
+export interface DefaultPaymentMethodRequest {
+  owner: BillingSubscriptionCardSetupOwner
+  customerRef: string
+  subscriptionRef: string
+  setupIntentRef: string
+}
+
+/** Lectura y fijado de tarjeta predeterminada en Stripe (USRH1790724549203). */
+export interface BillingPaymentMethodProviderPort {
+  /** Suscripción; si no tiene tarjeta, cliente. Solo tarjeta; null si ninguna. */
+  readDefaultCard(request: {
+    customerRef: string
+    subscriptionRef: string
+  }): Promise<ProviderCard | null>
+
+  /** Valida el SetupIntent y fija el método en cliente y suscripción. Sin llamador en esta HU. */
+  setDefaultPaymentMethod(request: DefaultPaymentMethodRequest): Promise<ProviderCard>
+}
+
+/** true solo si readDefaultCard y setDefaultPaymentMethod son funciones. */
+export function isBillingPaymentMethodProvider(
+  provider: BillingProviderPort
+): provider is BillingProviderPort & BillingPaymentMethodProviderPort {
+  const candidate = provider as Partial<BillingPaymentMethodProviderPort>
+  return (
+    typeof candidate.readDefaultCard === 'function' &&
+    typeof candidate.setDefaultPaymentMethod === 'function'
+  )
+}

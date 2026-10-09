@@ -1,6 +1,7 @@
 import {
   BILLING_PROVIDER_ERROR_CODES,
   BILLING_PROVIDER_CARD_NOT_CONFIRMED_DETAIL,
+  BILLING_PROVIDER_CARD_NOT_CONFIRMED_SAVE_DETAIL,
   BILLING_PROVIDER_INVOICE_AMOUNT_UNAVAILABLE_DETAIL,
   BILLING_PROVIDER_INVOICE_SUBSCRIPTION_NOT_FOUND_DETAIL,
   BILLING_PROVIDER_PAYMENT_SETTLEMENT_FAILED_DETAIL,
@@ -28,6 +29,17 @@ export function cardNotConfirmed(): BillingProviderServiceError {
     422,
     'tarjeta-no-confirmada',
     BILLING_PROVIDER_CARD_NOT_CONFIRMED_DETAIL
+  )
+}
+
+/** SetupIntent inválido al fijar tarjeta predeterminada (Mi suscripción — USRH1790724549203). */
+export function paymentMethodNotConfirmed(): BillingProviderServiceError {
+  return new BillingProviderServiceError(
+    'Tarjeta sin confirmar para el método de pago',
+    BILLING_PROVIDER_ERROR_CODES.CARD_NOT_CONFIRMED,
+    422,
+    'tarjeta-no-confirmada',
+    BILLING_PROVIDER_CARD_NOT_CONFIRMED_SAVE_DETAIL
   )
 }
 

@@ -11,6 +11,7 @@ import { BillingProviderServiceError } from '#exceptions/billing_provider_servic
 import {
   cardNotConfirmed,
   operationNotAvailable,
+  paymentMethodNotConfirmed,
   providerRequestFailed,
 } from '#modules/billing-provider/billing_provider.errors'
 import {
@@ -18,8 +19,11 @@ import {
   type BillingCatalogProviderPort,
   type BillingCheckoutProviderPort,
   type BillingInvoiceProviderPort,
+  type BillingPaymentMethodProviderPort,
   type BillingProviderPort,
   type BillingSubscriptionStateProviderPort,
+  type DefaultPaymentMethodRequest,
+  type ProviderCard,
   type BillingWebhookProviderPort,
   type InvoiceChargeDraft,
   type ProviderPaymentFailure,
@@ -445,6 +449,98 @@ function readPaymentMethodId(paymentMethod: Stripe.SetupIntent['payment_method']
   return null
 }
 
+/**
+ * Normaliza un PaymentMethod expandido o crudo a la lista blanca del API.
+ *
+ * @param paymentMethod - Objeto devuelto por Stripe (expandido o id).
+ * @returns Tarjeta utilizable o null si la forma no califica.
+ */
+export function toProviderCard(paymentMethod: unknown): ProviderCard | null {
+  if (typeof paymentMethod !== 'object' || paymentMethod === null) {
+    return null
+  }
+  const candidate = paymentMethod as Stripe.PaymentMethod
+  if (candidate.type !== 'card' || candidate.card == null) {
+    return null
+  }
+  const brand = candidate.card.brand
+  const last4 = candidate.card.last4
+  const expMonth = candidate.card.exp_month
+  const expYear = candidate.card.exp_year
+  if (typeof brand !== 'string' || brand.trim() === '') {
+    return null
+  }
+  if (typeof last4 !== 'string' || !/\d{4}$/.test(last4)) {
+    return null
+  }
+  if (!Number.isInteger(expMonth) || expMonth < 1 || expMonth > 12) {
+    return null
+  }
+  if (!Number.isInteger(expYear) || expYear < 1000 || expYear > 9999) {
+    return null
+  }
+  return {
+    brand: brand.trim(),
+    last4,
+    expMonth,
+    expYear,
+  }
+}
+
+function readExpandedPaymentMethod(
+  value: Stripe.Subscription['default_payment_method']
+): ProviderCard | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+  if (typeof value === 'string') {
+    return null
+  }
+  return toProviderCard(value)
+}
+
+function setupIntentReadyForBillingSubscription(
+  setupIntent: Stripe.SetupIntent,
+  customerRef: string,
+  billingSubscriptionId: number
+): string | null {
+  if (setupIntent.status !== 'succeeded') {
+    return null
+  }
+  const customer = setupIntent.customer
+  const customerId = typeof customer === 'string' ? customer : customer?.id ?? null
+  if (customerId !== customerRef) {
+    return null
+  }
+  if (setupIntent.usage !== 'off_session') {
+    return null
+  }
+  const paymentMethodId = readPaymentMethodId(setupIntent.payment_method)
+  if (paymentMethodId === null) {
+    return null
+  }
+  if (
+    setupIntent.metadata?.valanserh_billing_subscription_id !== String(billingSubscriptionId)
+  ) {
+    return null
+  }
+  return paymentMethodId
+}
+
+export function subscriptionDefaultCustomerIdempotencyKey(
+  billingSubscriptionId: number,
+  setupIntentRef: string
+): string {
+  return `valanserh-subscription-${billingSubscriptionId}-default-customer-${setupIntentRef}`
+}
+
+export function subscriptionDefaultSubscriptionIdempotencyKey(
+  billingSubscriptionId: number,
+  setupIntentRef: string
+): string {
+  return `valanserh-subscription-${billingSubscriptionId}-default-subscription-${setupIntentRef}`
+}
+
 function setupIntentReadyForSubscription(
   setupIntent: Stripe.SetupIntent,
   customerRef: string,
@@ -830,7 +926,8 @@ export default class StripeBillingProviderAdapter
     BillingWebhookProviderPort,
     BillingCheckoutProviderPort,
     BillingInvoiceProviderPort,
-    BillingSubscriptionStateProviderPort
+    BillingSubscriptionStateProviderPort,
+    BillingPaymentMethodProviderPort
 {
   readonly key = BILLING_PROVIDER_KEYS.STRIPE
 
@@ -1175,6 +1272,84 @@ export default class StripeBillingProviderAdapter
       )
     } catch (error) {
       throw this.#wrap('cancelProviderSubscription', error)
+    }
+  }
+
+  async readDefaultCard(request: {
+    customerRef: string
+    subscriptionRef: string
+  }): Promise<ProviderCard | null> {
+    const client = this.#requireClient()
+    try {
+      const subscription = await client.subscriptions.retrieve(request.subscriptionRef, {
+        expand: ['default_payment_method'],
+      })
+      const fromSubscription = readExpandedPaymentMethod(subscription.default_payment_method)
+      if (fromSubscription !== null) {
+        return fromSubscription
+      }
+
+      const customer = await client.customers.retrieve(request.customerRef, {
+        expand: ['invoice_settings.default_payment_method'],
+      })
+      if ('deleted' in customer && customer.deleted) {
+        return null
+      }
+      const defaultMethod = customer.invoice_settings?.default_payment_method ?? null
+      return toProviderCard(defaultMethod)
+    } catch (error) {
+      throw this.#wrap('readDefaultCard', error)
+    }
+  }
+
+  async setDefaultPaymentMethod(request: DefaultPaymentMethodRequest): Promise<ProviderCard> {
+    const client = this.#requireClient()
+    const billingSubscriptionId = request.owner.billingSubscriptionId
+
+    try {
+      const setupIntent = await client.setupIntents.retrieve(request.setupIntentRef)
+      const paymentMethodId = setupIntentReadyForBillingSubscription(
+        setupIntent,
+        request.customerRef,
+        billingSubscriptionId
+      )
+      if (paymentMethodId === null) {
+        throw paymentMethodNotConfirmed()
+      }
+
+      const paymentMethod = await client.paymentMethods.retrieve(paymentMethodId)
+      const card = toProviderCard(paymentMethod)
+      if (card === null) {
+        throw paymentMethodNotConfirmed()
+      }
+
+      await client.customers.update(
+        request.customerRef,
+        {
+          invoice_settings: { default_payment_method: paymentMethodId },
+        },
+        {
+          idempotencyKey: subscriptionDefaultCustomerIdempotencyKey(
+            billingSubscriptionId,
+            request.setupIntentRef
+          ),
+        }
+      )
+
+      await client.subscriptions.update(
+        request.subscriptionRef,
+        { default_payment_method: paymentMethodId },
+        {
+          idempotencyKey: subscriptionDefaultSubscriptionIdempotencyKey(
+            billingSubscriptionId,
+            request.setupIntentRef
+          ),
+        }
+      )
+
+      return card
+    } catch (error) {
+      throw this.#wrap('setDefaultPaymentMethod', error)
     }
   }
 

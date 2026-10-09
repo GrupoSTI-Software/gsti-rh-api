@@ -169,6 +169,19 @@ export function onlyAccountOwnerCanContractError(): BillingSubscriptionServiceEr
   )
 }
 
+/** Solo el dueño puede ver o cambiar la tarjeta de cobro (USRH1790724549203). */
+export function onlyAccountOwnerCanManagePaymentMethodError(): BillingSubscriptionServiceError {
+  const detail =
+    'Solo el dueño de la cuenta puede ver o cambiar la tarjeta de cobro.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE,
+    403,
+    'solo-el-dueno-de-la-cuenta',
+    detail
+  )
+}
+
 /** La cantidad pedida no supera la contratada vigente (regla 5 — USRH1786107870850). */
 export function changeNotAnIncreaseError(
   contracted: number,

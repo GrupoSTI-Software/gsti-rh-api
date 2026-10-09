@@ -17,6 +17,7 @@ import ManualBillingProviderAdapter from '#modules/billing-provider/manual_billi
 import {
   BILLING_PROVIDER_KEYS,
   isBillingInvoiceProvider,
+  isBillingPaymentMethodProvider,
   isBillingSubscriptionStateProvider,
   type BillingProviderPort,
 } from '#modules/billing-provider/billing_provider.port'
@@ -29,6 +30,7 @@ import StripeBillingProviderAdapter, {
   catalogIdempotencyKey,
   cardSetupIdempotencyKey,
   invoiceChargeIdempotencyKey,
+  toProviderCard,
   toProviderPaymentFailure,
   toProviderSubscriptionState,
 } from '#modules/billing-provider/stripe_billing_provider.adapter'
@@ -1421,5 +1423,210 @@ test.group('StripeBillingProviderAdapter — lectura de estado (9026 / CA-8…CA
     } finally {
       ;(logger as unknown as { warn: typeof logger.warn }).warn = originalWarn
     }
+  })
+})
+
+const FIXTURE_PAYMENT_METHOD = {
+  id: 'pm_fixtureA',
+  type: 'card',
+  card: { brand: 'visa', last4: '4242', exp_month: 4, exp_year: 2028 },
+} as unknown as Stripe.PaymentMethod
+
+test.group('StripeBillingProviderAdapter — tarjeta vigente (USRH1790724549203)', () => {
+  test('toProviderCard acepta visa 4242 y rechaza formas inválidas', ({ assert }) => {
+    const card = toProviderCard(FIXTURE_PAYMENT_METHOD)
+    assert.deepEqual(card, {
+      brand: 'visa',
+      last4: '4242',
+      expMonth: 4,
+      expYear: 2028,
+    })
+    assert.isNull(toProviderCard({ type: 'card', card: null }))
+    assert.isNull(toProviderCard(null))
+  })
+
+  test('readDefaultCard usa suscripción y respalda al cliente', async ({ assert }) => {
+    let customerCalls = 0
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => {
+      return {
+        subscriptions: {
+          retrieve: async () => ({
+            default_payment_method: FIXTURE_PAYMENT_METHOD,
+          }),
+        },
+        customers: {
+          retrieve: async () => {
+            customerCalls += 1
+            return { deleted: false, invoice_settings: {} }
+          },
+        },
+      } as unknown as Stripe
+    })
+
+    const card = await adapter.readDefaultCard({
+      customerRef: 'cus_fixtureA',
+      subscriptionRef: 'sub_fixtureA',
+    })
+    assert.deepEqual(card?.last4, '4242')
+    assert.equal(customerCalls, 0)
+
+    const adapterFallback = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => {
+      return {
+        subscriptions: {
+          retrieve: async () => ({ default_payment_method: null }),
+        },
+        customers: {
+          retrieve: async () => ({
+            deleted: false,
+            invoice_settings: { default_payment_method: FIXTURE_PAYMENT_METHOD },
+          }),
+        },
+      } as unknown as Stripe
+    })
+    const fallbackCard = await adapterFallback.readDefaultCard({
+      customerRef: 'cus_fixtureA',
+      subscriptionRef: 'sub_fixtureA',
+    })
+    assert.deepEqual(fallbackCard?.last4, '4242')
+  })
+
+  test('CA-11: setDefaultPaymentMethod rechaza setupIntents inválidos con el mismo cuerpo', async ({
+    assert,
+  }) => {
+    const invalidIntents: Stripe.SetupIntent[] = [
+      {
+        status: 'requires_payment_method',
+        customer: 'cus_fx',
+        usage: 'off_session',
+        payment_method: 'pm_fx',
+        metadata: { valanserh_billing_subscription_id: '7' },
+      } as unknown as Stripe.SetupIntent,
+      {
+        status: 'succeeded',
+        customer: 'cus_otro',
+        usage: 'off_session',
+        payment_method: 'pm_fx',
+        metadata: { valanserh_billing_subscription_id: '7' },
+      } as unknown as Stripe.SetupIntent,
+      {
+        status: 'succeeded',
+        customer: 'cus_fx',
+        usage: 'on_session',
+        payment_method: 'pm_fx',
+        metadata: { valanserh_billing_subscription_id: '7' },
+      } as unknown as Stripe.SetupIntent,
+      {
+        status: 'succeeded',
+        customer: 'cus_fx',
+        usage: 'off_session',
+        payment_method: null,
+        metadata: { valanserh_billing_subscription_id: '7' },
+      } as unknown as Stripe.SetupIntent,
+      {
+        status: 'succeeded',
+        customer: 'cus_fx',
+        usage: 'off_session',
+        payment_method: 'pm_fx',
+        metadata: { valanserh_signup_draft_id: '99' },
+      } as unknown as Stripe.SetupIntent,
+      {
+        status: 'succeeded',
+        customer: 'cus_fx',
+        usage: 'off_session',
+        payment_method: 'pm_fx',
+        metadata: { valanserh_billing_subscription_id: '8' },
+      } as unknown as Stripe.SetupIntent,
+    ]
+
+    for (const setupIntent of invalidIntents) {
+      const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => {
+        return {
+          setupIntents: { retrieve: async () => setupIntent },
+          paymentMethods: { retrieve: async () => FIXTURE_PAYMENT_METHOD },
+          customers: { update: async () => ({}) },
+          subscriptions: { update: async () => ({}) },
+        } as unknown as Stripe
+      })
+
+      try {
+        await adapter.setDefaultPaymentMethod({
+          owner: { kind: 'billing_subscription', billingSubscriptionId: 7 },
+          customerRef: 'cus_fx',
+          subscriptionRef: 'sub_fx',
+          setupIntentRef: 'seti_fx',
+        })
+        assert.fail('Debió lanzar')
+      } catch (error) {
+        const typed = assertProviderError(error)
+        assert.equal(typed.httpStatus, 422)
+        assert.equal(typed.key, 'tarjeta-no-confirmada')
+        assert.equal(typed.errorCode, BILLING_PROVIDER_ERROR_CODES.CARD_NOT_CONFIRMED)
+        assert.equal(typed.detail, 'Confirma tu tarjeta para guardarla como método de pago.')
+      }
+    }
+  })
+
+  test('CA-11: setDefaultPaymentMethod válido actualiza cliente y suscripción', async ({
+    assert,
+  }) => {
+    const order: string[] = []
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => {
+      return {
+        setupIntents: {
+          retrieve: async () =>
+            ({
+              status: 'succeeded',
+              customer: 'cus_fx',
+              usage: 'off_session',
+              payment_method: 'pm_fx',
+              metadata: { valanserh_billing_subscription_id: '7' },
+            }) as unknown as Stripe.SetupIntent,
+        },
+        paymentMethods: {
+          retrieve: async (id: string) => {
+            order.push(`pm:${id}`)
+            return FIXTURE_PAYMENT_METHOD
+          },
+        },
+        customers: {
+          update: async (id: string, params: unknown, opts: unknown) => {
+            order.push(`customer:${id}`)
+            assert.deepEqual(params, {
+              invoice_settings: { default_payment_method: 'pm_fx' },
+            })
+            assert.equal(
+              (opts as { idempotencyKey?: string }).idempotencyKey,
+              'valanserh-subscription-7-default-customer-seti_fx'
+            )
+          },
+        },
+        subscriptions: {
+          update: async (id: string, params: unknown, opts: unknown) => {
+            order.push(`subscription:${id}`)
+            assert.deepEqual(params, { default_payment_method: 'pm_fx' })
+            assert.equal(
+              (opts as { idempotencyKey?: string }).idempotencyKey,
+              'valanserh-subscription-7-default-subscription-seti_fx'
+            )
+          },
+        },
+      } as unknown as Stripe
+    })
+
+    const card = await adapter.setDefaultPaymentMethod({
+      owner: { kind: 'billing_subscription', billingSubscriptionId: 7 },
+      customerRef: 'cus_fx',
+      subscriptionRef: 'sub_fx',
+      setupIntentRef: 'seti_fx',
+    })
+    assert.deepEqual(card.last4, '4242')
+    assert.deepEqual(order, ['pm:pm_fx', 'customer:cus_fx', 'subscription:sub_fx'])
+  })
+
+  test('isBillingPaymentMethodProvider distingue stripe y manual', ({ assert }) => {
+    const stripe = new StripeBillingProviderAdapter(DISABLED_SETTINGS)
+    const manual = new ManualBillingProviderAdapter()
+    assert.isTrue(isBillingPaymentMethodProvider(stripe))
+    assert.isFalse(isBillingPaymentMethodProvider(manual))
   })
 })
