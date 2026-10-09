@@ -11,9 +11,9 @@ Ejemplo: es como la mochila de un estudiante. Antes, para saber qué llevaba ten
 ## Glosario
 
 - **Activo:** un bien concreto que la empresa le entregó a una persona (una laptop, un celular, un monitor), con su folio.
-- **Folio:** el número que identifica al activo en el inventario (por ejemplo "ACT-0031").
+- **Folio:** el número que identifica al activo en el inventario (por ejemplo "QA-ACT-LAP-01").
 - **Serie:** el número de serie del aparato; algunos activos no lo tienen.
-- **Tipo de activo:** la clase de bien de la que cuelga el activo (por ejemplo "Laptop").
+- **Tipo de activo:** la clase de bien de la que cuelga el activo (por ejemplo "Laptop QA Activos").
 - **Resguardo:** el vale con el que la persona recibe el activo. Está **firmado** si ya se subió, y **sin firmar** si todavía no.
 - **Vigente:** el activo que la persona tiene ahora, o que va en camino (**En envío**).
 - **Devuelto:** el activo que la persona ya regresó; se guarda con su fecha y su motivo.
@@ -25,70 +25,75 @@ Prerrequisito: esta rama del API y la del backoffice están levantadas, y la bas
 
 Este manual se entrega para que una persona lo recorra en el navegador; el agente que lo escribió no lo camina.
 
-Aviso importante sobre los datos: **esta historia no siembra datos de QA** y no trae sembrador propio. El ambiente de pruebas es el que debe traer ya todo lo que el recorrido necesita. Abajo está la lista; el último bloque de la sección (§7) dice qué hacer si algo de esto falta.
+Aviso: el archivo que siembra los datos es temporal y **no está versionado** en el repositorio, así que hay que tenerlo presente al armar el ambiente.
 
-**Roles de prueba (ver la tabla de la §2).** Nombra los roles, no los correos: quien prueba entra con las credenciales que el ambiente tenga dadas de alta para cada rol. Un rol debe tener **lectura de Activos e insumos** (y lectura de Empleados, para poder abrir la ficha) y otro debe tener lectura de Empleados **sin** lectura de Activos e insumos.
+Ejecuta una vez el sembrador de QA compartido:
 
-**Datos que el ambiente debe traer, por escenario.** Reconoce a los colaboradores y activos por las condiciones de esta tabla (no por un prefijo, porque no hay sembrador):
+```bash
+cd gsti-rh-api
+node ace db:seed --files=database/seeders/_tmp_do_not_commit_qa_seeder.ts
+```
 
-| Escenario | Lo que el ambiente debe traer |
-|---|---|
-| 4.1 Ficha completa | Un colaborador con una **laptop vigente con resguardo firmado** y un **celular devuelto** con motivo **Cambio de equipo**. Para poder comprobar el orden de los devueltos, que traiga **dos o más devueltos** cuyas fechas de devolución inviertan el orden por fecha de asignación. |
-| 4.2 Resguardo sin firmar | Un activo **vigente sin resguardo cargado** (por ejemplo un monitor) asignado al mismo colaborador. |
-| 4.3 En envío | Un activo **vigente en envío** (con su asignación en estado "en envío"). |
-| 4.4 Extraviado y eliminado | Un activo **vigente con estado de catálogo "Extraviado"** y un activo **eliminado del catálogo** que ya se haya devuelto (que quede en el histórico). |
-| 4.5 Enlace al activo | El mismo activo de 4.1 (la laptop), que sí sigue en el catálogo. |
-| 4.6 Colaborador nuevo | Un colaborador **sin ninguna asignación** (ni vigentes ni devueltos). |
-| 4.7 Colaborador dado de baja | Un colaborador **dado de baja** que conserve activos vigentes y devueltos. |
+Qué deja listo para esta prueba:
+
+- **QA Fundadora**: la empresa donde se hace todo el recorrido, con los módulos **Empleados** y **Activos e insumos** disponibles.
+- Las **dos cuentas** de la §2 (una ve la sección, la otra no).
+- **Carla Soto Nava** (código de nómina `QA-EMP-03`), la colaboradora con activos: trae vigentes la **Laptop QA Activos** (folio `QA-ACT-LAP-01`, con resguardo firmado y sus características), el **Monitor QA Activos** (folio `QA-ACT-MON-01`, sin resguardo), la **Bocina QA Activos** (folio `QA-ACT-BOC-01`, en envío) y el **Proyector QA Activos** (folio `QA-ACT-PRO-01`, extraviado); y trae devueltos el **Celular QA Activos** (folio `QA-ACT-CEL-01`, motivo **Cambio de equipo**), el **Teclado QA Activos** (folio `QA-ACT-TEC-01`, motivo **Equipo con falla**, eliminado del catálogo) y la **Tablet QA Activos** (folio `QA-ACT-TAB-01`, motivo **Devolucion por cambio de area**).
+- **Elena Vega Paz** (código de nómina `QA-EMP-05`), una colaboradora **sin ninguna asignación**.
+- Un colaborador **dado de baja** (código de nómina `QA-BAJA-01`) que conserva un activo vigente y uno devuelto.
+
+**Señal para reconocer lo nuestro:** los activos de esta prueba tienen folio `QA-ACT-…` y su tipo termina en `QA Activos`; cualquier otro activo de la empresa es de otra historia y no se toca.
 
 Si el ambiente no puede traer alguno de estos estados, el escenario que depende de él se reporta como **no verificable aquí** (ver §7), no se inventan pasos.
 
 ## 2. Usuarios
 
-Todas las cuentas se usan con las credenciales de prueba del ambiente; **no se fijan correos ni contraseña** en este manual, porque esta historia no siembra datos.
+Las dos cuentas entran por el backoffice con el mismo flujo: en `http://127.0.0.1:3000`, botón **Continuar con contraseña**, llena **Correo electrónico** y **Contraseña**, botón **Entrar**. Todas usan la contraseña de prueba `password`.
 
-| | Rol | Permisos | Para qué se usa |
-|---|---|---|---|
-| **A** | Recursos Humanos con acceso a la ficha del colaborador y a Activos e insumos | **lectura de Empleados** y **lectura de Activos e insumos** | Escenarios 4.1 a 4.7 y 6.1 |
-| **B** | Recursos Humanos con acceso a la ficha del colaborador **sin** acceso a Activos e insumos | **lectura de Empleados** y **sin** lectura de Activos e insumos | Escenario 5.1 |
+| | Correo | Contraseña | Login | Permisos (variante) | Para qué se usa |
+|---|---|---|---|---|---|
+| **A** | `qa-employee-assets-full@gsti-tests.local` | `password` | Backoffice | lectura de **Empleados** y de **Activos e insumos** | Escenarios 4.1 a 4.7 y 6.1 (ve la sección) |
+| **B** | `qa-employee-assets-none@gsti-tests.local` | `password` | Backoffice | lectura de **Empleados**, **sin** lectura de **Activos e insumos** | Escenario 5.1 (no ve la sección) |
+
+Estado inicial y orden del recorrido: la sección es de **solo consulta**, así que recorrerla no cambia nada en la base. Aun así conviene hacerlo **en orden** (4.1 → 4.7, luego 5.1 y 6.1), porque los escenarios 4.2 a 4.5 se apoyan en la misma ficha del 4.1 y el 6.1 vuelve sobre ella.
 
 ## 3. Dónde probar
 
 La sección vive dentro de la ficha del colaborador.
 
-Para entrar: en `http://127.0.0.1:3000`, botón **Continuar con contraseña**, llena **Correo electrónico** y **Contraseña** con las credenciales del rol que toque, botón **Entrar**.
+Para entrar: en `http://127.0.0.1:3000`, botón **Continuar con contraseña**, llena **Correo electrónico** y **Contraseña** con la cuenta que toque, botón **Entrar**.
 
-Para elegir la empresa (si el usuario tiene más de una): arriba a la derecha abre **Mi cuenta** (el avatar) y en el campo **Empresa** elige la empresa de pruebas.
+Para elegir la empresa (si el usuario tiene más de una): arriba a la derecha abre **Mi cuenta** (el avatar) y en el campo **Empresa** elige **QA Fundadora**.
 
-Para llegar a la ficha: menú lateral → **Empleados**; busca al colaborador y, en su tarjeta, pulsa **Ver detalles**. La ficha abre en la sección **Información del empleado**.
+Para llegar a la ficha: menú lateral → **Empleados**; busca a la colaboradora por su código de nómina (por ejemplo `QA-EMP-03`) y, en su tarjeta, pulsa **Ver detalles**. La ficha abre en la sección **Información del empleado**.
 
 La sección nueva es **Activos**: está en el submenú lateral de la ficha, **al final, después de Expediente**, con el icono de un portátil.
 
 URL directa de la sección: `http://127.0.0.1:3000/employees/<slug-o-token-del-colaborador>/assets` (la dirección **no** lleva `/es`).
 
-## 4. Con el rol A (lectura de Activos e insumos)
+## 4. Con el Usuario A (lectura de Activos e insumos)
 
-Entra con el Usuario A y elige la empresa de pruebas. Abre la ficha del colaborador que toque en cada escenario.
+Entra con el Usuario A y elige la empresa **QA Fundadora**. Abre la ficha de la colaboradora que toque en cada escenario.
 
 ### 4.1 Ficha completa: vigentes y devueltos
 
 Objetivo: comprobar que en la ficha de un colaborador con activos, la sección **Activos** aparece al final del submenú y muestra cada vigente con sus datos y el estado de su resguardo, y cada devuelto con su fecha y motivo, en el orden correcto.
 
-1. Con el Usuario A, abre la ficha del colaborador que trae la **laptop vigente con resguardo firmado** y el **celular devuelto**.
+1. Con el Usuario A, abre la ficha de **Carla Soto Nava** (`QA-EMP-03`), que trae la **laptop vigente con resguardo firmado** y activos devueltos.
 2. En el submenú de la ficha, al final (después de **Expediente**), está la opción **Activos** con el icono de un portátil. Púlsala.
 3. Aparece la card **Activos vigentes** (con su conteo **Total: …**) y, debajo, la card **Activos devueltos**.
-4. En **Activos vigentes**, el renglón de la laptop muestra: su nombre, **Folio …**, **Tipo: …**, **Serie …** (solo si el activo tiene serie), cada característica capturada como **Nombre: valor**, **Asignado el …**, el chip **Asignado** y el chip **Resguardo firmado**.
-5. En **Activos devueltos**, el renglón del celular muestra: su nombre, **Tipo: …**, **Devuelto el …** (la fecha de devolución), **Motivo: Cambio de equipo** y su chip de resguardo.
-6. El orden de **Activos devueltos** va del más reciente al más antiguo **por fecha de devolución** (no por fecha de asignación). Este orden solo se puede distinguir si la ficha trae **dos o más devueltos** cuyas fechas de devolución inviertan el orden por fecha de asignación; con un solo devuelto no hay nada que ordenar. Si el colaborador solo tiene un devuelto, este punto se reporta como **no verificable aquí**.
+4. En **Activos vigentes**, el renglón de la **Laptop QA Activos** (`QA-ACT-LAP-01`) muestra: su nombre, **Folio QA-ACT-LAP-01**, **Tipo: Laptop QA Activos**, **Serie SN-LAP-5440**, cada característica capturada como **Nombre: valor** (**Modelo: Latitude 5440**, **RAM en GB: 16**, **Tiene garantia: Sí** y **Ultimo mantenimiento: …**), **Asignado el …** (1 de agosto de 2026), el chip **Asignado** y el chip **Resguardo firmado**.
+5. En **Activos devueltos**, el renglón del **Celular QA Activos** (`QA-ACT-CEL-01`) muestra: su nombre, **Tipo: Celular QA Activos**, **Devuelto el …** (**1 de septiembre de 2026**) y **Motivo: Cambio de equipo**, con su chip de resguardo.
+6. El orden de **Activos devueltos** va del más reciente al más antiguo **por fecha de devolución** (no por fecha de asignación). La colaboradora trae **tres devueltos** y sus fechas invierten el orden por asignación, así que debe verse primero el **Celular QA Activos** (devuelto en septiembre de 2026), luego el **Teclado QA Activos** (julio de 2026) y al final la **Tablet QA Activos** (junio de 2026); por fecha de asignación el primero habría sido la **Tablet**.
 
-Evidencia: una captura de la sección con las dos cards visibles (donde se lean los textos de los chips y "Motivo: …" en el devuelto) y una captura del orden de **Activos devueltos** si hay más de un renglón.
+Evidencia: una captura de la sección con las dos cards visibles (donde se lean los textos de los chips y "Motivo: …" en el devuelto) y una captura del orden de **Activos devueltos** con los tres renglones.
 
 ### 4.2 Resguardo sin firmar
 
 Objetivo: comprobar que un activo vigente al que todavía no se le ha subido el resguardo muestra el chip **Resguardo sin firmar**, en lugar de "Resguardo firmado".
 
-1. Con el Usuario A, abre la ficha del mismo colaborador y entra a **Activos**.
-2. En **Activos vigentes**, busca el renglón del activo que **no tiene resguardo cargado** (el monitor del ambiente).
+1. Con el Usuario A, abre la ficha de **Carla Soto Nava** (`QA-EMP-03`) y entra a **Activos**.
+2. En **Activos vigentes**, busca el renglón del **Monitor QA Activos** (`QA-ACT-MON-01`), el activo que **no tiene resguardo cargado**.
 3. Ese renglón muestra el chip **Resguardo sin firmar**; el renglón sigue en **Activos vigentes**, con sus datos y su chip de asignación **Asignado**.
 
 Evidencia: una captura del renglón del monitor donde se lea **Resguardo sin firmar**.
@@ -97,8 +102,8 @@ Evidencia: una captura del renglón del monitor donde se lea **Resguardo sin fir
 
 Objetivo: comprobar que un activo que va en camino aparece entre los vigentes con el chip **En envío**.
 
-1. Con el Usuario A, abre la ficha del colaborador que tiene el activo **en envío** y entra a **Activos**.
-2. En **Activos vigentes** (no en devueltos), el renglón de ese activo muestra el chip **En envío**.
+1. Con el Usuario A, abre la ficha de **Carla Soto Nava** (`QA-EMP-03`) y entra a **Activos**.
+2. En **Activos vigentes** (no en devueltos), el renglón de la **Bocina QA Activos** (`QA-ACT-BOC-01`) muestra el chip **En envío**.
 3. El mismo renglón trae sus datos (folio, tipo, etc.) como cualquier vigente.
 
 Evidencia: una captura del renglón con el chip **En envío**.
@@ -107,9 +112,9 @@ Evidencia: una captura del renglón con el chip **En envío**.
 
 Objetivo: comprobar que un activo con estado **Extraviado** sigue apareciendo con su chip y conserva su enlace, y que un activo **eliminado del catálogo** aparece con su nombre como texto, sin enlace.
 
-1. Con el Usuario A, abre la ficha del colaborador que toque y entra a **Activos**.
-2. En **Activos vigentes**, el renglón del activo **extraviado** muestra, además de su chip de asignación, el chip **Extraviado**. Su nombre sigue siendo un enlace (color y subrayado de enlace al pasar el cursor).
-3. En **Activos devueltos**, el renglón del activo **eliminado del catálogo** muestra su nombre como **texto normal**, sin enlace; si pasas el cursor y pulsas, no navega a ninguna parte. El renglón conserva el tipo y la fecha de devolución que tenía.
+1. Con el Usuario A, abre la ficha de **Carla Soto Nava** (`QA-EMP-03`) y entra a **Activos**.
+2. En **Activos vigentes**, el renglón del **Proyector QA Activos** (`QA-ACT-PRO-01`) muestra, además de su chip de asignación **Asignado**, el chip **Extraviado**. Su nombre sigue siendo un enlace (color y subrayado de enlace al pasar el cursor).
+3. En **Activos devueltos**, el renglón del **Teclado QA Activos** (`QA-ACT-TEC-01`), que fue **eliminado del catálogo**, muestra su nombre como **texto normal**, sin enlace; si pasas el cursor y pulsas, no navega a ninguna parte. El renglón conserva el tipo y la fecha de devolución que tenía.
 4. **Negativo a comprobar a propósito:** el renglón eliminado no se puede abrir; el extraviado sí.
 
 Evidencia: una captura del renglón con **Extraviado** (que se note que el nombre se ve como enlace) y una captura del renglón eliminado (que se note que su nombre es texto, sin enlace).
@@ -118,8 +123,8 @@ Evidencia: una captura del renglón con **Extraviado** (que se note que el nombr
 
 Objetivo: comprobar que al pulsar el nombre de un activo que sigue en el catálogo, se abre **Activos e insumos** con la ficha de ese activo en su pestaña de resguardo.
 
-1. Con el Usuario A, en la ficha del colaborador del escenario 4.1, entra a **Activos**.
-2. En **Activos vigentes**, pulsa el nombre de la **laptop**.
+1. Con el Usuario A, en la ficha de **Carla Soto Nava** (`QA-EMP-03`), entra a **Activos**.
+2. En **Activos vigentes**, pulsa el nombre de la **Laptop QA Activos** (`QA-ACT-LAP-01`).
 3. La app navega a **Activos e insumos** y abre la ficha de ese activo. La pestaña **Resguardo** (junto a **Ficha** y **Valor**) es la que queda seleccionada.
 4. En la barra de direcciones se lee la pantalla de activos con el activo y la pestaña en la dirección: `http://127.0.0.1:3000/supplies?activo=<número>&tab=resguardo` (la dirección **no** lleva `/es`).
 
@@ -129,7 +134,7 @@ Evidencia: una captura de la ficha del activo abierta en la pestaña **Resguardo
 
 Objetivo: comprobar que la ficha de un colaborador sin ninguna asignación muestra un solo aviso de que no tiene activos, y ninguna card de devueltos.
 
-1. Con el Usuario A, abre la ficha del colaborador **sin activos**.
+1. Con el Usuario A, abre la ficha de **Elena Vega Paz** (`QA-EMP-05`), la colaboradora **sin activos**.
 2. Entra a **Activos**.
 3. Se ve un aviso con **Sin activos asignados** y, debajo, **Los activos se asignan desde Activos e insumos y aparecen aquí.**
 4. **Negativo a comprobar a propósito:** no aparece la card **Activos vigentes** ni la card **Activos devueltos**.
@@ -140,22 +145,22 @@ Evidencia: una captura de la sección con solo el aviso **Sin activos asignados*
 
 Objetivo: comprobar que la ficha de un colaborador dado de baja sigue mostrando sus activos: lo que no ha devuelto y su histórico.
 
-1. Con el Usuario A, abre la ficha del colaborador **dado de baja**.
+1. Con el Usuario A, en **Empleados** cambia el filtro de estado a **Bajas** y abre la ficha del colaborador **`QA-BAJA-01`**, que conserva activos.
 2. Entra a **Activos**.
-3. La sección aparece igual que en un colaborador vigente: se ven sus **Activos vigentes** (lo que no ha devuelto) y sus **Activos devueltos**.
+3. La sección aparece igual que en un colaborador vigente: se ven sus **Activos vigentes** (la **Laptop QA Activos**, folio `QA-ACT-BAJA-LAP`) y sus **Activos devueltos** (el **Monitor QA Activos**, folio `QA-ACT-BAJA-MON`, motivo **Cambio de equipo**).
 4. **Negativo a comprobar a propósito:** la baja del colaborador no deja la sección vacía ni con un error.
 
 Evidencia: una captura de la sección del colaborador dado de baja con sus vigentes y devueltos.
 
-## 5. Con el rol B (sin lectura de Activos e insumos)
+## 5. Con el Usuario B (sin lectura de Activos e insumos)
 
-Cierra la sesión del Usuario A y entra con el Usuario B.
+Cierra la sesión del Usuario A y entra con el Usuario B (`qa-employee-assets-none@gsti-tests.local`).
 
 ### 5.1 La sección no aparece y la URL directa no monta nada
 
 Objetivo: comprobar que con un rol sin lectura de Activos e insumos la sección **Activos** no aparece en el submenú de la ficha, y que abrir su dirección directa no monta el panel ni pide datos.
 
-1. Con el Usuario B, abre la ficha del colaborador del escenario 4.1 y mira su submenú.
+1. Con el Usuario B, abre la ficha de **Carla Soto Nava** (`QA-EMP-03`) y mira su submenú.
 2. **Negativo a comprobar a propósito:** en el submenú **no** está la opción **Activos**. No aparece deshabilitada, ni con un aviso, ni con un candado: simplemente no está (el submenú termina en **Expediente**).
 3. Escribe en la barra de direcciones la dirección directa: `http://127.0.0.1:3000/employees/<slug-o-token-del-colaborador>/assets`.
 4. La página queda **vacía**: no aparecen las cards **Activos vigentes** ni **Activos devueltos**, ni el aviso **Sin activos asignados**, ni un mensaje de error. No se ve nada dentro de la sección.
@@ -169,7 +174,7 @@ Evidencia: una captura del submenú sin la opción **Activos** (que se vea que t
 
 Objetivo: comprobar que a 360 px de ancho la sección no produce desplazamiento horizontal y que cada renglón apila en una sola columna el nombre, los metadatos y los chips, en ese orden.
 
-1. Con el Usuario A, en la ficha del colaborador del escenario 4.1, entra a **Activos**.
+1. Con el Usuario A, en la ficha de **Carla Soto Nava** (`QA-EMP-03`), entra a **Activos**.
 2. Estrecha la ventana del navegador hasta unos **360 px** de ancho (o usa el modo de dispositivo móvil).
 3. La página **no se desplaza en horizontal**: no hay barra inferior de desplazamiento y el contenido no se sale hacia los lados.
 4. En cada renglón, el contenido queda **apilado en una sola columna**, en este orden de arriba a abajo: primero el nombre, luego los metadatos (**Folio …**, **Tipo: …**, **Asignado el …**) y al final los chips debajo de los metadatos.
@@ -189,20 +194,20 @@ Se declara no revisable desde el navegador y queda cubierto por las pruebas auto
 - **El estado de error con el botón Reintentar.** Hace falta un fallo del servidor que la base de prueba no produce: no hay pasos para apagar el servidor ni para simular el fallo.
 - **Los bordes del orden de devueltos** (cuando la fecha de devolución no existe y se ordena por asignación, y los empates). El orden normal se ve en el Escenario 4.1; los bordes no son provocables desde el cliente.
 - **Que un resguardo borrado cuente como sin firmar.** No se puede provocar desde el cliente; lo cubren las pruebas.
-- **El formato de las características de tipo Sí/No y de fecha.** Si el ambiente trae esas características se ven en el Escenario 4.1; si no, lo cubren las pruebas.
+- **El formato de las características de tipo Sí/No y de fecha.** El ambiente trae las dos (**Tiene garantia: Sí** y **Ultimo mantenimiento: …** se ven en el Escenario 4.1); el formato interno de cada una lo cubren las pruebas.
 
 ## 8. Checklist
 
 Cada casilla se marca contra el objetivo de su escenario, no contra "se hicieron los pasos":
 
-- [ ] 4.1 La sección **Activos** está al final del submenú (tras **Expediente**); la laptop vigente muestra folio, tipo, serie, características, **Asignado el …**, **Asignado** y **Resguardo firmado**; el celular devuelto muestra **Devuelto el …**, **Motivo: Cambio de equipo** y su resguardo; el orden de devueltos es por fecha de devolución
-- [ ] 4.2 El activo vigente sin resguardo muestra el chip **Resguardo sin firmar**
-- [ ] 4.3 El activo en camino aparece en vigentes con el chip **En envío**
-- [ ] 4.4 El activo extraviado muestra el chip **Extraviado** y enlaza; el activo eliminado muestra su nombre como texto, sin enlace
-- [ ] 4.5 Al pulsar el nombre de la laptop se abre **Activos e insumos** con su ficha en la pestaña **Resguardo** (`activo=…&tab=resguardo`)
-- [ ] 4.6 El colaborador sin activos muestra **Sin activos asignados** y ninguna card de devueltos
-- [ ] 4.7 El colaborador dado de baja sigue mostrando sus vigentes y devueltos
-- [ ] 5.1 Con el rol sin permiso, la opción **Activos** no está en el submenú y la URL directa deja la página vacía, sin petición al servicio
+- [ ] 4.1 La sección **Activos** está al final del submenú (tras **Expediente**); en la ficha de `QA-EMP-03`, la **Laptop QA Activos** muestra folio, tipo, serie, características, **Asignado el …**, **Asignado** y **Resguardo firmado**; el **Celular QA Activos** muestra **Devuelto el …**, **Motivo: Cambio de equipo** y su resguardo; el orden de devueltos es por fecha de devolución (Celular, Teclado, Tablet)
+- [ ] 4.2 El **Monitor QA Activos** (`QA-ACT-MON-01`) muestra el chip **Resguardo sin firmar**
+- [ ] 4.3 La **Bocina QA Activos** (`QA-ACT-BOC-01`) aparece en vigentes con el chip **En envío**
+- [ ] 4.4 El **Proyector QA Activos** (`QA-ACT-PRO-01`) muestra el chip **Extraviado** y enlaza; el **Teclado QA Activos** (`QA-ACT-TEC-01`), eliminado, muestra su nombre como texto, sin enlace
+- [ ] 4.5 Al pulsar el nombre de la **Laptop QA Activos** se abre **Activos e insumos** con su ficha en la pestaña **Resguardo** (`activo=…&tab=resguardo`)
+- [ ] 4.6 La ficha de `QA-EMP-05` muestra **Sin activos asignados** y ninguna card de devueltos
+- [ ] 4.7 La ficha de `QA-BAJA-01` (filtro **Bajas**) sigue mostrando sus vigentes y devueltos
+- [ ] 5.1 Con el Usuario B, la opción **Activos** no está en el submenú y la URL directa deja la página vacía, sin petición al servicio
 - [ ] 6.1 A 360 px no hay desplazamiento horizontal y cada renglón se apila en una sola columna: nombre, luego metadatos y al final los chips
 
 Recorrido completo el ___ de ________ de 2026: cada casilla se marca **contra el objetivo de su escenario**, no contra "se hicieron los pasos".
