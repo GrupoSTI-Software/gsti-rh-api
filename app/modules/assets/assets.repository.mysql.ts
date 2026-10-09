@@ -5,6 +5,7 @@ import {
   OPEN_ASSIGNMENT_STATUSES,
   type AssetCharacteristicType,
   type AssetStatus,
+  type EmployeeAssetCustodyStatus,
   type OpenAssignmentStatus,
 } from './assets.constants.js'
 import type {
@@ -23,6 +24,9 @@ import type {
   AssetsSummaryDto,
   AssetTypeDto,
   AssetValueHistoryEntryDto,
+  EmployeeAssetCharacteristicDto,
+  EmployeeAssetDto,
+  EmployeeAssetItemDto,
 } from './dto/assets.dto.js'
 
 /** Mismo tipo que devuelve `db.from`, para que las filas se tipen en cada consulta. */
@@ -368,6 +372,167 @@ export default class AssetsRepositoryMysql implements AssetsRepository {
       businessUnitId: Number(row.business_unit_id),
       teleworkPercentage: Number(row.employee_telework_percentage ?? 0), // DECIMAL llega como texto
     }
+  }
+
+  /**
+   * Asignaciones del colaborador (vigentes y devueltas): espejo invertido de
+   * `findAssignments` con la llave `es.employee_id`, el mismo `calendarDate` y
+   * el mismo orden. NO filtra `s.supply_deleted_at` (R6) ni el borrado del
+   * tipo; el resguardo se resume a `custodyStatus` y las características se
+   * traen en una sola consulta por lote (el valor vivo de MAYOR id).
+   */
+  async findEmployeeAssignments(
+    businessUnitIds: readonly number[],
+    employeeId: number
+  ): Promise<EmployeeAssetItemDto[]> {
+    if (businessUnitIds.length === 0) return []
+
+    const rows: Array<{
+      employee_supply_id: number
+      employee_supply_status: 'active' | 'retired' | 'shipping'
+      employee_supply_retirement_reason: string | null
+      supply_id: number
+      supply_name: string
+      supply_file_number: string | number
+      supply_serial_number: string | null
+      supply_status: AssetStatus
+      supply_deleted_at: Date | string | null
+      supply_type_id: number
+      supply_type_name: string | null
+      assigned_at: string | null
+      expires_at: string | null
+      retirement_date: string | null
+    }> = await db
+      .from('employee_supplies as es')
+      .join('supplies as s', 's.supply_id', 'es.supply_id')
+      // Sin filtro de `s.supply_deleted_at` (R6): el activo eliminado sigue saliendo.
+      .leftJoin('supply_types as st', 'st.supply_type_id', 's.supply_type_id')
+      .where('es.employee_id', employeeId)
+      .whereNull('es.employee_supply_deleted_at') // la asignación borrada sí se oculta
+      .whereIn('es.business_unit_id', [...businessUnitIds])
+      .whereIn('s.business_unit_id', [...businessUnitIds]) // el scope DENTRO de la consulta (§13)
+      .orderByRaw(
+        'COALESCE(es.employee_supply_assignament_date, es.employee_supply_created_at) DESC, es.employee_supply_id DESC'
+      )
+      .select(
+        'es.employee_supply_id',
+        'es.employee_supply_status',
+        'es.employee_supply_retirement_reason',
+        's.supply_id',
+        's.supply_name',
+        's.supply_file_number',
+        's.supply_serial_number',
+        's.supply_status',
+        's.supply_deleted_at',
+        'st.supply_type_id',
+        'st.supply_type_name',
+        calendarDate(
+          'COALESCE(es.employee_supply_assignament_date, es.employee_supply_created_at)',
+          'assigned_at'
+        ),
+        calendarDate('es.employee_supply_expiration_date', 'expires_at'),
+        calendarDate('es.employee_supply_retirement_date', 'retirement_date')
+      )
+    if (rows.length === 0) return []
+
+    const assignmentIds = rows.map((row) => row.employee_supply_id)
+    const supplyIds = [...new Set(rows.map((row) => row.supply_id))]
+
+    // Resguardos: solo la existencia de un contrato vivo (nunca se expone el archivo).
+    // Características: la última escritura (MAYOR id) por activo+característica.
+    const [contractRows, characteristicRows] = await Promise.all([
+      db
+        .from('employee_supplies_response_contracts')
+        .whereIn('employee_supply_id', assignmentIds)
+        .whereNull('employee_supply_response_contract_deleted_at')
+        .select('employee_supply_id') as Promise<Array<{ employee_supply_id: number }>>,
+      db
+        .from('supplie_caracteristic_values as scv')
+        .join(
+          'supplie_caracteristics as sc',
+          'sc.supplie_caracteristic_id',
+          'scv.supplie_caracteristic_id'
+        )
+        .whereIn('scv.supplie_id', supplyIds)
+        .whereNull('scv.supplie_caracteristic_value_deleted_at')
+        .whereNull('sc.supplie_caracteristic_deleted_at')
+        .orderBy('scv.supplie_caracteristic_value_id', 'asc')
+        .select(
+          'scv.supplie_id',
+          'scv.supplie_caracteristic_id',
+          'sc.supplie_caracteristic_name',
+          'sc.supplie_caracteristic_type',
+          'scv.supplie_caracteristic_value_value as value'
+        ) as Promise<
+        Array<{
+          supplie_id: number
+          supplie_caracteristic_id: number
+          supplie_caracteristic_name: string
+          supplie_caracteristic_type: AssetCharacteristicType
+          value: string | null
+        }>
+      >,
+    ])
+
+    const signedSupplyIds = new Set<number>(contractRows.map((row) => row.employee_supply_id))
+
+    const latest = new Map<string, (typeof characteristicRows)[number]>()
+    for (const row of characteristicRows) {
+      latest.set(`${row.supplie_id}:${row.supplie_caracteristic_id}`, row)
+    }
+    const characteristicsBySupply = new Map<number, EmployeeAssetCharacteristicDto[]>()
+    for (const row of latest.values()) {
+      const value = textOrNull(row.value) // sin valor capturado no hay renglón (CA-5)
+      if (value === null) continue
+      const bucket = characteristicsBySupply.get(row.supplie_id) ?? []
+      bucket.push({
+        characteristicId: row.supplie_caracteristic_id,
+        name: row.supplie_caracteristic_name,
+        type: row.supplie_caracteristic_type,
+        value,
+      })
+      characteristicsBySupply.set(row.supplie_id, bucket)
+    }
+    for (const bucket of characteristicsBySupply.values()) {
+      bucket.sort((a, b) => a.characteristicId - b.characteristicId)
+    }
+
+    return rows.map((row): EmployeeAssetItemDto => {
+      const asset: EmployeeAssetDto = {
+        supplyId: row.supply_id,
+        name: row.supply_name,
+        fileNumber: String(row.supply_file_number),
+        serialNumber: textOrNull(row.supply_serial_number),
+        status: row.supply_status,
+        isDeleted: row.supply_deleted_at !== null,
+        supplyType: { supplyTypeId: row.supply_type_id, name: textOrNull(row.supply_type_name) },
+        characteristics: characteristicsBySupply.get(row.supply_id) ?? [],
+      }
+      const custodyStatus: EmployeeAssetCustodyStatus = signedSupplyIds.has(row.employee_supply_id)
+        ? 'signed'
+        : 'unsigned'
+      const base = {
+        employeeSupplyId: row.employee_supply_id,
+        assignedAt: row.assigned_at ?? '',
+        expiresAt: row.expires_at,
+        custodyStatus,
+        asset,
+      }
+      if (row.employee_supply_status === 'retired') {
+        return {
+          ...base,
+          status: 'retired',
+          retirementDate: row.retirement_date,
+          retirementReason: textOrNull(row.employee_supply_retirement_reason),
+        }
+      }
+      return {
+        ...base,
+        status: row.employee_supply_status,
+        retirementDate: null,
+        retirementReason: null,
+      }
+    })
   }
 
   async findOwnership(

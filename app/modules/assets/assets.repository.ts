@@ -8,6 +8,7 @@ import type {
   AssetsSummaryDto,
   AssetTypeDto,
   AssetValueHistoryEntryDto,
+  EmployeeAssetItemDto,
 } from './dto/assets.dto.js'
 
 /** Filtro del listado. `businessUnitIds` vacío = sin resultados. */
@@ -61,6 +62,14 @@ export interface AssetsRepository {
     businessUnitIds: readonly number[],
     employeeId: number
   ): Promise<AssetEmployeeProfile | null>
+  /**
+   * Asignaciones (vigentes y devueltas) del colaborador, con su resguardo y sus
+   * características capturadas. Alcance vacío → `[]` sin consultar.
+   */
+  findEmployeeAssignments(
+    businessUnitIds: readonly number[],
+    employeeId: number
+  ): Promise<EmployeeAssetItemDto[]>
   findValueHistory(supplyId: number): Promise<AssetValueHistoryEntryDto[]>
   findTypes(businessUnitIds: readonly number[]): Promise<AssetTypeDto[]>
   upsertCharacteristicValues(
