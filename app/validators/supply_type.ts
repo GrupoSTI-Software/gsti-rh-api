@@ -1,4 +1,5 @@
 import vine from '@vinejs/vine'
+import { SUPPLY_TYPE_TELEWORK_CATEGORIES } from '#constants/supply_type_telework_category'
 
 export const createSupplyTypeValidator = vine.compile(
   vine.object({
@@ -7,6 +8,10 @@ export const createSupplyTypeValidator = vine.compile(
     supplyTypeIdentifier: vine.string().trim().maxLength(100).optional(),
     /** Opcional: si no llega, el service lo deriva del nombre (único por empresa). */
     supplyTypeSlug: vine.string().trim().minLength(1).maxLength(255).optional(),
+    supplyTypeTeleworkCategory: vine
+      .enum(SUPPLY_TYPE_TELEWORK_CATEGORIES)
+      .nullable()
+      .optional(),
   })
 )
 
@@ -16,6 +21,10 @@ export const updateSupplyTypeValidator = vine.compile(
     supplyTypeDescription: vine.string().trim().maxLength(1000).optional(),
     supplyTypeIdentifier: vine.string().trim().maxLength(100).optional(),
     supplyTypeSlug: vine.string().trim().minLength(1).maxLength(255).optional(),
+    supplyTypeTeleworkCategory: vine
+      .enum(SUPPLY_TYPE_TELEWORK_CATEGORIES)
+      .nullable()
+      .optional(),
   })
 )
 
