@@ -410,6 +410,23 @@ export const SYSTEM_MODULES_GROUPED = [
         ],
       },
       {
+        systemModuleName: 'Listas de verificación de teletrabajo',
+        systemModuleSlug: 'telework-checklists',
+        systemModuleDescription: '',
+        systemModules: 1,
+        systemModulePath: '#telework-checklists',
+        systemModuleOrder: 0,
+        systemModuleActive: 1,
+        systemModulePermissionEnforcementActive: true,
+        systemModuleRetired: false,
+        systemModuleIcon:
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2v1h-6z"/><path d="M9 5h-2a2 2 0 0 0 -2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-13a2 2 0 0 0 -2 -2h-2"/><path d="M9 14l2 2l4 -4"/></svg>',
+        systemModulePermissions: [
+          { systemPermissionName: 'Consultar listas de verificación de teletrabajo', systemPermissionSlug: 'read' },
+          { systemPermissionName: 'Registrar listas de verificación de teletrabajo', systemPermissionSlug: 'create' },
+        ],
+      },
+      {
         systemModuleName: 'Activos e insumos',
         systemModuleSlug: 'supplies',
         systemModuleDescription: '',

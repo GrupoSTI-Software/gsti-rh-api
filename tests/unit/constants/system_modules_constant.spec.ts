@@ -385,3 +385,26 @@ test.group('system_modules.constant — módulos apagados por alcance de lanzami
     assert.deepEqual(sinJustificar, [])
   })
 })
+
+test.group('telework-checklists — declaración del módulo (VLRH-H1790812613870, CA13)', () => {
+  const MODULE_SLUG = 'telework-checklists'
+
+  test('vive en el grupo empresa, oculto del menú y con exigencia activa', ({ assert }) => {
+    const systemModule = SYSTEM_MODULES.find((m) => m.systemModuleSlug === MODULE_SLUG)
+    assert.isDefined(systemModule)
+    assert.equal(systemModule!.systemModuleGroupKey, 'empresa')
+    assert.equal(systemModule!.systemModulePath, '#telework-checklists')
+    assert.equal(systemModule!.systemModuleActive, 1)
+    assert.equal(systemModule!.systemModuleRetired, false)
+    assert.isTrue(systemModule!.systemModulePermissionEnforcementActive)
+  })
+
+  test('declara exactamente los permisos read y create', ({ assert }) => {
+    const systemModule = SYSTEM_MODULES.find((m) => m.systemModuleSlug === MODULE_SLUG)
+    assert.isDefined(systemModule)
+    assert.deepEqual(
+      systemModule!.systemModulePermissions.map((p) => p.systemPermissionSlug),
+      ['read', 'create']
+    )
+  })
+})
