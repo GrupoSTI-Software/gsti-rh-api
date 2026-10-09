@@ -228,14 +228,16 @@ Se declara no revisable desde el navegador y queda cubierto por las pruebas auto
 
 Cada casilla se marca contra el objetivo de su escenario, no contra "se hicieron los pasos":
 
-- [ ] 4.1 La sección **Activos** está al final del submenú (tras **Expediente**); en la ficha de `QA-EMP-03`, la **Laptop QA Activos** muestra folio, tipo, serie, características, **Asignado el …**, **Asignado** y **Resguardo firmado**; el **Celular QA Activos** muestra **Devuelto el …**, **Motivo: Cambio de equipo** y su resguardo; el orden de devueltos es por fecha de devolución (Celular, Teclado, Tablet)
-- [ ] 4.2 El **Monitor QA Activos** (`QA-ACT-MON-01`) muestra el chip **Resguardo sin firmar**
-- [ ] 4.3 La **Bocina QA Activos** (`QA-ACT-BOC-01`) aparece en vigentes con el chip **En envío**
-- [ ] 4.4 El **Proyector QA Activos** (`QA-ACT-PRO-01`) muestra el chip **Extraviado** y enlaza; el **Teclado QA Activos** (`QA-ACT-TEC-01`), eliminado, muestra su nombre como texto, sin enlace
-- [ ] 4.5 Al pulsar el nombre de la **Laptop QA Activos** se abre **Activos e insumos** con su ficha en la pestaña **Resguardo** (`activo=…&tab=resguardo`)
-- [ ] 4.6 La ficha de `QA-EMP-05` muestra **Sin activos asignados** y ninguna card de devueltos
-- [ ] 4.7 La ficha de `QA-BAJA-01` (filtro **Bajas**) sigue mostrando sus vigentes y devueltos
-- [ ] 5.1 Con el Usuario B, la opción **Activos** no está en el submenú y la URL directa deja la página vacía, sin petición al servicio
-- [ ] 6.1 En anchos angostos (360 px y unos 850 px) no hay desplazamiento horizontal, cada renglón se apila en una sola columna (nombre, luego metadatos y al final los chips) y el nombre del Proyector se lee completo; a ancho de escritorio el renglón pasa a dos columnas
+- [x] 4.1 La sección **Activos** está al final del submenú (tras **Expediente**); en la ficha de `QA-EMP-03`, la **Laptop QA Activos** muestra folio, tipo, serie, características, **Asignado el …**, **Asignado** y **Resguardo firmado**; el **Celular QA Activos** muestra **Devuelto el …**, **Motivo: Cambio de equipo** y su resguardo; el orden de devueltos es por fecha de devolución (Celular, Teclado, Tablet)
+- [x] 4.2 El **Monitor QA Activos** (`QA-ACT-MON-01`) muestra el chip **Resguardo sin firmar**
+- [x] 4.3 La **Bocina QA Activos** (`QA-ACT-BOC-01`) aparece en vigentes con el chip **En envío**
+- [x] 4.4 El **Proyector QA Activos** (`QA-ACT-PRO-01`) muestra el chip **Extraviado** y enlaza; el **Teclado QA Activos** (`QA-ACT-TEC-01`), eliminado, muestra su nombre como texto, sin enlace
+- [x] 4.5 Al pulsar el nombre de la **Laptop QA Activos** se abre **Activos e insumos** con su ficha en la pestaña **Resguardo** (`activo=…&tab=resguardo`)
+- [x] 4.6 La ficha de `QA-EMP-05` muestra **Sin activos asignados** y ninguna card de devueltos
+- [x] 4.7 La ficha de `QA-BAJA-01` (filtro **Bajas**) sigue mostrando sus vigentes y devueltos
+- [x] 5.1 Con el Usuario B, la opción **Activos** no está en el submenú y la URL directa deja la página vacía, sin petición al servicio
+- [x] 6.1 En anchos angostos (360 px y unos 850 px) no hay desplazamiento horizontal, cada renglón se apila en una sola columna (nombre, luego metadatos y al final los chips) y el nombre del Proyector se lee completo; a ancho de escritorio el renglón pasa a dos columnas
 
-Recorrido completo el ___ de ________ de 2026: cada casilla se marca **contra el objetivo de su escenario**, no contra "se hicieron los pasos".
+Recorrido completo el 9 de octubre de 2026: cada casilla se marca **contra el objetivo de su escenario**, no contra "se hicieron los pasos".
+
+Nota del recorrido: el Escenario 6.1 falló en la primera pasada en el ancho intermedio (los chips se comían el nombre del activo); se corrigió y la casilla se marca ya con el arreglo en la rama.
