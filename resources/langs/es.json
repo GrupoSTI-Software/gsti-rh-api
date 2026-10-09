@@ -3497,5 +3497,13 @@
   "org_structure_position_alias_invalid_message": "El alias contiene caracteres no permitidos o un formato incorrecto.",
   "org_structure_position_create_failed_title": "No fue posible crear el puesto",
   "org_structure_position_create_failed_message": "Ocurrió un error inesperado y no se creó el puesto. Intente de nuevo o contacte a soporte.",
-  "structure_placeholder_notice_demoted_reason": "el puesto al que iba dirigido (\"Sin posición\") se retiró del sistema. Elige el puesto o confirma el departamento completo antes de programarlo o enviarlo."
+  "structure_placeholder_notice_demoted_reason": "el puesto al que iba dirigido (\"Sin posición\") se retiró del sistema. Elige el puesto o confirma el departamento completo antes de programarlo o enviarlo.",
+  "employee_proceeding_file_summary_title": "Expediente",
+  "employee_proceeding_file_summary_found_successfully": "Resumen del expediente obtenido correctamente",
+  "employee_proceeding_file_summary_employee_not_found_title": "Empleado no encontrado",
+  "employee_proceeding_file_summary_employee_not_found_detail": "El empleado no existe o no está disponible para tu cuenta.",
+  "employee_proceeding_file_summary_invalid_input_title": "Datos inválidos",
+  "employee_proceeding_file_summary_invalid_input_detail": "El identificador del empleado no es válido.",
+  "employee_proceeding_file_summary_unexpected_error_title": "Error inesperado",
+  "employee_proceeding_file_summary_unexpected_error_detail": "Ocurrió un error inesperado al consultar el expediente."
 }

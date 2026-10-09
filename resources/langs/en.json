@@ -3494,5 +3494,13 @@
   "org_structure_position_alias_invalid_message": "The alias contains invalid characters or has an incorrect format.",
   "org_structure_position_create_failed_title": "Position could not be created",
   "org_structure_position_create_failed_message": "An unexpected error occurred and the position was not created. Please try again or contact support.",
-  "structure_placeholder_notice_demoted_reason": "the position it targeted (\"Sin posición\") was removed from the system. Choose a position or confirm the whole department before scheduling or sending it."
+  "structure_placeholder_notice_demoted_reason": "the position it targeted (\"Sin posición\") was removed from the system. Choose a position or confirm the whole department before scheduling or sending it.",
+  "employee_proceeding_file_summary_title": "Employee file",
+  "employee_proceeding_file_summary_found_successfully": "Employee file summary retrieved successfully",
+  "employee_proceeding_file_summary_employee_not_found_title": "Employee not found",
+  "employee_proceeding_file_summary_employee_not_found_detail": "The employee does not exist or is not available for your account.",
+  "employee_proceeding_file_summary_invalid_input_title": "Invalid data",
+  "employee_proceeding_file_summary_invalid_input_detail": "The employee identifier is not valid.",
+  "employee_proceeding_file_summary_unexpected_error_title": "Unexpected error",
+  "employee_proceeding_file_summary_unexpected_error_detail": "An unexpected error occurred while retrieving the employee file."
 }

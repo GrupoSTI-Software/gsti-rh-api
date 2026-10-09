@@ -94,6 +94,8 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   downloadLactationEvidence: employeesStandard('tab-periodos-lactancia-read'),
   getEmployeeProceedingFiles: employeesStandard('tab-expediente-read'),
   getExpiredExpiringProceedingFiles: employeesStandard('tab-expediente-read'),
+  /** Conteos del expediente (carpetas, archivos, contratos y vencimientos): mismo permiso que listar sus archivos. */
+  getEmployeeProceedingFileSummary: employeesStandard('tab-expediente-read'),
   indexEmployeeProceedingFiles: employeesStandard('tab-expediente-read'),
   showEmployeeProceedingFile: employeesStandard('tab-expediente-read'),
   showEmployeeRecord: employeesStandard('tab-expediente-read'),

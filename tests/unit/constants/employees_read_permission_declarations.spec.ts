@@ -17,11 +17,13 @@ test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
   // la Bandeja de rutas de carrera (`hr-career-path:read`).
   // 123: +5 lecturas del catálogo de tipos y propiedades de condición médica, que
   // no tenían gate y solo consume la pestaña Condición médica.
-  test('declara exactamente 123 operaciones con module employees y bypass standard', ({
+  // 124: +1 resumen del expediente (`proceeding-file-summary`), con el mismo
+  // `tab-expediente-read` que listar los archivos.
+  test('declara exactamente 124 operaciones con module employees y bypass standard', ({
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_READ_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 123)
+    assert.equal(keys.length, 124)
     assert.notProperty(EMPLOYEES_READ_PERMISSION_DECLARATIONS, 'indexCareerPathCandidates')
     assert.notProperty(EMPLOYEES_READ_PERMISSION_DECLARATIONS, 'showCareerPathCandidate')
 
