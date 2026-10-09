@@ -197,15 +197,16 @@ Objetivo: comprobar que con un rol sin lectura de Activos e insumos la sección 
 
 ## 6. Responsivo
 
-### 6.1 A 360 px
+### 6.1 Anchos angostos (teléfono y anchos intermedios)
 
-Objetivo: comprobar que a 360 px de ancho la sección no produce desplazamiento horizontal y que cada renglón apila en una sola columna el nombre, los metadatos y los chips, en ese orden.
+Objetivo: comprobar que mientras el carril de la sección es angosto —teléfono y anchos intermedios entre tableta y escritorio— cada renglón apila en una sola columna el nombre, los metadatos y los chips, sin cortar el nombre, y que en un escritorio ancho el renglón pasa a dos columnas.
 
 1. Con el Usuario A, en la ficha de **Carla Soto Nava** (`QA-EMP-03`), entra a **Activos**.
 2. Estrecha la ventana del navegador hasta unos **360 px** de ancho (o usa el modo de dispositivo móvil).
 3. La página **no se desplaza en horizontal**: no hay barra inferior de desplazamiento y el contenido no se sale hacia los lados.
 4. En cada renglón, el contenido queda **apilado en una sola columna**, en este orden de arriba a abajo: primero el nombre, luego los metadatos (**Folio …**, **Tipo: …**, **Asignado el …**) y al final los chips debajo de los metadatos.
-5. **Contraste:** al ensanchar la ventana a un ancho de escritorio, cada renglón pasa a **dos columnas**, los datos a un lado y los chips al otro.
+5. Ensancha la ventana a un **ancho intermedio, entre tableta y escritorio** (unos **850 px**): el renglón **sigue en una sola columna**, con los chips debajo, y el nombre del **Proyector QA Activos** —el que trae **tres** chips— **se lee completo**, sin cortarse.
+6. **Contraste:** al ensanchar la ventana a un ancho de escritorio, cada renglón pasa a **dos columnas**, los datos a un lado y los chips al otro.
 
 (Lo que se ve es lo ya explicado en el Escenario 4.1.)
 
@@ -235,6 +236,6 @@ Cada casilla se marca contra el objetivo de su escenario, no contra "se hicieron
 - [ ] 4.6 La ficha de `QA-EMP-05` muestra **Sin activos asignados** y ninguna card de devueltos
 - [ ] 4.7 La ficha de `QA-BAJA-01` (filtro **Bajas**) sigue mostrando sus vigentes y devueltos
 - [ ] 5.1 Con el Usuario B, la opción **Activos** no está en el submenú y la URL directa deja la página vacía, sin petición al servicio
-- [ ] 6.1 A 360 px no hay desplazamiento horizontal y cada renglón se apila en una sola columna: nombre, luego metadatos y al final los chips
+- [ ] 6.1 En anchos angostos (360 px y unos 850 px) no hay desplazamiento horizontal, cada renglón se apila en una sola columna (nombre, luego metadatos y al final los chips) y el nombre del Proyector se lee completo; a ancho de escritorio el renglón pasa a dos columnas
 
 Recorrido completo el ___ de ________ de 2026: cada casilla se marca **contra el objetivo de su escenario**, no contra "se hicieron los pasos".
