@@ -162,6 +162,9 @@ export default class BillingSubscription extends compose(BaseModel, SoftDeletes)
   @column()
   declare billingSubscriptionStripeSubscriptionId: string | null
 
+  @column({ serializeAs: null })
+  declare billingSubscriptionStripeSetupIntentId: string | null
+
   @column.dateTime({
     serialize: (value: DateTime | null) => value?.toISODate() ?? null,
   })

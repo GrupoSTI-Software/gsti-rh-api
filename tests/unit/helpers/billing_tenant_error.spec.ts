@@ -12,6 +12,7 @@ import {
   noLiveSubscriptionChangeError,
   noLiveSubscriptionError,
   onlyAccountOwnerCanContractError,
+  automaticBillingNotActiveError,
   onlyAccountOwnerCanManagePaymentMethodError,
   onlyAccountOwnerError,
   originNotSelfServiceError,
@@ -196,6 +197,14 @@ test.group('billing_tenant_error — previsualización de cambio (USRH1786107870
     assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE)
     assert.equal(error.httpStatus, 403)
     assert.include(error.detail ?? '', 'tarjeta de cobro')
+  })
+
+  test('automaticBillingNotActiveError expone cobro automático inactivo', ({ assert }) => {
+    const error = automaticBillingNotActiveError()
+    assert.equal(error.key, 'cobro-automatico-no-activo')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.AUTOMATIC_BILLING_NOT_ACTIVE)
+    assert.equal(error.httpStatus, 422)
+    assert.include(error.detail ?? '', 'cobro automático')
   })
 })
 

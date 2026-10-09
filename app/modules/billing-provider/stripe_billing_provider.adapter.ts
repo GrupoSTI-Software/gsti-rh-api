@@ -89,6 +89,34 @@ export function cardSetupIdempotencyKey(signupDraftId: number, setupIntentRef: s
   return `valanserh-signup-draft-${signupDraftId}-setup-${suffix}`
 }
 
+/**
+ * Clave de idempotencia para crear SetupIntent al cambiar tarjeta en Mi suscripción.
+ *
+ * @param billingSubscriptionId - Suscripción viva del tenant.
+ * @param setupIntentRef - Intent previo en curso, si existe.
+ */
+export function billingSubscriptionCardSetupIdempotencyKey(
+  billingSubscriptionId: number,
+  setupIntentRef: string | null
+): string {
+  const suffix = setupIntentRef ?? 'initial'
+  return `valanserh-billing-subscription-${billingSubscriptionId}-setup-${suffix}`
+}
+
+export function buildStripeBillingSubscriptionSetupIntentParams(
+  customerId: string,
+  billingSubscriptionId: number
+): Stripe.SetupIntentCreateParams {
+  return {
+    customer: customerId,
+    usage: 'off_session',
+    payment_method_types: ['card'],
+    metadata: {
+      valanserh_billing_subscription_id: String(billingSubscriptionId),
+    },
+  }
+}
+
 export function buildStripeCardSetupCustomerParams(
   email: string,
   signupDraftId: number
@@ -919,6 +947,19 @@ function setupIntentMatchesDraft(
   return setupIntent.metadata?.valanserh_signup_draft_id === String(signupDraftId)
 }
 
+function setupIntentMatchesBillingSubscription(
+  setupIntent: Stripe.SetupIntent,
+  customerRef: string,
+  billingSubscriptionId: number
+): boolean {
+  const customer = setupIntent.customer
+  const customerId = typeof customer === 'string' ? customer : customer?.id ?? null
+  if (customerId !== customerRef) {
+    return false
+  }
+  return setupIntent.metadata?.valanserh_billing_subscription_id === String(billingSubscriptionId)
+}
+
 export default class StripeBillingProviderAdapter
   implements
     BillingProviderPort,
@@ -1087,6 +1128,10 @@ export default class StripeBillingProviderAdapter
   }
 
   async prepareCardSetup(request: CardSetupRequest): Promise<CardSetup> {
+    if (request.owner.kind === 'billing_subscription') {
+      return this.#prepareBillingSubscriptionCardSetup(request)
+    }
+
     const client = this.#requireClient()
     const settings = this.#settings
     if (settings.status !== 'enabled') {
@@ -1098,12 +1143,16 @@ export default class StripeBillingProviderAdapter
     const publishableKey = settings.publishableKey
 
     const signupDraftId = request.owner.signupDraftId
+    const email = request.email
+    if (typeof email !== 'string' || email.trim() === '') {
+      throw operationNotAvailable('prepareCardSetup')
+    }
     let customerRef = request.customerRef
 
     try {
       if (customerRef === null) {
         const created = await client.customers.create(
-          buildStripeCardSetupCustomerParams(request.email, signupDraftId),
+          buildStripeCardSetupCustomerParams(email, signupDraftId),
           { idempotencyKey: `valanserh-signup-draft-${signupDraftId}-customer` }
         )
         customerRef = created.id
@@ -1172,12 +1221,83 @@ export default class StripeBillingProviderAdapter
     }
   }
 
+  async #prepareBillingSubscriptionCardSetup(request: CardSetupRequest): Promise<CardSetup> {
+    const client = this.#requireClient()
+    const settings = this.#settings
+    if (settings.status !== 'enabled') {
+      throw stripeNotConfigured()
+    }
+    if (settings.publishableKey === null || settings.publishableKey.trim() === '') {
+      throw stripeNotConfigured()
+    }
+    const publishableKey = settings.publishableKey
+
+    if (request.owner.kind !== 'billing_subscription') {
+      throw operationNotAvailable('prepareCardSetup')
+    }
+
+    const billingSubscriptionId = request.owner.billingSubscriptionId
+    const customerRef = request.customerRef
+    if (customerRef === null || customerRef.trim() === '') {
+      throw operationNotAvailable('prepareCardSetup')
+    }
+
+    try {
+      let setupIntent: Stripe.SetupIntent | null = null
+      let confirmed = false
+
+      if (request.setupIntentRef !== null) {
+        const retrieved = await client.setupIntents.retrieve(request.setupIntentRef)
+        if (
+          setupIntentMatchesBillingSubscription(retrieved, customerRef, billingSubscriptionId) &&
+          REUSABLE_SETUP_INTENT_STATUSES.has(retrieved.status)
+        ) {
+          setupIntent = retrieved
+        }
+      }
+
+      if (setupIntent === null) {
+        setupIntent = await client.setupIntents.create(
+          buildStripeBillingSubscriptionSetupIntentParams(customerRef, billingSubscriptionId),
+          {
+            idempotencyKey: billingSubscriptionCardSetupIdempotencyKey(
+              billingSubscriptionId,
+              request.setupIntentRef
+            ),
+          }
+        )
+        confirmed = setupIntent.status === 'succeeded'
+      }
+
+      const clientSecret = setupIntent.client_secret
+      if (clientSecret === null || clientSecret === '') {
+        throw providerRequestFailed('prepareCardSetup', {
+          stripeErrorType: null,
+          stripeRequestId: null,
+        })
+      }
+
+      return {
+        customerRef,
+        setupIntentRef: setupIntent.id,
+        clientSecret,
+        publishableKey,
+        confirmed,
+      }
+    } catch (error) {
+      throw this.#wrap('prepareCardSetup', error)
+    }
+  }
+
   async createProviderSubscription(request: ProviderSubscriptionRequest): Promise<{
     customerRef: string
     subscriptionRef: string
     reused: boolean
   }> {
     const client = this.#requireClient()
+    if (request.owner.kind !== 'signup_draft') {
+      throw operationNotAvailable('createProviderSubscription')
+    }
     const signupDraftId = request.owner.signupDraftId
 
     try {

@@ -28,6 +28,8 @@ import StripeBillingProviderAdapter, {
   buildStripePriceParams,
   buildStripeProductParams,
   catalogIdempotencyKey,
+  billingSubscriptionCardSetupIdempotencyKey,
+  buildStripeBillingSubscriptionSetupIntentParams,
   cardSetupIdempotencyKey,
   invoiceChargeIdempotencyKey,
   toProviderCard,
@@ -1621,6 +1623,48 @@ test.group('StripeBillingProviderAdapter — tarjeta vigente (USRH1790724549203)
     })
     assert.deepEqual(card.last4, '4242')
     assert.deepEqual(order, ['pm:pm_fx', 'customer:cus_fx', 'subscription:sub_fx'])
+  })
+
+  test('CA-10: prepareCardSetup en billing_subscription no crea customer', async ({
+    assert,
+  }) => {
+    let customerCreates = 0
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => {
+      return {
+        customers: {
+          create: async () => {
+            customerCreates += 1
+            return { id: 'cus_new' }
+          },
+        },
+        setupIntents: {
+          create: async (_params: unknown, opts: { idempotencyKey: string }) => {
+            assert.equal(
+              opts.idempotencyKey,
+              billingSubscriptionCardSetupIdempotencyKey(7, null)
+            )
+            return {
+              id: 'seti_billingSub',
+              client_secret: 'seti_billingSub_secret',
+              status: 'requires_payment_method',
+            }
+          },
+        },
+      } as unknown as Stripe
+    })
+
+    const setup = await adapter.prepareCardSetup({
+      owner: { kind: 'billing_subscription', billingSubscriptionId: 7 },
+      customerRef: 'cus_fixtureA',
+      setupIntentRef: null,
+    })
+
+    assert.equal(customerCreates, 0)
+    assert.equal(setup.setupIntentRef, 'seti_billingSub')
+    assert.deepEqual(
+      buildStripeBillingSubscriptionSetupIntentParams('cus_fixtureA', 7).metadata,
+      { valanserh_billing_subscription_id: '7' }
+    )
   })
 
   test('isBillingPaymentMethodProvider distingue stripe y manual', ({ assert }) => {
