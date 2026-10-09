@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Registros de asistencia con ubicación simulada — {{ tradeName }}</title>
+</head>
+<body style="margin:0;padding:16px;background:#f4f4f4;font-family:Segoe UI,Roboto,sans-serif;color:#222;">
+  <div style="max-width:640px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden;border:1px solid #e5e5e5;">
+    <div style="background:{{ sidebarColor }};color:#fff;padding:16px 20px;">
+      <div style="font-size:18px;font-weight:600;">{{ tradeName }}</div>
+      <div style="font-size:13px;opacity:0.9;margin-top:4px;">Registros de asistencia con ubicación simulada</div>
+    </div>
+    <div style="padding:20px;">
+      <p style="margin:0 0 12px;font-size:14px;line-height:1.5;">
+        El teléfono reportó como simulada la ubicación de los siguientes registros de asistencia.
+        Los registros se guardaron y cuentan como cualquier otro para la jornada y la nómina.
+      </p>
+      <p style="margin:0 0 20px;font-size:14px;line-height:1.5;">
+        El indicador lo genera el propio teléfono y puede equivocarse. Te sugerimos confirmarlo con la persona antes de decidir.
+        Si decides que un registro no debe contar, elimínalo con la acción «Eliminar registro» del detalle del día en el Monitor de asistencia.
+      </p>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:13px;">
+        <thead>
+          <tr style="background:#f0f0f0;text-align:left;">
+            <th style="padding:8px;border-bottom:1px solid #ddd;">Empleado</th>
+            <th style="padding:8px;border-bottom:1px solid #ddd;">Número</th>
+            <th style="padding:8px;border-bottom:1px solid #ddd;">Día</th>
+            <th style="padding:8px;border-bottom:1px solid #ddd;">Horas</th>
+            <th style="padding:8px;border-bottom:1px solid #ddd;">Registros</th>
+          </tr>
+        </thead>
+        <tbody>
+          @each(line in lines)
+            <tr>
+              <td style="padding:8px;border-bottom:1px solid #eee;">{{ line.employeeName }}</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;">{{ line.employeeCode }}</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;">{{ line.dayLabel }}</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;">{{ line.times.join(', ') }}</td>
+              <td style="padding:8px;border-bottom:1px solid #eee;">{{ line.count }} {{ line.count === 1 ? 'registro' : 'registros' }}</td>
+            </tr>
+          @end
+        </tbody>
+      </table>
+    </div>
+  </div>
+</body>
+</html>

@@ -3,6 +3,10 @@ import { LACTATION_NOTIFY_EXPIRING_COMMAND } from '#constants/employee_lactation
 import { REPSE_NOTIFY_FOLIO_EXPIRING_COMMAND } from '#constants/repse_folio_aviso'
 import { NOTICE_SEND_SCHEDULED_COMMAND } from '#constants/notice'
 import {
+  ASSIST_LOCATION_FLAG_NOTIFY_COMMAND,
+  ASSIST_LOCATION_FLAG_NOTIFY_CRON,
+} from '#constants/assist_location_flag_digest'
+import {
   ANNIVERSARY_DAY_EMAIL_COMMAND,
   ANNIVERSARY_REMINDER_EMAIL_COMMAND,
   BIRTH_DAY_EMAIL_COMMAND,
@@ -136,3 +140,17 @@ scheduler.command('report-jobs:cleanup').cron('0 * * * *')
  * mismo aviso si un envío masivo tarda más de un minuto.
  */
 scheduler.command(NOTICE_SEND_SCHEDULED_COMMAND).everyMinute().withoutOverlapping()
+
+/**
+ * Aviso a RH de checadas con ubicación simulada (VLRH-H1791056340278): cada
+ * hora, un solo correo por empresa con lo que llegó marcado y no se ha avisado.
+ * `withoutOverlapping` es por proceso; entre servidores manda el reclamo
+ * atómico de las checadas, que impide avisar una misma checada dos veces.
+ *
+ * Precondición de liberación (R9 de VLRH-C0014): no activar en producción antes
+ * de publicar la cláusula del aviso de privacidad que cubre este correo.
+ */
+scheduler
+  .command(ASSIST_LOCATION_FLAG_NOTIFY_COMMAND)
+  .cron(ASSIST_LOCATION_FLAG_NOTIFY_CRON)
+  .withoutOverlapping()

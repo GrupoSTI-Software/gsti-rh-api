@@ -2973,6 +2973,68 @@
       }
     }
   },
+  "telework_checklist": {
+    "title": "Telework checklists",
+    "items_success": "Checklist items retrieved successfully.",
+    "list_success": "Checklist history retrieved successfully.",
+    "detail_success": "Checklist application retrieved successfully.",
+    "register_success": "Commission visit registered successfully.",
+    "items": {
+      "iluminacion": "Sufficient lighting in the work area",
+      "ventilacion_temperatura": "Adequate ventilation and temperature",
+      "mobiliario": "Suitable chair and desk",
+      "instalacion_electrica": "Electrical installation without visible risks",
+      "orden_y_limpieza": "Ordered space free of obstacles",
+      "ruido": "Noise level that allows working",
+      "primeros_auxilios_emergencia": "Means to respond to an emergency"
+    },
+    "errors": {
+      "entrada-invalida": {
+        "title": "Invalid input",
+        "detail": "Check the request fields."
+      },
+      "respuestas-incompletas": {
+        "title": "Incomplete answers",
+        "detail": "The checklist must answer every active item; the missing codes are in 'data'."
+      },
+      "respuesta-duplicada": {
+        "title": "Duplicated answer",
+        "detail": "A checklist item was answered more than once."
+      },
+      "punto-no-reconocido": {
+        "title": "Unknown item",
+        "detail": "The answer includes an item that does not exist or is not active."
+      },
+      "fecha-de-aplicacion-invalida": {
+        "title": "Invalid application date",
+        "detail": "The visit date cannot be in the future."
+      },
+      "visitador-requerido": {
+        "title": "Inspector required",
+        "detail": "Provide the name of the person who performed the visit for the Commission."
+      },
+      "lugar-de-teletrabajo-invalido": {
+        "title": "Invalid telework location",
+        "detail": "The indicated location does not belong to the employee or is deactivated."
+      },
+      "solo-teletrabajadores": {
+        "title": "Teleworkers only",
+        "detail": "The checklist only applies to employees in Home Office or Hybrid mode."
+      },
+      "colaborador-no-encontrado": {
+        "title": "Employee not found",
+        "detail": "The employee does not exist in this business unit."
+      },
+      "aplicacion-no-encontrada": {
+        "title": "Application not found",
+        "detail": "The checklist application does not exist in this business unit."
+      },
+      "aplicacion-concurrente": {
+        "title": "Concurrent application",
+        "detail": "Someone else is registering this employee's checklist; try again."
+      }
+    }
+  },
   "telework_settings": {
     "title": "Telework settings",
     "get_success": "Telework settings retrieved successfully.",
@@ -2995,6 +3057,10 @@
   "telework_policy_forbidden_read_message": "You do not have permission to view the Telework Policy.",
   "telework_policy_forbidden_write_title": "No permission",
   "telework_policy_forbidden_write_message": "You do not have permission to manage the Telework Policy.",
+  "telework_checklist_forbidden_read_title": "No read permission",
+  "telework_checklist_forbidden_read_message": "You do not have permission to view telework checklists.",
+  "telework_checklist_forbidden_write_title": "No permission",
+  "telework_checklist_forbidden_write_message": "You do not have permission to register telework checklists.",
   "telework_settings_forbidden_read_title": "No read permission",
   "telework_settings_forbidden_read_message": "You do not have permission to view the telework settings.",
   "telework_settings_forbidden_write_title": "No permission",
