@@ -57,11 +57,13 @@ Las dos cuentas entran por el backoffice con el mismo flujo: en `http://127.0.0.
 
 Estado inicial y orden del recorrido: la sección es de **solo consulta**, así que recorrerla no cambia nada en la base. Aun así conviene hacerlo **en orden** (4.1 → 4.7, luego 5.1 y 6.1), porque los escenarios 4.2 a 4.5 se apoyan en la misma ficha del 4.1 y el 6.1 vuelve sobre ella.
 
+Ambas cuentas pueden abrir la pantalla con la que arranca el backoffice (**Monitor de asistencia**): el sembrador concede la lectura de ese módulo a todos los roles de QA, así que la sesión no empieza en un aviso de permisos.
+
 ## 3. Dónde probar
 
 La sección vive dentro de la ficha del colaborador.
 
-Para entrar: en `http://127.0.0.1:3000`, botón **Continuar con contraseña**, llena **Correo electrónico** y **Contraseña** con la cuenta que toque, botón **Entrar**.
+Para entrar: en `http://127.0.0.1:3000`, botón **Continuar con contraseña**, llena **Correo electrónico** y **Contraseña** con la cuenta que toque, botón **Entrar**. Al entrar, el backoffice abre siempre la pantalla **Monitor de asistencia**, que no es donde se prueba: del menú lateral entra a **Empleados**.
 
 Para elegir la empresa (si el usuario tiene más de una): arriba a la derecha abre **Mi cuenta** (el avatar) y en el campo **Empresa** elige **QA Fundadora**.
 
