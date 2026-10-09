@@ -169,6 +169,18 @@ export function onlyAccountOwnerCanContractError(): BillingSubscriptionServiceEr
   )
 }
 
+/** La suscripción no admite captura ni cambio de tarjeta en Stripe (USRH1790708507752). */
+export function automaticBillingNotActiveError(): BillingSubscriptionServiceError {
+  const detail = 'Tu suscripción no tiene cobro automático con tarjeta.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.AUTOMATIC_BILLING_NOT_ACTIVE,
+    422,
+    'cobro-automatico-no-activo',
+    detail
+  )
+}
+
 /** Solo el dueño puede ver o cambiar la tarjeta de cobro (USRH1790724549203). */
 export function onlyAccountOwnerCanManagePaymentMethodError(): BillingSubscriptionServiceError {
   const detail =

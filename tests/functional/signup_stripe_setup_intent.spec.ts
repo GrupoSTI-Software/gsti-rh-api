@@ -47,6 +47,9 @@ class FakeStripeCheckoutAdapter implements BillingProviderPort, BillingCheckoutP
 
   async prepareCardSetup(request: CardSetupRequest): Promise<CardSetup> {
     this.calls.push(request)
+    if (request.owner.kind !== 'signup_draft') {
+      throw new Error('FakeBillingProvider: owner de registro esperado')
+    }
     const id = request.owner.signupDraftId
     const suffix = this.variant === 'race' ? `${Date.now()}-${Math.random()}` : String(id)
     return {

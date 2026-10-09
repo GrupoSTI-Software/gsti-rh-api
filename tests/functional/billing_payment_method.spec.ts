@@ -313,3 +313,159 @@ test.group('GET /api/billing/subscription/payment-method — USRH1790724549203',
     }
   })
 })
+
+test.group('POST /api/billing/subscription/payment-method — USRH1790708507752', (group) => {
+  group.setup(async () => {
+    await ensureRole('owner')
+  })
+
+  test('CA-1: manual rechaza setup-intent sin llamar a Stripe', async ({ client, assert }) => {
+    const actor = await createTenantActor({ emailPrefix: 'pm-write-manual', roleSlug: 'owner' })
+    const planId = await createPublishedPlan()
+    let stripeCalls = 0
+
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => {
+      stripeCalls += 1
+      throw new Error('Stripe no debió invocarse')
+    })
+    const restore = billingProviderRegistry.register(adapter)
+
+    try {
+      await createLiveSubscription(actor.businessUnit, planId, 'manual')
+
+      const setup = await client
+        .post('/api/billing/subscription/payment-method/setup-intent')
+        .loginAs(actor.user)
+        .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+        .setup((request) => {
+          request.request.ok(() => true)
+        })
+
+      setup.assertStatus(422)
+      setup.assertBodyContains({
+        key: 'cobro-automatico-no-activo',
+        code: BILLING_SUBSCRIPTION_ERROR_CODES.AUTOMATIC_BILLING_NOT_ACTIVE,
+        detail: 'Tu suscripción no tiene cobro automático con tarjeta.',
+      })
+      assert.equal(stripeCalls, 0)
+
+      const save = await client
+        .post('/api/billing/subscription/payment-method')
+        .json({ setupIntentId: 'seti_fixtureA' })
+        .loginAs(actor.user)
+        .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+        .setup((request) => {
+          request.request.ok(() => true)
+        })
+
+      save.assertStatus(422)
+      save.assertBodyContains({
+        code: BILLING_SUBSCRIPTION_ERROR_CODES.AUTOMATIC_BILLING_NOT_ACTIVE,
+      })
+    } finally {
+      restore()
+      await cleanupTenantActor(actor)
+      await cleanupPlan(planId)
+    }
+  })
+
+  test('CA-3: prepare setup-intent devuelve claves y persiste seti_', async ({ client, assert }) => {
+    const actor = await createTenantActor({ emailPrefix: 'pm-prepare', roleSlug: 'owner' })
+    const planId = await createPublishedPlan()
+
+    try {
+      const subscription = await createLiveSubscription(actor.businessUnit, planId, 'stripe')
+
+      const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => {
+        return {
+          setupIntents: {
+            create: async () => ({
+              id: 'seti_fixturePrepare',
+              client_secret: 'seti_fixturePrepare_secret',
+              status: 'requires_payment_method',
+            }),
+          },
+        } as unknown as Stripe
+      })
+      const restore = billingProviderRegistry.register(adapter)
+
+      const response = await client
+        .post('/api/billing/subscription/payment-method/setup-intent')
+        .loginAs(actor.user)
+        .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+      response.assertStatus(200)
+      response.assertBodyContains({
+        data: {
+          clientSecret: 'seti_fixturePrepare_secret',
+          publishableKey: 'pk_test_fixturePub1',
+        },
+      })
+
+      await subscription.refresh()
+      assert.equal(subscription.billingSubscriptionStripeSetupIntentId, 'seti_fixturePrepare')
+
+      restore()
+    } finally {
+      await cleanupTenantActor(actor)
+      await cleanupPlan(planId)
+    }
+  })
+
+  test('CA-5: guardar setupIntent en curso devuelve tarjeta', async ({ client }) => {
+    const actor = await createTenantActor({ emailPrefix: 'pm-save', roleSlug: 'owner' })
+    const planId = await createPublishedPlan()
+
+    try {
+      const subscription = await createLiveSubscription(actor.businessUnit, planId, 'stripe')
+      subscription.billingSubscriptionStripeSetupIntentId = 'seti_fixtureSave'
+      await subscription.save()
+
+      const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => {
+        return {
+          setupIntents: {
+            retrieve: async () =>
+              ({
+                status: 'succeeded',
+                customer: 'cus_fixtureA',
+                usage: 'off_session',
+                payment_method: FIXTURE_PM,
+                metadata: {
+                  valanserh_billing_subscription_id: String(subscription.billingSubscriptionId),
+                },
+              }) as unknown as Stripe.SetupIntent,
+          },
+          paymentMethods: {
+            retrieve: async () => FIXTURE_PM,
+          },
+          customers: {
+            update: async () => ({}),
+          },
+          subscriptions: {
+            update: async () => ({}),
+          },
+        } as unknown as Stripe
+      })
+      const restore = billingProviderRegistry.register(adapter)
+
+      const response = await client
+        .post('/api/billing/subscription/payment-method')
+        .json({ setupIntentId: 'seti_fixtureSave' })
+        .loginAs(actor.user)
+        .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+      response.assertStatus(200)
+      response.assertBodyContains({
+        data: {
+          managed: true,
+          card: { brand: 'visa', last4: '4242', expMonth: 4, expYear: 2028 },
+        },
+      })
+
+      restore()
+    } finally {
+      await cleanupTenantActor(actor)
+      await cleanupPlan(planId)
+    }
+  })
+})

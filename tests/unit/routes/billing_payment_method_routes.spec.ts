@@ -28,3 +28,24 @@ test.group('billing_payment_method_routes — lectura (USRH1790724549203)', () =
     assert.include(content, 'middleware.businessScope()')
   })
 })
+
+test.group('billing_payment_method_routes — escritura (USRH1790708507752)', () => {
+  test('POST setup-intent y POST payment-method llevan limitador billing-payment-method-write', ({
+    assert,
+  }) => {
+    const content = readFileSync(join(process.cwd(), 'start/routes/billing_routes.ts'), 'utf-8')
+
+    assert.include(content, "'billing-payment-method-write'")
+    assert.include(content, 'allowRequests(10)')
+    assert.include(content, "'/subscription/payment-method/setup-intent'")
+    assert.include(content, '#controllers/billing_payment_method_controller.setupIntent')
+    assert.include(content, '#controllers/billing_payment_method_controller.update')
+    assert.include(content, '.use(billingPaymentMethodWriteRateLimit)')
+
+    const limiterBlock = content.match(
+      /const billingPaymentMethodWriteRateLimit = limiter\.define\([\s\S]*?\n\}\)\n/
+    )?.[0]
+    assert.isDefined(limiterBlock)
+    assert.notInclude(limiterBlock!, 'anonimo')
+  })
+})

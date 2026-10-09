@@ -110,11 +110,19 @@ export function isBillingWebhookProvider(
   return typeof candidate.verifyWebhookEvent === 'function'
 }
 
-export type CardSetupOwner = { kind: 'signup_draft'; signupDraftId: number }
+export type SignupDraftCardSetupOwner = { kind: 'signup_draft'; signupDraftId: number }
+
+export type BillingSubscriptionCardSetupOwner = {
+  kind: 'billing_subscription'
+  billingSubscriptionId: number
+}
+
+export type CardSetupOwner = SignupDraftCardSetupOwner | BillingSubscriptionCardSetupOwner
 
 export interface CardSetupRequest {
   owner: CardSetupOwner
-  email: string
+  /** Obligatorio en registro; omitido en Mi suscripción. */
+  email?: string | null
   customerRef: string | null
   setupIntentRef: string | null
 }
@@ -275,11 +283,6 @@ export interface ProviderCard {
   last4: string
   expMonth: number
   expYear: number
-}
-
-export type BillingSubscriptionCardSetupOwner = {
-  kind: 'billing_subscription'
-  billingSubscriptionId: number
 }
 
 export interface DefaultPaymentMethodRequest {
