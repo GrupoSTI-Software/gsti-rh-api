@@ -26,6 +26,7 @@ import type {
   AssetsSummaryDto,
   AssetTypeDto,
   AssetValueHistoryDto,
+  EmployeeAssetsDto,
 } from './dto/assets.dto.js'
 
 /** Lo único que el service necesita del almacenamiento. */
@@ -151,6 +152,25 @@ export default class AssetsService {
 
   types(): Promise<AssetTypeDto[]> {
     return this.repository.findTypes(this.scope())
+  }
+
+  /**
+   * Activos asignados a un colaborador (vigentes y devueltos).
+   *
+   * @throws AssetError 404 `colaborador-no-encontrado` (inexistente o de otra empresa).
+   */
+  async employeeAssets(employeeId: number): Promise<EmployeeAssetsDto> {
+    const scope = this.scope()
+    const profile = await this.repository.findEmployeeProfile(scope, employeeId)
+    if (!profile) throw AssetError.employeeNotFound()
+    // Tarea 2: aquí van las asignaciones (current/history). Esta tarea entrega
+    // el contrato con listas vacías.
+    return {
+      employeeId: profile.employeeId,
+      employeeSlug: profile.employeeSlug,
+      current: [],
+      history: [],
+    }
   }
 
   /**

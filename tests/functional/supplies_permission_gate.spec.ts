@@ -6,6 +6,10 @@ import Supplie from '#models/supplie'
 import SupplyType from '#models/supply_type'
 import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 import {
+  cleanupEmployeeFixture,
+  createEmployeeFixture,
+} from '#tests/helpers/employee_fixture'
+import {
   assertModuleEnforced,
   assertPassesGate,
   assertPermissionDenied,
@@ -312,5 +316,66 @@ test.group('Activos e insumos — permissionGate con exigencia encendida', (grou
       .loginAs(superAdminAccount.user)
       .headers(businessUnitHeaders(superAdminAccount))
     assertPermissionDenied(assert, superAdminList)
+  })
+
+  test('lectura de activos por colaborador: 403 sin supplies:read, 200 con read, owner cruza por bypass', async ({
+    client,
+    assert,
+  }) => {
+    const tenant = required(actor, 'el actor')
+    const ownerAccount = required(owner, 'el owner')
+    const superAdminAccount = required(superAdmin, 'el super-administrador')
+    const tenantEmployee = await createEmployeeFixture(
+      tenant.businessUnit.businessUnitId,
+      'empTenant'
+    )
+    const ownerEmployee = await createEmployeeFixture(
+      ownerAccount.businessUnit.businessUnitId,
+      'empOwner'
+    )
+    const superAdminEmployee = await createEmployeeFixture(
+      superAdminAccount.businessUnit.businessUnitId,
+      'empSuper'
+    )
+
+    try {
+      const url = (employeeId: number) => `/api/employees/${employeeId}/assets`
+
+      await grantModulePermissions(tenant, MODULE, [])
+      assertPermissionDenied(
+        assert,
+        await client
+          .get(url(tenantEmployee.employee.employeeId))
+          .loginAs(tenant.user)
+          .headers(businessUnitHeaders(tenant))
+      )
+
+      await grantModulePermissions(tenant, MODULE, ['read'])
+      const withRead = await client
+        .get(url(tenantEmployee.employee.employeeId))
+        .loginAs(tenant.user)
+        .headers(businessUnitHeaders(tenant))
+      withRead.assertStatus(200)
+
+      // El owner cruza el gate por el bypass `standard` y ve a su colaborador.
+      const ownerResponse = await client
+        .get(url(ownerEmployee.employee.employeeId))
+        .loginAs(ownerAccount.user)
+        .headers(businessUnitHeaders(ownerAccount))
+      ownerResponse.assertStatus(200)
+
+      // El super-administrador no cruza el bypass `standard`.
+      assertPermissionDenied(
+        assert,
+        await client
+          .get(url(superAdminEmployee.employee.employeeId))
+          .loginAs(superAdminAccount.user)
+          .headers(businessUnitHeaders(superAdminAccount))
+      )
+    } finally {
+      await cleanupEmployeeFixture(tenantEmployee)
+      await cleanupEmployeeFixture(ownerEmployee)
+      await cleanupEmployeeFixture(superAdminEmployee)
+    }
   })
 })

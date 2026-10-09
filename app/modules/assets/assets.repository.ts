@@ -2,6 +2,7 @@ import type { AssetStateFilter } from './assets.constants.js'
 import type {
   AssetAssignmentDto,
   AssetCharacteristicValueDto,
+  AssetEmployeeProfile,
   AssetListItemDto,
   AssetListResponseDto,
   AssetsSummaryDto,
@@ -51,6 +52,15 @@ export interface AssetsRepository {
   /** Todas las características vivas del tipo, con el valor del activo o `null`. */
   findCharacteristicValues(supplyId: number, supplyTypeId: number): Promise<AssetCharacteristicValueDto[]>
   findAssignments(businessUnitIds: readonly number[], supplyId: number): Promise<AssetAssignmentDto[]>
+  /**
+   * Perfil del colaborador acotado al alcance de empresas de la petición. Un
+   * colaborador dado de baja sigue consultable (no se filtra por borrado).
+   * Alcance vacío → `null` sin consultar.
+   */
+  findEmployeeProfile(
+    businessUnitIds: readonly number[],
+    employeeId: number
+  ): Promise<AssetEmployeeProfile | null>
   findValueHistory(supplyId: number): Promise<AssetValueHistoryEntryDto[]>
   findTypes(businessUnitIds: readonly number[]): Promise<AssetTypeDto[]>
   upsertCharacteristicValues(

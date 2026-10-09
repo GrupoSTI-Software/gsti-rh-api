@@ -17,6 +17,7 @@ import type {
 import type {
   AssetAssignmentDto,
   AssetCharacteristicValueDto,
+  AssetEmployeeProfile,
   AssetListItemDto,
   AssetListResponseDto,
   AssetsSummaryDto,
@@ -342,6 +343,31 @@ export default class AssetsRepositoryMysql implements AssetsRepository {
       baseAssetQuery(businessUnitIds).where('s.supply_id', supplyId)
     ).first()
     return row ? toAssetItem(row) : null
+  }
+
+  async findEmployeeProfile(
+    businessUnitIds: readonly number[],
+    employeeId: number
+  ): Promise<AssetEmployeeProfile | null> {
+    if (businessUnitIds.length === 0) return null
+    const [row]: Array<{
+      employee_id: number
+      employee_slug: string
+      business_unit_id: number
+      employee_telework_percentage: DecimalValue
+    }> = await db
+      .from('employees')
+      .where('employee_id', employeeId)
+      .whereIn('business_unit_id', [...businessUnitIds])
+      // R12: SIN filtro de employee_deleted_at (un colaborador dado de baja sigue consultable).
+      .select('employee_id', 'employee_slug', 'business_unit_id', 'employee_telework_percentage')
+    if (!row) return null
+    return {
+      employeeId: Number(row.employee_id),
+      employeeSlug: row.employee_slug,
+      businessUnitId: Number(row.business_unit_id),
+      teleworkPercentage: Number(row.employee_telework_percentage ?? 0), // DECIMAL llega como texto
+    }
   }
 
   async findOwnership(

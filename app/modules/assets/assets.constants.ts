@@ -27,6 +27,13 @@ export const OPEN_ASSIGNMENT_STATUSES = ['active', 'shipping'] as const
 export type OpenAssignmentStatus = (typeof OPEN_ASSIGNMENT_STATUSES)[number]
 
 /**
+ * Estado del resguardo de una asignación vista desde la ficha del colaborador:
+ * `signed` si existe al menos un contrato de resguardo vivo, `unsigned` si no.
+ */
+export const EMPLOYEE_ASSET_CUSTODY_STATUSES = ['signed', 'unsigned'] as const
+export type EmployeeAssetCustodyStatus = (typeof EMPLOYEE_ASSET_CUSTODY_STATUSES)[number]
+
+/**
  * Filtro de estado del listado:
  * - `available`: activo en operación sin resguardo activo.
  * - `assigned`: activo en operación con resguardo activo.
@@ -69,6 +76,7 @@ export const ASSET_ERROR_KEYS = {
   FILE_NOT_FOUND: 'archivo-no-encontrado',
   TELEWORK_CATEGORY_INVALID: 'categoria-de-insumo-invalida',
   TYPE_NOT_FOUND: 'tipo-de-activo-no-encontrado',
+  EMPLOYEE_NOT_FOUND: 'colaborador-no-encontrado',
   INVALID_INPUT: 'entrada-invalida',
   UNEXPECTED: 'error-inesperado',
 } as const

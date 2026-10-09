@@ -43,6 +43,9 @@ router
         '#modules/assets/asset_files.controller.assignationPhoto'
       )
       .use(middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.downloadSupplyAssignationPhoto))
+    router
+      .get('/employees/:employeeId/assets', '#modules/assets/employee_assets.controller.assets')
+      .use(middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.indexEmployeeAssets))
   })
   .prefix('/api')
   .use(middleware.auth())
