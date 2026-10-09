@@ -88,8 +88,6 @@ Objetivo: comprobar que en la ficha de un colaborador con activos, la sección *
 5. En **Activos devueltos**, el renglón del **Celular QA Activos** (`QA-ACT-CEL-01`) muestra: su nombre, **Tipo: Celular QA Activos**, **Devuelto el …** (**1 de septiembre de 2026**) y **Motivo: Cambio de equipo**, con su chip de resguardo.
 6. El orden de **Activos devueltos** va del más reciente al más antiguo **por fecha de devolución** (no por fecha de asignación). La colaboradora trae **tres devueltos** y sus fechas invierten el orden por asignación, así que debe verse primero el **Celular QA Activos** (devuelto en septiembre de 2026), luego el **Teclado QA Activos** (julio de 2026) y al final la **Tablet QA Activos** (junio de 2026); por fecha de asignación el primero habría sido la **Tablet**.
 
-Evidencia: una captura de la sección con las dos cards visibles (donde se lean los textos de los chips y "Motivo: …" en el devuelto) y una captura del orden de **Activos devueltos** con los tres renglones.
-
 ### 4.2 Resguardo sin firmar
 
 Objetivo: comprobar que un activo vigente al que todavía no se le ha subido el resguardo muestra el chip **Resguardo sin firmar**, en lugar de "Resguardo firmado".
@@ -98,8 +96,6 @@ Objetivo: comprobar que un activo vigente al que todavía no se le ha subido el 
 2. En **Activos vigentes**, busca el renglón del **Monitor QA Activos** (`QA-ACT-MON-01`), el activo que **no tiene resguardo cargado**.
 3. Ese renglón muestra el chip **Resguardo sin firmar**; el renglón sigue en **Activos vigentes**, con sus datos y su chip de asignación **Asignado**.
 
-Evidencia: una captura del renglón del monitor donde se lea **Resguardo sin firmar**.
-
 ### 4.3 En envío
 
 Objetivo: comprobar que un activo que va en camino aparece entre los vigentes con el chip **En envío**.
@@ -107,8 +103,6 @@ Objetivo: comprobar que un activo que va en camino aparece entre los vigentes co
 1. Con el Usuario A, abre la ficha de **Carla Soto Nava** (`QA-EMP-03`) y entra a **Activos**.
 2. En **Activos vigentes** (no en devueltos), el renglón de la **Bocina QA Activos** (`QA-ACT-BOC-01`) muestra el chip **En envío**.
 3. El mismo renglón trae sus datos (folio, tipo, etc.) como cualquier vigente.
-
-Evidencia: una captura del renglón con el chip **En envío**.
 
 ### 4.4 Extraviado y activo eliminado
 
@@ -119,8 +113,6 @@ Objetivo: comprobar que un activo con estado **Extraviado** sigue apareciendo co
 3. En **Activos devueltos**, el renglón del **Teclado QA Activos** (`QA-ACT-TEC-01`), que fue **eliminado del catálogo**, muestra su nombre como **texto normal**, sin enlace; si pasas el cursor y pulsas, no navega a ninguna parte. El renglón conserva el tipo y la fecha de devolución que tenía.
 4. **Negativo a comprobar a propósito:** el renglón eliminado no se puede abrir; el extraviado sí.
 
-Evidencia: una captura del renglón con **Extraviado** (que se note que el nombre se ve como enlace) y una captura del renglón eliminado (que se note que su nombre es texto, sin enlace).
-
 ### 4.5 Enlace al activo
 
 Objetivo: comprobar que al pulsar el nombre de un activo que sigue en el catálogo, se abre **Activos e insumos** con la ficha de ese activo en su pestaña de resguardo.
@@ -129,8 +121,6 @@ Objetivo: comprobar que al pulsar el nombre de un activo que sigue en el catálo
 2. En **Activos vigentes**, pulsa el nombre de la **Laptop QA Activos** (`QA-ACT-LAP-01`).
 3. La app navega a **Activos e insumos** y abre la ficha de ese activo. La pestaña **Resguardo** (junto a **Ficha** y **Valor**) es la que queda seleccionada.
 4. En la barra de direcciones se lee la pantalla de activos con el activo y la pestaña en la dirección: `http://127.0.0.1:3000/supplies?activo=<número>&tab=resguardo` (la dirección **no** lleva `/es`).
-
-Evidencia: una captura de la ficha del activo abierta en la pestaña **Resguardo** y una captura de la barra de direcciones con `activo=…&tab=resguardo`.
 
 ### 4.6 Colaborador nuevo, sin activos
 
@@ -141,8 +131,6 @@ Objetivo: comprobar que la ficha de un colaborador sin ninguna asignación muest
 3. Se ve un aviso con **Sin activos asignados** y, debajo, **Los activos se asignan desde Activos e insumos y aparecen aquí.**
 4. **Negativo a comprobar a propósito:** no aparece la card **Activos vigentes** ni la card **Activos devueltos**.
 
-Evidencia: una captura de la sección con solo el aviso **Sin activos asignados**.
-
 ### 4.7 Colaborador dado de baja
 
 Objetivo: comprobar que la ficha de un colaborador dado de baja sigue mostrando sus activos: lo que no ha devuelto y su histórico.
@@ -151,8 +139,6 @@ Objetivo: comprobar que la ficha de un colaborador dado de baja sigue mostrando 
 2. Entra a **Activos**.
 3. La sección aparece igual que en un colaborador vigente: se ven sus **Activos vigentes** (la **Laptop QA Activos**, folio `QA-ACT-BAJA-LAP`) y sus **Activos devueltos** (el **Monitor QA Activos**, folio `QA-ACT-BAJA-MON`, motivo **Cambio de equipo**).
 4. **Negativo a comprobar a propósito:** la baja del colaborador no deja la sección vacía ni con un error.
-
-Evidencia: una captura de la sección del colaborador dado de baja con sus vigentes y devueltos.
 
 ## 5. Con el Usuario B (sin lectura de Activos e insumos)
 
@@ -168,8 +154,6 @@ Objetivo: comprobar que con un rol sin lectura de Activos e insumos la sección 
 4. La página queda **vacía**: no aparecen las cards **Activos vigentes** ni **Activos devueltos**, ni el aviso **Sin activos asignados**, ni un mensaje de error. No se ve nada dentro de la sección.
 5. Abre la pestaña de red del navegador (F12 → Red) y recarga esa dirección: **no sale ninguna petición** al servicio de activos del colaborador. La pantalla no consultó nada.
 
-Evidencia: una captura del submenú sin la opción **Activos** (que se vea que termina en **Expediente**), una captura de la página vacía en la dirección directa y una captura de la pestaña de red al recargar, sin la petición de activos.
-
 ## 6. Responsivo
 
 ### 6.1 A 360 px
@@ -181,8 +165,6 @@ Objetivo: comprobar que a 360 px de ancho la sección no produce desplazamiento 
 3. La página **no se desplaza en horizontal**: no hay barra inferior de desplazamiento y el contenido no se sale hacia los lados.
 4. En cada renglón, el contenido queda **apilado en una sola columna**, en este orden de arriba a abajo: primero el nombre, luego los metadatos (**Folio …**, **Tipo: …**, **Asignado el …**) y al final los chips debajo de los metadatos.
 5. **Contraste:** al ensanchar la ventana a un ancho de escritorio, cada renglón pasa a **dos columnas**, los datos a un lado y los chips al otro.
-
-Evidencia: una captura a 360 px de ancho (que se vea la regla o el ancho en el modo dispositivo) y una captura del mismo renglón en ancho de escritorio para el contraste de dos columnas.
 
 ## 7. Lo que no se revisa aquí
 
