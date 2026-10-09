@@ -488,7 +488,7 @@ export function toProviderCard(paymentMethod: unknown): ProviderCard | null {
     return null
   }
   const candidate = paymentMethod as Stripe.PaymentMethod
-  if (candidate.type !== 'card' || candidate.card == null) {
+  if (candidate.type !== 'card' || candidate.card === null || candidate.card === undefined) {
     return null
   }
   const brand = candidate.card.brand
