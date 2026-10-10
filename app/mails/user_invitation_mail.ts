@@ -12,6 +12,8 @@ export interface UserInvitationMailParams {
   from: string
   firstName: string
   invitationUrl: string
+  /** Inicio de sesión del backoffice; solo se pinta cuando `canAccessBackoffice`. */
+  loginUrl: string
   language: 'es' | 'en'
   branding: UserInvitationMailBranding
   validityDays: number
@@ -34,6 +36,7 @@ export default class UserInvitationMail extends BaseMail {
       from,
       firstName,
       invitationUrl,
+      loginUrl,
       language,
       branding,
       validityDays,
@@ -56,6 +59,8 @@ export default class UserInvitationMail extends BaseMail {
     const fallbackUrl = i18n.formatMessage('auth.user_invitation.fallback_url')
     const appNotice = i18n.formatMessage('auth.user_invitation.app_notice')
     const backofficeNotice = i18n.formatMessage('auth.user_invitation.backoffice_notice')
+    const accessTitle = i18n.formatMessage('auth.user_invitation.access_title')
+    const backofficeLinkLabel = i18n.formatMessage('auth.user_invitation.backoffice_link_label')
     const footer = i18n.formatMessage('auth.user_invitation.footer', {
       tradeName: branding.tradeName,
     })
@@ -78,6 +83,9 @@ export default class UserInvitationMail extends BaseMail {
         fallbackUrl,
         appNotice,
         backofficeNotice,
+        accessTitle,
+        backofficeLinkLabel,
+        loginUrl,
         canAccessBackoffice,
         footer,
       })

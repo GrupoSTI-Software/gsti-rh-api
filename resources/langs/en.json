@@ -1418,6 +1418,8 @@
       "validity": "This link is valid for {days} days and can only be used once.",
       "fallback_url": "If the button does not open, copy and paste this URL into your browser:",
       "app_notice": "Download the employee app on your mobile device. Sign in with the email you were registered with and the password you choose via the link.",
+      "access_title": "How do I sign in afterwards?",
+      "backoffice_link_label": "Go to the backoffice",
       "backoffice_notice": "You can also access the web backoffice from your browser with the same email and the password you choose via the link.",
       "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
     },

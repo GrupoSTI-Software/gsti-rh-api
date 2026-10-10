@@ -257,7 +257,8 @@ export default class AuthMailService {
 
       const branding = await this.resolveBranding()
       const backofficeUrl = env.get('BACKOFFICE_URL') ?? DEFAULT_BACKOFFICE_URL
-      const invitationUrl = `${backofficeUrl.replace(/\/$/, '')}/set-password/${invitationToken}`
+      const backofficeBase = backofficeUrl.replace(/\/$/, '')
+      const invitationUrl = `${backofficeBase}/set-password/${invitationToken}`
 
       await mail.send(
         new UserInvitationMail({
@@ -265,6 +266,7 @@ export default class AuthMailService {
           from: senderEmail,
           firstName,
           invitationUrl,
+          loginUrl: `${backofficeBase}/`,
           language,
           branding,
           validityDays: USER_INVITATION_TOKEN_VALIDITY_DAYS,

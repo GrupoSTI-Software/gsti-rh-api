@@ -35,17 +35,23 @@
     {{ ctaCaption }}
   </p>
 
-  {{-- Caja informativa: por dónde entra según su rol --}}
+  {{-- Caja informativa: cómo entrar después según su acceso. La app aplica a
+       todos; el backoffice solo a quien tiene un rol con acceso web. --}}
   <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 27px 0 0 0; background-color: #eef1fa; border-radius: 8px;">
     <tr>
       <td style="padding: 24px 24px 28px 24px;">
-        <p style="margin: 0; font-size: 13px; line-height: 22px; color: #4b5057;">
-          @if (canAccessBackoffice)
-            {{ backofficeNotice }}
-          @else
-            {{ appNotice }}
-          @end
+        <p style="margin: 0; font-size: 14px; line-height: 22px; font-weight: 700; color: #17224d;">
+          {{ accessTitle }}
         </p>
+        <p style="margin: 8px 0 0 0; font-size: 13px; line-height: 22px; color: #4b5057;">
+          {{ appNotice }}
+        </p>
+        @if (canAccessBackoffice)
+          <p style="margin: 12px 0 0 0; font-size: 13px; line-height: 22px; color: #4b5057;">
+            {{ backofficeNotice }}<br />
+            <a href="{{ loginUrl }}" target="_blank" style="color: #445cba; font-weight: 700; text-decoration: underline;">{{ backofficeLinkLabel }}</a>
+          </p>
+        @end
       </td>
     </tr>
   </table>
