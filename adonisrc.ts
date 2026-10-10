@@ -107,9 +107,11 @@ export default defineConfig({
       pattern: 'resources/views/**/*.edge',
       reloadServer: false,
     },
+    // La carpeta es `langs` (la que lee config/i18n.ts). El i18n carga los
+    // textos al arrancar, así que un cambio necesita reiniciar el servidor.
     {
-      pattern: 'resources/lang/**/*.{json,yaml,yml}',
-      reloadServer: false,
+      pattern: 'resources/langs/**/*.{json,yaml,yml}',
+      reloadServer: true,
     },
     // Pesos del detector de rostros: se leen de `<cwd>/models` y sin ellos no
     // se puede evaluar la foto biometrica al subirla.
