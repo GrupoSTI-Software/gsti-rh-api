@@ -193,6 +193,7 @@ const SUPPLIES_ROUTE_FILES: RouteFileContract[] = [
       { method: 'get', path: '/asset-types', handler: '#modules/assets/assets.controller.types', declaration: supplies('indexAssetTypes') },
       { method: 'get', path: '/employee-supplies-response-contracts/:id/file', handler: '#modules/assets/asset_files.controller.responseContract', declaration: supplies('downloadSupplyResponseContract') },
       { method: 'get', path: '/employee-supply-assignation-photos/photo/:photoId/file', handler: '#modules/assets/asset_files.controller.assignationPhoto', declaration: supplies('downloadSupplyAssignationPhoto') },
+      { method: 'get', path: '/employees/:employeeId/assets', handler: '#modules/assets/employee_assets.controller.assets', declaration: supplies('indexEmployeeAssets') },
     ],
     open: [],
   },

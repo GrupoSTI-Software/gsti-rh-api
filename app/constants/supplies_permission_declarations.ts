@@ -32,11 +32,11 @@ const suppliesStandard = (action: string | readonly string[]): PermissionGateOpt
  * formulario de edición, por eso pide `update` y no `delete`.
  *
  * Módulo vertical `app/modules/assets` (rediseño de Activos del BO): el
- * listado, resumen, ficha, resguardos, historial de valor y tipos piden
- * `read`; guardar valores de características pide `update`. Las descargas de
- * la responsiva y de las fotos de un resguardo piden `read`: las abre la ficha
- * del activo (las escrituras de resguardos, contratos y fotos siguen con
- * `employees:manage-employee-supplies`).
+ * listado, resumen, ficha, resguardos, historial de valor, tipos y los activos
+ * asignados a un colaborador piden `read`; guardar valores de características
+ * pide `update`. Las descargas de la responsiva y de las fotos de un resguardo
+ * piden `read`: las abre la ficha del activo (las escrituras de resguardos,
+ * contratos y fotos siguen con `employees:manage-employee-supplies`).
  *
  * Bypass `standard` (root y owner): es el mismo salvoconducto con el que el
  * backoffice abre la página (`isRoot`); ningún servicio del API trata a
@@ -89,6 +89,7 @@ export const SUPPLIES_PERMISSION_DECLARATIONS = {
   indexAssetAssignments: suppliesStandard('read'),
   showAssetValueHistory: suppliesStandard('read'),
   indexAssetTypes: suppliesStandard('read'),
+  indexEmployeeAssets: suppliesStandard('read'),
   upsertAssetCharacteristicValues: suppliesStandard('update'),
   downloadSupplyResponseContract: suppliesStandard('read'),
   downloadSupplyAssignationPhoto: suppliesStandard('read'),

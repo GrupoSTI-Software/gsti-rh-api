@@ -6,6 +6,10 @@ import Supplie from '#models/supplie'
 import SupplyType from '#models/supply_type'
 import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 import {
+  cleanupEmployeeFixture,
+  createEmployeeFixture,
+} from '#tests/helpers/employee_fixture'
+import {
   assertModuleEnforced,
   assertPassesGate,
   assertPermissionDenied,
@@ -99,18 +103,20 @@ function assertDeniedFor(assert: Assert, response: ApiResponse, request: GateReq
 test.group('Activos e insumos — permissionGate con exigencia encendida', (group) => {
   let actor: TenantActor | null = null
   let owner: TenantActor | null = null
+  let root: TenantActor | null = null
   let superAdmin: TenantActor | null = null
 
   group.setup(async () => {
     await assertModuleEnforced(MODULE)
     actor = await createTenantActor('activos-gate')
     owner = await createBypassActor('owner', 'activos-owner')
+    root = await createBypassActor('root', 'activos-root')
     superAdmin = await createBypassActor('super-administrador', 'activos-superadmin')
   })
 
   group.teardown(async () => {
     await cleanupRunSupplies()
-    for (const current of [actor, owner, superAdmin]) {
+    for (const current of [actor, owner, root, superAdmin]) {
       await cleanupTenantActor(current)
     }
   })
@@ -312,5 +318,79 @@ test.group('Activos e insumos — permissionGate con exigencia encendida', (grou
       .loginAs(superAdminAccount.user)
       .headers(businessUnitHeaders(superAdminAccount))
     assertPermissionDenied(assert, superAdminList)
+  })
+
+  test('lectura de activos por colaborador: 403 sin supplies:read, 200 con read, owner y root cruzan por bypass', async ({
+    client,
+    assert,
+  }) => {
+    const tenant = required(actor, 'el actor')
+    const ownerAccount = required(owner, 'el owner')
+    const rootAccount = required(root, 'el root')
+    const superAdminAccount = required(superAdmin, 'el super-administrador')
+    const tenantEmployee = await createEmployeeFixture(
+      tenant.businessUnit.businessUnitId,
+      'empTenant'
+    )
+    const ownerEmployee = await createEmployeeFixture(
+      ownerAccount.businessUnit.businessUnitId,
+      'empOwner'
+    )
+    const rootEmployee = await createEmployeeFixture(
+      rootAccount.businessUnit.businessUnitId,
+      'empRoot'
+    )
+    const superAdminEmployee = await createEmployeeFixture(
+      superAdminAccount.businessUnit.businessUnitId,
+      'empSuper'
+    )
+
+    try {
+      const url = (employeeId: number) => `/api/employees/${employeeId}/assets`
+
+      await grantModulePermissions(tenant, MODULE, [])
+      assertPermissionDenied(
+        assert,
+        await client
+          .get(url(tenantEmployee.employee.employeeId))
+          .loginAs(tenant.user)
+          .headers(businessUnitHeaders(tenant))
+      )
+
+      await grantModulePermissions(tenant, MODULE, ['read'])
+      const withRead = await client
+        .get(url(tenantEmployee.employee.employeeId))
+        .loginAs(tenant.user)
+        .headers(businessUnitHeaders(tenant))
+      withRead.assertStatus(200)
+
+      // El owner cruza el gate por el bypass `standard` y ve a su colaborador.
+      const ownerResponse = await client
+        .get(url(ownerEmployee.employee.employeeId))
+        .loginAs(ownerAccount.user)
+        .headers(businessUnitHeaders(ownerAccount))
+      ownerResponse.assertStatus(200)
+
+      // El root cruza el mismo bypass `standard` (isPlatformAccount) para la ruta nueva.
+      const rootResponse = await client
+        .get(url(rootEmployee.employee.employeeId))
+        .loginAs(rootAccount.user)
+        .headers(businessUnitHeaders(rootAccount))
+      rootResponse.assertStatus(200)
+
+      // El super-administrador no cruza el bypass `standard`.
+      assertPermissionDenied(
+        assert,
+        await client
+          .get(url(superAdminEmployee.employee.employeeId))
+          .loginAs(superAdminAccount.user)
+          .headers(businessUnitHeaders(superAdminAccount))
+      )
+    } finally {
+      await cleanupEmployeeFixture(tenantEmployee)
+      await cleanupEmployeeFixture(ownerEmployee)
+      await cleanupEmployeeFixture(rootEmployee)
+      await cleanupEmployeeFixture(superAdminEmployee)
+    }
   })
 })

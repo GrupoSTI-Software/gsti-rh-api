@@ -7,6 +7,7 @@ import { TenantContext } from '#utils/tenant_context'
 import {
   ASSET_FILE_NAME_PREFIX,
   ASSETS_LIST_DEFAULT_LIMIT,
+  OPEN_ASSIGNMENT_STATUSES,
   type AssetCharacteristicType,
   type AssetStateFilter,
 } from './assets.constants.js'
@@ -26,6 +27,9 @@ import type {
   AssetsSummaryDto,
   AssetTypeDto,
   AssetValueHistoryDto,
+  EmployeeAssetCurrentItemDto,
+  EmployeeAssetHistoryItemDto,
+  EmployeeAssetsDto,
 } from './dto/assets.dto.js'
 
 /** Lo único que el service necesita del almacenamiento. */
@@ -151,6 +155,40 @@ export default class AssetsService {
 
   types(): Promise<AssetTypeDto[]> {
     return this.repository.findTypes(this.scope())
+  }
+
+  /**
+   * Activos asignados a un colaborador (vigentes y devueltos).
+   *
+   * @throws AssetError 404 `colaborador-no-encontrado` (inexistente o de otra empresa).
+   */
+  async employeeAssets(employeeId: number): Promise<EmployeeAssetsDto> {
+    const scope = this.scope()
+    const profile = await this.repository.findEmployeeProfile(scope, employeeId)
+    if (!profile) throw AssetError.employeeNotFound()
+    const assignments = await this.repository.findEmployeeAssignments(scope, employeeId)
+    // Los vigentes conservan el orden SQL (fecha de asignación desc.); los
+    // devueltos se reordenan en JS por fecha de devolución (R3).
+    const current = assignments.filter(
+      (row): row is EmployeeAssetCurrentItemDto =>
+        (OPEN_ASSIGNMENT_STATUSES as readonly string[]).includes(row.status)
+    )
+    const history = assignments
+      .filter((row): row is EmployeeAssetHistoryItemDto => row.status === 'retired')
+      .sort((a, b) => {
+        // Fechas `YYYY-MM-DD`: comparación de cadenas, desc; sin fecha de
+        // devolución, la de asignación; empate → `employeeSupplyId` desc.
+        const dateA = a.retirementDate ?? a.assignedAt
+        const dateB = b.retirementDate ?? b.assignedAt
+        if (dateA !== dateB) return dateA < dateB ? 1 : -1
+        return b.employeeSupplyId - a.employeeSupplyId
+      })
+    return {
+      employeeId: profile.employeeId,
+      employeeSlug: profile.employeeSlug,
+      current,
+      history,
+    }
   }
 
   /**

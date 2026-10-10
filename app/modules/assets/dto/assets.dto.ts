@@ -1,6 +1,7 @@
 import type {
   AssetCharacteristicType,
   AssetStatus,
+  EmployeeAssetCustodyStatus,
   OpenAssignmentStatus,
 } from '../assets.constants.js'
 import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
@@ -147,4 +148,73 @@ export interface AssetCharacteristicValueInput {
   characteristicId: number
   /** `null` o texto vacío quita el valor. */
   value: string | number | boolean | null
+}
+
+/** Perfil mínimo del colaborador para la lectura de sus activos. */
+export interface AssetEmployeeProfile {
+  employeeId: number
+  /** Slug del detalle del empleado en el BO (`/employees/<slug>`). */
+  employeeSlug: string
+  businessUnitId: number
+  /** Porcentaje de teletrabajo (DECIMAL); campo interno, no viaja en la respuesta. */
+  teleworkPercentage: number
+}
+
+/** Característica capturada del activo con su último valor vivo. */
+export interface EmployeeAssetCharacteristicDto {
+  characteristicId: number
+  name: string
+  type: AssetCharacteristicType
+  value: string
+}
+
+/** Activo tal como se muestra en un renglón de la ficha del colaborador. */
+export interface EmployeeAssetDto {
+  supplyId: number
+  name: string
+  fileNumber: string
+  serialNumber: string | null
+  status: AssetStatus
+  /** El activo fue borrado lógicamente (sigue apareciendo, sin enlace). */
+  isDeleted: boolean
+  supplyType: { supplyTypeId: number; name: string | null }
+  characteristics: EmployeeAssetCharacteristicDto[]
+}
+
+/** Campos comunes de un renglón de asignación (vigente o devuelto). */
+export interface EmployeeAssetItemBase {
+  employeeSupplyId: number
+  /** Fecha de calendario `YYYY-MM-DD` (fecha de asignación o, sin ella, de alta). */
+  assignedAt: string
+  /** Fecha de calendario `YYYY-MM-DD`; `null` si no vence. */
+  expiresAt: string | null
+  /** `signed` si el resguardo tiene un contrato vivo; `unsigned` si no. */
+  custodyStatus: EmployeeAssetCustodyStatus
+  asset: EmployeeAssetDto
+}
+
+/** Asignación vigente del colaborador (en poder o en envío). */
+export interface EmployeeAssetCurrentItemDto extends EmployeeAssetItemBase {
+  status: OpenAssignmentStatus
+  retirementDate: null
+  retirementReason: null
+}
+
+/** Asignación devuelta del colaborador. */
+export interface EmployeeAssetHistoryItemDto extends EmployeeAssetItemBase {
+  status: 'retired'
+  /** Fecha de calendario `YYYY-MM-DD`. */
+  retirementDate: string | null
+  retirementReason: string | null
+}
+
+/** Un renglón de asignación; `status` discrimina vigente de devuelta. */
+export type EmployeeAssetItemDto = EmployeeAssetCurrentItemDto | EmployeeAssetHistoryItemDto
+
+/** `data` de `GET /api/employees/:employeeId/assets`. */
+export interface EmployeeAssetsDto {
+  employeeId: number
+  employeeSlug: string
+  current: EmployeeAssetCurrentItemDto[]
+  history: EmployeeAssetHistoryItemDto[]
 }
