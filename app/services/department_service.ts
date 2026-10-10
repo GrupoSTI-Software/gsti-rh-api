@@ -188,7 +188,7 @@ export default class DepartmentService {
   ): Promise<Department> {
     const run = async (trx: TransactionClientContract) => {
       const newDepartment = await this.create(department, trx)
-      await this.assignToActiveRoles(newDepartment.departmentId, trx)
+      await this.assignToActiveRoles(newDepartment, trx)
       return newDepartment
     }
 
@@ -199,19 +199,29 @@ export default class DepartmentService {
   }
 
   /**
-   * Inserta filas en `role_departments` para todos los roles activos (excepto
-   * root) que aún no tengan ese departamento. Se ejecuta dentro de `trx`.
+   * Inserta filas en `role_departments` para los roles activos (excepto root)
+   * de la empresa del departamento, y los globales heredados, que aún no lo
+   * tengan. Se ejecuta dentro de `trx`.
    *
-   * @param departmentId - Id del departamento recién creado.
-   * @param trx          - Transacción activa.
+   * `Role` no lleva el scope de empresa de `Department`: sin el filtro por
+   * `business_unit_id` el departamento quedaba asignado también a los roles de
+   * las demás empresas. Los roles globales (`business_unit_id` nulo) se
+   * conservan: siguen siendo compartidos hasta el rediseño de roles por empresa.
+   *
+   * @param department - Departamento recién creado (id y empresa).
+   * @param trx        - Transacción activa.
    */
   async assignToActiveRoles(
-    departmentId: number,
+    department: Pick<Department, 'departmentId' | 'businessUnitId'>,
     trx: TransactionClientContract,
   ): Promise<void> {
+    const { departmentId } = department
     const activeRoles = await Role.query({ client: trx })
       .whereNull('role_deleted_at')
       .where('role_active', 1)
+      .where((query) => {
+        query.where('business_unit_id', department.businessUnitId).orWhereNull('business_unit_id')
+      })
       .whereNot('role_slug', 'root')
 
     for (const role of activeRoles) {

@@ -53,7 +53,8 @@ test.group('department_store_atomic — alta atómica de departamentos', (group)
 
   /**
    * CA-1: Alta correcta → 201.
-   * El departamento se crea y todos los roles activos (excepto root) lo tienen.
+   * El departamento se crea y lo tienen los roles activos de su empresa y los globales (excepto root);
+   * ningún rol de otra empresa.
    */
   test('CA-1: alta correcta → 201, departamento existe y roles activos lo tienen', async ({
     client,
@@ -84,10 +85,13 @@ test.group('department_store_atomic — alta atómica de departamentos', (group)
       .first()
     assert.isNotNull(deptRow, 'El departamento debe existir en BD')
 
-    // Todos los roles activos (excepto root) tienen la relación
+    // Los roles activos de la empresa del departamento y los globales (excepto root) tienen la relación
     const activeRoles = await Role.query()
       .whereNull('role_deleted_at')
       .where('role_active', 1)
+      .where((query) => {
+        query.where('business_unit_id', buId).orWhereNull('business_unit_id')
+      })
       .whereNot('role_slug', 'root')
 
     for (const role of activeRoles) {
@@ -102,6 +106,16 @@ test.group('department_store_atomic — alta atómica de departamentos', (group)
         `Rol ${role.roleSlug} debería tener el dpto ${deptId}`
       )
     }
+
+    // Ningún rol de otra empresa recibe el departamento (antes se asignaba a los roles de todas).
+    const otherBuId = required(actorB, 'actorB').businessUnit.businessUnitId
+    const crossAssigned = await db
+      .from('role_departments')
+      .join('roles', 'roles.role_id', 'role_departments.role_id')
+      .where('role_departments.department_id', deptId)
+      .where('roles.business_unit_id', otherBuId)
+      .whereNull('role_departments.role_department_deleted_at')
+    assert.lengthOf(crossAssigned, 0, 'Un rol de otra empresa no debe recibir el departamento')
 
     // Limpieza
     await db.from('role_departments').where('department_id', deptId).delete()
