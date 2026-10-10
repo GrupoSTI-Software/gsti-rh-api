@@ -33,6 +33,13 @@ import {
   buildInvitationTokenExpiresAt,
   generateInvitationToken,
 } from '#helpers/user_invitation_credentials'
+import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
+import {
+  USER_ACCESS_STATUS_DEFAULT,
+  USER_LIST_SORT_DIRECTION,
+  type UserAccessStatus,
+} from '#constants/user_list_filters'
+import { escapeLikePattern } from '#utils/org_alias_normalize'
 
 export default class UserService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -42,6 +49,18 @@ export default class UserService {
   }
 
 
+  /**
+   * Listado paginado de usuarios de una empresa.
+   *
+   * VLRH-H1791581963402: precarga `person.employee` con su departamento y
+   * puesto (solo las columnas que pinta el listado), filtra por estatus de
+   * acceso, ordena por nombre de la persona y busca también por número de
+   * empleado (prefijo). Sin `accessStatus` ni `sort` el resultado es el de
+   * siempre.
+   *
+   * @param filters - Búsqueda, rol, empresa, estatus, orden y paginación.
+   * @param allowedBusinessUnitIds - Alcance de empresas de quien consulta.
+   */
   async index(filters: UserFilterSearchInterface, allowedBusinessUnitIds: number[] = []) {
     // USRH1785436961936: los usuarios con rol de sistema (owner, empleado)
     // también aparecen en el listado del tenant — MISMO criterio que
@@ -57,6 +76,9 @@ export default class UserService {
 
     const roles = await rolesQuery
     const rolesIds = roles.map((item) => item.roleId)
+
+    const accessStatus = filters.accessStatus ?? USER_ACCESS_STATUS_DEFAULT
+    const sortDirection = filters.sort ? USER_LIST_SORT_DIRECTION[filters.sort] : null
 
     const selectedColumns = [
       'user_id',
@@ -75,6 +97,8 @@ export default class UserService {
       })
       .whereIn('role_id', rolesIds)
       .if(filters.search, (query) => {
+        // Todas las condiciones de búsqueda viven en un solo grupo: un `orWhere`
+        // suelto saltaría el filtro de empresa, de rol y de persona viva.
         query.andWhere((searchQuery) => {
           searchQuery
             .whereRaw('UPPER(user_email) LIKE ?', [`%${filters.search.toUpperCase()}%`])
@@ -84,6 +108,13 @@ export default class UserService {
                 [`%${filters.search.toUpperCase()}%`]
               )
             })
+            .orWhereHas('person', (queryPerson) => {
+              queryPerson.whereHas('employee', (queryEmployee) => {
+                queryEmployee.whereRaw('UPPER(employee_code) LIKE ?', [
+                  `${escapeLikePattern(filters.search.toUpperCase())}%`,
+                ])
+              })
+            })
         })
       })
       .if(filters.roleId > 0, (query) => {
@@ -92,13 +123,76 @@ export default class UserService {
       .whereHas('person', (query) => {
         query.whereNull('person_deleted_at')
       })
-      .preload('person')
+      .if(accessStatus !== 'all', (query) => {
+        this.applyAccessStatusFilter(query, accessStatus)
+      })
+      .preload('person', (queryPerson) => {
+        queryPerson.preload('employee', (queryEmployee) => {
+          queryEmployee
+            .select(
+              'employee_id',
+              'person_id',
+              'employee_code',
+              'employee_business_email',
+              'department_id',
+              'position_id'
+            )
+            .preload('department', (queryDepartment) => {
+              queryDepartment.select('department_id', 'department_name')
+            })
+            .preload('position', (queryPosition) => {
+              queryPosition.select('position_id', 'position_name')
+            })
+        })
+      })
       .preload('role')
       .select(selectedColumns)
-      .orderBy('user_id')
+      .if(
+        sortDirection,
+        (query) => {
+          const direction = sortDirection ?? 'asc'
+          // Subconsulta y no join: un join con `people` vuelve ambiguas las
+          // columnas seleccionadas (`person_id`) y el conteo de la paginación.
+          query
+            .orderByRaw(
+              `(SELECT CONCAT(COALESCE(p.person_firstname, ''), ' ', COALESCE(p.person_lastname, ''), ' ', COALESCE(p.person_second_lastname, '')) FROM people p WHERE p.person_id = users.person_id) ${direction}`
+            )
+            .orderBy('user_id', direction)
+        },
+        (query) => {
+          query.orderBy('user_id')
+        }
+      )
       .paginate(filters.page, filters.limit)
 
     return users
+  }
+
+  /**
+   * Aplica el estatus de acceso del listado (ver `#constants/user_list_filters`).
+   * `pending` no mira `user_active`: una invitación sin aceptar es pendiente
+   * aunque la cuenta esté desactivada.
+   *
+   * @param query - Consulta de usuarios a acotar.
+   * @param status - Estatus pedido; `all` no filtra.
+   */
+  private applyAccessStatusFilter(
+    query: ModelQueryBuilderContract<typeof User>,
+    status: UserAccessStatus
+  ): void {
+    switch (status) {
+      case 'pending':
+        query.whereNull('user_password_set_at')
+        return
+      case 'active':
+        query.where('user_active', 1).whereNotNull('user_password_set_at')
+        return
+      case 'suspended':
+        query.where('user_active', 0).whereNotNull('user_password_set_at')
+        return
+      case 'all':
+        return
+    }
   }
 
   /**

@@ -3230,6 +3230,8 @@
   "person_email_not_available_detail": "Platform policy does not allow that email on this record. Enter a different personal email, or leave the field empty: access to the application can be granted with the worker's company email.",
   "person_email_probe_rate_limited_title": "Too many email capture attempts",
   "person_email_probe_rate_limited_detail": "You exceeded the capture attempts allowed in this period. Wait a moment and try again. To onboard several people at once, use the bulk upload from file.",
+  "user_list_filters_invalid_title": "Invalid user filters",
+  "user_list_filters_invalid_detail": "The access status or list order is not valid. Use the catalog values and try again.",
   "user_person_required_title": "Account record is missing",
   "user_person_required_detail": "Indicate which record the account belongs to in order to save it. No changes were saved.",
   "sensitive_data_write_forbidden_title": "Not allowed to modify sensitive data",

@@ -2,6 +2,7 @@ import Person from '#models/person'
 import User from '#models/user'
 import vine from '@vinejs/vine'
 import { USER_EMAIL_TYPES } from '#constants/user_email_type'
+import { USER_ACCESS_STATUSES, USER_LIST_SORTS } from '#constants/user_list_filters'
 import { noMaskCharRule } from './no_mask_char_rule.js'
 
 /**
@@ -86,3 +87,15 @@ export const updateUserValidator = vine
       })
       .allowUnknownProperties()
   )
+
+/**
+ * Filtros nuevos del listado `GET /api/users` (VLRH-H1791581963402). Los dos
+ * son opcionales: sin ellos el listado responde igual que antes. Un valor fuera
+ * del catálogo se rechaza (422) en lugar de ignorarse en silencio.
+ */
+export const indexUserFiltersValidator = vine.compile(
+  vine.object({
+    accessStatus: vine.enum(USER_ACCESS_STATUSES).optional(),
+    sort: vine.enum(USER_LIST_SORTS).optional(),
+  })
+)

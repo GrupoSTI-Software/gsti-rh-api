@@ -8,7 +8,11 @@ import { uuid } from 'uuidv4'
 import mail from '@adonisjs/mail/services/main'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import UserService from '#services/user_service'
-import { createUserValidator, updateUserValidator } from '#validators/user'
+import {
+  createUserValidator,
+  indexUserFiltersValidator,
+  updateUserValidator,
+} from '#validators/user'
 import { UserFilterSearchInterface } from '../interfaces/user_filter_search_interface.js'
 import { DateTime } from 'luxon'
 import { LogStore } from '#models/MongoDB/log_store'
@@ -1347,9 +1351,24 @@ export default class UserController {
    *       - name: search
    *         in: query
    *         required: false
-   *         description: Search
+   *         description: Correo, nombre completo de la persona o número de empleado (prefijo)
    *         schema:
    *           type: string
+   *       - name: accessStatus
+   *         in: query
+   *         required: false
+   *         description: "Estatus de acceso. pending = invitación sin aceptar; active = activo con contraseña; suspended = inactivo con contraseña. Valor fuera del catálogo responde 422."
+   *         schema:
+   *           type: string
+   *           enum: [all, active, suspended, pending]
+   *           default: all
+   *       - name: sort
+   *         in: query
+   *         required: false
+   *         description: Orden por nombre completo de la persona. Sin valor se ordena por user_id.
+   *         schema:
+   *           type: string
+   *           enum: [name_asc, name_desc]
    *       - name: roleId
    *         in: query
    *         required: false
@@ -1463,12 +1482,17 @@ export default class UserController {
       const businessUnitId = request.input('businessUnitId')
       const page = request.input('page', 1)
       const limit = request.input('limit', 100)
+      const { accessStatus, sort } = await request.validateUsing(indexUserFiltersValidator, {
+        data: request.qs(),
+      })
       const filters = {
         search: search,
         roleId: roleId,
         businessUnitId: businessUnitId,
         page: page,
         limit: limit,
+        accessStatus,
+        sort,
       } as UserFilterSearchInterface
       const userService = new UserService(i18n)
       const users = await userService.index(filters, businessUnitScope)
@@ -1482,6 +1506,19 @@ export default class UserController {
         },
       }
     } catch (error) {
+      if (error.code === 'E_VALIDATION_ERROR') {
+        const detail = i18n.t('user_list_filters_invalid_detail')
+        response.status(422)
+        return {
+          type: 'validation_error',
+          title: i18n.t('user_list_filters_invalid_title'),
+          message: detail,
+          detail,
+          key: 'filtros-de-usuarios-invalidos',
+          code: USER_VALIDATION_ERROR_CODES.LIST_FILTERS_INVALID,
+          errors: error.messages,
+        }
+      }
       response.status(500)
       return {
         type: 'error',

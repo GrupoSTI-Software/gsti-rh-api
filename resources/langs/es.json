@@ -3233,6 +3233,8 @@
   "person_email_not_available_detail": "La política de la plataforma no permite registrar ese correo en este expediente. Captura otro correo personal, o deja el campo vacío: el acceso a la aplicación puede otorgarse con el correo institucional del trabajador.",
   "person_email_probe_rate_limited_title": "Demasiados intentos de captura de correo",
   "person_email_probe_rate_limited_detail": "Superaste el límite de capturas permitidas en este periodo. Espera un momento e intenta de nuevo. Para dar de alta a varias personas, usa la carga masiva desde archivo.",
+  "user_list_filters_invalid_title": "Filtros de usuarios no válidos",
+  "user_list_filters_invalid_detail": "El estatus de acceso o el orden del listado no es válido. Usa los valores del catálogo e intenta de nuevo.",
   "user_person_required_title": "Falta el expediente de la cuenta",
   "user_person_required_detail": "Indica a qué expediente pertenece la cuenta para poder guardarla. No se guardó ningún cambio.",
   "sensitive_data_write_forbidden_title": "Sin permiso para modificar datos sensibles",
