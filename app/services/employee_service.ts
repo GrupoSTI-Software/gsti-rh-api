@@ -1450,10 +1450,17 @@ export default class EmployeeService {
         query.whereRaw('1 = 0')
       })
       .if(filters.search, (query) => {
-        query.whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
-          `%${filters.search.toUpperCase()}%`,
-        ])
-        query.orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+        // Un solo grupo: con el `orWhere` suelto, la rama del nombre quedaba
+        // fuera del `whereNotIn` de cuentas, del filtro de empresa y de los
+        // borrados lógicos (AND precede a OR), y devolvía colaboradores con
+        // cuenta y de otras empresas.
+        query.where((searchQuery) => {
+          searchQuery
+            .whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
+              `%${filters.search.toUpperCase()}%`,
+            ])
+            .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
+        })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
         this.applyIdFilter(query, 'department_id', filters.departmentId)

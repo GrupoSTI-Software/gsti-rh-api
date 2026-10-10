@@ -39,9 +39,9 @@ function userService(): UserService {
 }
 
 /** Códigos que el catálogo ofrece para un alcance, con el tenant activo. */
-async function codesWithoutUser(scope: number[]): Promise<string[]> {
+async function codesWithoutUser(scope: number[], search: string = ''): Promise<string[]> {
   const page = await TenantContext.run(scope, () =>
-    employeeService().indexWithOutUser(FILTERS, scope)
+    employeeService().indexWithOutUser({ ...FILTERS, search }, scope)
   )
   return page.all().map((employee) => String(employee.employeeCode))
 }
@@ -75,6 +75,7 @@ test.group('Empleados sin usuario — alcance por empresa', (group) => {
   let otherUnit: BusinessUnit | null = null
   let freeEmployee: EmployeeFixture | null = null
   let takenEmployee: EmployeeFixture | null = null
+  let foreignEmployee: EmployeeFixture | null = null
   let accountElsewhere: User | null = null
 
   group.setup(async () => {
@@ -83,6 +84,7 @@ test.group('Empleados sin usuario — alcance por empresa', (group) => {
 
     freeEmployee = await createEmployeeFixture(homeUnit.businessUnitId, `free-${stamp()}`)
     takenEmployee = await createEmployeeFixture(homeUnit.businessUnitId, `taken-${stamp()}`)
+    foreignEmployee = await createEmployeeFixture(otherUnit.businessUnitId, `other-${stamp()}`)
 
     const role = await ensureRole('empleado')
     accountElsewhere = await User.create({
@@ -101,13 +103,13 @@ test.group('Empleados sin usuario — alcance por empresa', (group) => {
       await db.from('business_unit_users').where('user_id', accountElsewhere.userId).delete()
       await db.from('users').where('user_id', accountElsewhere.userId).delete()
     }
-    for (const fixture of [freeEmployee, takenEmployee]) {
+    for (const fixture of [freeEmployee, takenEmployee, foreignEmployee]) {
       if (!fixture) continue
       await db.from('employees').where('employee_id', fixture.employee.employeeId).delete()
       await Person.query().where('person_id', fixture.person.personId).delete()
     }
-    if (homeUnit) {
-      await cleanupOrgChartFixtures(homeUnit.businessUnitId)
+    for (const unit of [homeUnit, otherUnit]) {
+      if (unit) await cleanupOrgChartFixtures(unit.businessUnitId)
     }
     const unitIds = [homeUnit, otherUnit]
       .filter((unit): unit is BusinessUnit => unit !== null)
@@ -135,6 +137,48 @@ test.group('Empleados sin usuario — alcance por empresa', (group) => {
 
       assert.include(codes, code(freeEmployee))
       assert.notInclude(codes, code(takenEmployee))
+    } finally {
+      await db
+        .from('business_unit_users')
+        .where('user_id', account.userId)
+        .where('business_unit_id', home)
+        .delete()
+    }
+  })
+
+  test('buscar por el código de un colaborador con cuenta no lo devuelve', async ({ assert }) => {
+    const account = required(accountElsewhere, 'accountElsewhere')
+    const home = unitId(homeUnit)
+    await account.related('businessUnits').attach([home])
+
+    try {
+      assert.notInclude(await codesWithoutUser([home], code(takenEmployee)), code(takenEmployee))
+    } finally {
+      await db
+        .from('business_unit_users')
+        .where('user_id', account.userId)
+        .where('business_unit_id', home)
+        .delete()
+    }
+  })
+
+  test('buscar por nombre no se salta la exclusión de cuentas ni el alcance de empresa', async ({
+    assert,
+  }) => {
+    // Todos los colaboradores del spec se llaman "Empleado Fixture". Con la
+    // búsqueda sin agrupar, la rama del nombre quedaba fuera del `whereNotIn`
+    // y del filtro de empresa: devolvía al que ya tiene cuenta y al de otra
+    // empresa.
+    const account = required(accountElsewhere, 'accountElsewhere')
+    const home = unitId(homeUnit)
+    await account.related('businessUnits').attach([home])
+
+    try {
+      const codes = await codesWithoutUser([home], 'Empleado Fixture')
+
+      assert.include(codes, code(freeEmployee))
+      assert.notInclude(codes, code(takenEmployee))
+      assert.notInclude(codes, code(foreignEmployee))
     } finally {
       await db
         .from('business_unit_users')
