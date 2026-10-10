@@ -25,6 +25,7 @@ import { ensureRole } from '#tests/helpers/ensure_role'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { blindIndexOrNull } from '#utils/blind_index'
+import { purgeTenantDepartments } from '#tests/helpers/purge_tenant_departments'
 
 /**
  * Tests de `SignupDraftService.complete()` — creación transaccional del
@@ -134,6 +135,7 @@ async function cleanupTenant(businessUnitName: string, email: string) {
     // Los roles propios de la empresa salen antes que ella: la FK
     // `roles_business_unit_id_foreign` es RESTRICT a propósito, para que una
     // empresa con roles no desaparezca por accidente desde la base.
+    await purgeTenantDepartments(businessUnit.businessUnitId)
     const tenantRoles = await Role.query()
       .withTrashed()
       .where('business_unit_id', businessUnit.businessUnitId)

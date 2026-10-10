@@ -18,6 +18,7 @@ import RoleSystemPermission from '#models/role_system_permission'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { ensureRole } from '#tests/helpers/ensure_role'
+import { purgeTenantDepartments } from '#tests/helpers/purge_tenant_departments'
 
 /**
  * Test funcional — flujo completo de signup self-service (USRH1783712837561 +
@@ -98,6 +99,7 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
           await User.query().where('user_id', createdUserId).delete()
         }
 
+        await purgeTenantDepartments(createdBusinessUnitId)
         const tenantRoles = await Role.query()
           .withTrashed()
           .where('business_unit_id', createdBusinessUnitId)

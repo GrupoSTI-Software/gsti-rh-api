@@ -24,6 +24,7 @@ import {
 import { toCalendarIsoDate, toBusinessDateString } from '../utils/business_date.js'
 import TenantRoleProvisioningService from '#services/tenant_role_provisioning_service'
 import BranchOfficeProvisioningService from '#services/branch_office_provisioning_service'
+import DepartmentProvisioningService from '#services/department_provisioning_service'
 import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 import { TenantContext } from '#utils/tenant_context'
 
@@ -200,6 +201,10 @@ export default class AdditionalBusinessUnitService {
             // 3.4d-bis Sucursal default de la empresa nueva: mismo criterio que el
             // alta self-service. Sin ella, su primer empleado nacería sin destino.
             await BranchOfficeProvisioningService.ensureDefault(newBu.businessUnitId, trx)
+
+            // Departamento raíz (Dirección General): el organigrama de la empresa nueva no arranca vacío.
+            // Va después de los roles del tenant, que reciben el departamento, y en la misma transacción.
+            await DepartmentProvisioningService.ensureDefault(newBu.businessUnitId, trx)
 
             // 3.4e Suscripción — sin periodo de prueba (ADDITIONAL_BUSINESS_UNIT_SKIPS_TRIAL)
             const subscription = await subscriptionService.createSubscription(

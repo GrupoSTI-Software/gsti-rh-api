@@ -23,10 +23,13 @@ import BranchOfficeProvisioningService from '#services/branch_office_provisionin
 import BillingCatalogService from '#services/billing_catalog_service'
 import AdditionalBusinessUnitService from '#services/additional_business_unit_service'
 import { DEFAULT_BRANCH_OFFICE_NAME } from '#constants/branch_office'
+import { DEFAULT_DEPARTMENT_NAME } from '#constants/department'
+import Department from '#models/department'
 import { ensureRole } from '#tests/helpers/ensure_role'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { blindIndexOrNull } from '#utils/blind_index'
+import { purgeTenantDepartments } from '#tests/helpers/purge_tenant_departments'
 
 /**
  * Sucursal default del tenant — siembra en el alta y unicidad en la base.
@@ -165,6 +168,7 @@ async function purgeTenant(businessUnitName: string, email: string) {
     await Person.query().where('person_id', person.personId).delete()
   }
   if (businessUnit) {
+    await purgeTenantDepartments(businessUnit.businessUnitId)
     const tenantRoles = await Role.query()
       .withTrashed()
       .where('business_unit_id', businessUnit.businessUnitId)
@@ -245,6 +249,14 @@ test.group('Sucursal default del tenant — siembra en el alta', (group) => {
       branches[0].branchOfficeLocationAddress,
       'la geocerca nace vacía: no es un dato que el alta pueda conocer'
     )
+
+    // El mismo alta siembra el departamento raíz del organigrama (VLRH-H1791665733124).
+    const departments = await inBusinessUnit(businessUnit.businessUnitId, async () =>
+      Department.query().where('business_unit_id', businessUnit.businessUnitId)
+    )
+    assert.lengthOf(departments, 1, 'el tenant nuevo nace con su departamento raíz')
+    assert.equal(departments[0].departmentName, DEFAULT_DEPARTMENT_NAME)
+    assert.isTrue(Boolean(departments[0].departmentIsDefault))
   })
 })
 
@@ -288,8 +300,19 @@ test.group('Sucursal default del tenant — alta de empresa adicional', (group) 
     if (createdBuId !== null) {
       await purgeBranchOffices(createdBuId)
       await BillingSubscription.query().where('business_unit_id', createdBuId).delete()
-      await SystemSetting.query().where('business_unit_id', createdBuId).delete()
+      // El alta siembra tolerancias que referencian la configuración: van antes.
+      const tenantSettings = await SystemSetting.query().withTrashed().where('business_unit_id', createdBuId)
+      if (tenantSettings.length > 0) {
+        await Tolerance.query()
+          .whereIn(
+            'system_setting_id',
+            tenantSettings.map((setting) => setting.systemSettingId)
+          )
+          .delete()
+      }
+      await SystemSetting.query().withTrashed().where('business_unit_id', createdBuId).delete()
       await BusinessUnitUser.query().where('business_unit_id', createdBuId).delete()
+      await purgeTenantDepartments(createdBuId)
       const tenantRoles = await Role.query().withTrashed().where('business_unit_id', createdBuId)
       if (tenantRoles.length > 0) {
         await RoleSystemPermission.query()
@@ -336,6 +359,13 @@ test.group('Sucursal default del tenant — alta de empresa adicional', (group) 
     assert.lengthOf(branches, 1, 'la empresa adicional nace con exactamente una sucursal')
     assert.equal(branches[0].branchOfficeName, DEFAULT_BRANCH_OFFICE_NAME)
     assert.equal(branches[0].branchOfficeIsDefault, 1)
+
+    // La empresa adicional también nace con su departamento raíz (VLRH-H1791665733124).
+    const departments = await inBusinessUnit(buId, async () =>
+      Department.query().where('business_unit_id', buId)
+    )
+    assert.lengthOf(departments, 1, 'la empresa adicional nace con su departamento raíz')
+    assert.equal(departments[0].departmentName, DEFAULT_DEPARTMENT_NAME)
   })
 })
 

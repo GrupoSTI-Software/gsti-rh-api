@@ -48,6 +48,7 @@ import { todayInBusinessZone, toBusinessDateString } from '#utils/business_date'
 import { TenantContext } from '#utils/tenant_context'
 import TenantRoleProvisioningService from '#services/tenant_role_provisioning_service'
 import BranchOfficeProvisioningService from '#services/branch_office_provisioning_service'
+import DepartmentProvisioningService from '#services/department_provisioning_service'
 
 export interface StartSignupData {
   firstName: string
@@ -582,6 +583,10 @@ export default class SignupDraftService {
         // (fail-closed): un tenant sin default rompería la invariante desde
         // el primer empleado.
         await BranchOfficeProvisioningService.ensureDefault(trxBusinessUnit.businessUnitId, trx)
+
+        // Departamento raíz (Dirección General): el organigrama de la empresa nueva no arranca vacío.
+        // Va después de los roles del tenant, que reciben el departamento, y en la misma transacción.
+        await DepartmentProvisioningService.ensureDefault(trxBusinessUnit.businessUnitId, trx)
 
         const trxSubscription = await billingSubscriptionService.createSubscription(
           {

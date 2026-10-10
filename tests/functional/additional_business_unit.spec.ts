@@ -25,6 +25,7 @@ import { ensureRole } from '#tests/helpers/ensure_role'
 import { SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT } from '#constants/system_setting_defaults'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
+import { purgeTenantDepartments } from '#tests/helpers/purge_tenant_departments'
 
 /**
  * Tests funcionales — alta de empresa adicional (USRH1787932877001).
@@ -108,6 +109,7 @@ async function cleanupUser(user: User, person: Person) {
 async function cleanupBusinessUnit(businessUnitId: number) {
   await TenantContext.runUnscoped(async () => {
     await db.from('branch_offices').where('business_unit_id', businessUnitId).delete()
+    await purgeTenantDepartments(businessUnitId)
     await BillingSubscription.query().where('business_unit_id', businessUnitId).delete()
     // El alta siembra tolerancias que referencian la configuración: van antes.
     const tenantSettings = await SystemSetting.query()
