@@ -303,6 +303,8 @@ test.group('GET /api/billing/subscription/me — contrato de datos (CA-6)', (gro
     assert.property(data.subscription, 'liveChange')
     assert.isNull(data.subscription.liveChange)
     assert.notProperty(data.subscription, 'businessUnitId')
+    assert.property(data, 'automaticBilling')
+    assert.isBoolean(data.automaticBilling)
   })
 
   test('devuelve subscription null para empresa platform sin contratación viva', async ({

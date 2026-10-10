@@ -334,11 +334,18 @@ export default class BillingTenantController {
    *                   required:
    *                     - businessUnitOrigin
    *                     - subscription
+   *                     - accountStatus
+   *                     - automaticBilling
    *                     - minimumContractedEmployees
    *                   properties:
    *                     businessUnitOrigin:
    *                       type: string
    *                       enum: [platform, self_service]
+   *                     automaticBilling:
+   *                       type: boolean
+   *                       description: |
+   *                         Verdadero solo con suscripción viva y proveedor stripe.
+   *                         Visible para todo el equipo; no incluye montos ni fallos.
    *                     minimumContractedEmployees:
    *                       type: integer
    *                       nullable: true

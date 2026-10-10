@@ -53,6 +53,8 @@ export const BILLING_SUBSCRIPTION_ERROR_CODES = {
   CHANGE_NOT_A_DECREASE: 'PLT.SUB.CHANGE_NOT_A_DECREASE',
   /** No existe un cambio de suscripción vivo que cancelar */
   NO_LIVE_CHANGE: 'PLT.SUB.NO_LIVE_CHANGE',
+  /** Cobro automático con tarjeta no activo (manual o Stripe sin cliente) — USRH1790708507752 */
+  AUTOMATIC_BILLING_NOT_ACTIVE: 'PLT.SUB.AUTOMATIC_BILLING_NOT_ACTIVE',
   /**
    * El cambio de plan se rechaza porque el código congelado en la
    * suscripción es de tipo `unit_price` (fija el precio por empleado) y

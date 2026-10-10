@@ -49,6 +49,31 @@ const billingPaymentMethodReadRateLimit = limiter.define('billing-payment-method
   return limiter.allowRequests(30).every('1 minute').usingKey(key)
 })
 
+/**
+ * Cambio de tarjeta predeterminada en Stripe (USRH1790708507752).
+ * Cuota más estricta que la lectura: escritura y llamadas a SetupIntent.
+ */
+/**
+ * Lectura del resumen de cobro recurrente (USRH1790708507781).
+ */
+const billingRecurringReadRateLimit = limiter.define('billing-recurring-read', (ctx) => {
+  const userId = ctx.auth.user?.userId
+  const key =
+    userId !== undefined && userId !== null
+      ? `billing-recurring-read:${userId}`
+      : `billing-recurring-read:${ctx.request.ip()}`
+  return limiter.allowRequests(30).every('1 minute').usingKey(key)
+})
+
+const billingPaymentMethodWriteRateLimit = limiter.define('billing-payment-method-write', (ctx) => {
+  const userId = ctx.auth.user?.userId
+  const key =
+    userId !== undefined && userId !== null
+      ? `billing-payment-method-write:${userId}`
+      : `billing-payment-method-write:${ctx.request.ip()}`
+  return limiter.allowRequests(10).every('1 minute').usingKey(key)
+})
+
 router
   .group(() => {
     router.get('/subscription/me', '#controllers/billing_tenant_controller.mySubscription')
@@ -58,6 +83,24 @@ router
         '#controllers/billing_payment_method_controller.show'
       )
       .use(billingPaymentMethodReadRateLimit)
+    router
+      .post(
+        '/subscription/payment-method/setup-intent',
+        '#controllers/billing_payment_method_controller.setupIntent'
+      )
+      .use(billingPaymentMethodWriteRateLimit)
+    router
+      .post(
+        '/subscription/payment-method',
+        '#controllers/billing_payment_method_controller.update'
+      )
+      .use(billingPaymentMethodWriteRateLimit)
+    router
+      .get(
+        '/subscription/recurring-billing',
+        '#controllers/billing_recurring_billing_controller.show'
+      )
+      .use(billingRecurringReadRateLimit)
     router.post(
       '/subscription',
       '#controllers/billing_tenant_controller.contractSubscription'

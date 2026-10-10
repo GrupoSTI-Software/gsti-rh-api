@@ -46,6 +46,10 @@ export const assetsSummaryValidator = vine.compile(
 )
 
 export const assetIdParamsValidator = vine.compile(vine.object({ supplyId: routeId() }))
+// `.min(1)` extra: `positive()` de VineJS acepta 0, y el id de colaborador debe rechazarlo.
+export const employeeIdParamsValidator = vine.compile(
+  vine.object({ employeeId: routeId().min(1) })
+)
 export const fileIdParamsValidator = vine.compile(vine.object({ id: routeId() }))
 export const photoIdParamsValidator = vine.compile(vine.object({ photoId: routeId() }))
 

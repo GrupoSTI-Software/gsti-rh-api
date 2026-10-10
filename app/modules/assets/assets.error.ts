@@ -148,6 +148,17 @@ export class AssetError extends Error {
       'El archivo no existe o no está disponible.'
     )
   }
+
+  /** El colaborador no existe, es de otra empresa o está dado de baja sin ser consultable. */
+  static employeeNotFound(): AssetError {
+    return new AssetError(
+      404,
+      ASSET_ERROR_KEYS.EMPLOYEE_NOT_FOUND,
+      'asset_employee_not_found',
+      'Colaborador no encontrado',
+      'El colaborador no existe o no pertenece a la empresa.'
+    )
+  }
 }
 
 type ErrorContext = Pick<HttpContext, 'response' | 'i18n'>
