@@ -1,124 +1,75 @@
-{{-- Aviso de reporte de evento traumático de origen empleado. Datos mínimos, marca Valanserh. --}}<!DOCTYPE html>
-<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="X-UA-Compatible" content="ie=edge" />
-  <title>{{ subject }}</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #f4f6fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f6b95;">
-  <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
-    {{ preheader }}
-  </div>
+{{--
+  Aviso a RH de un reporte de evento traumático de origen empleado.
 
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f6fa;">
+  Datos mínimos por confidencialidad: quién, qué tipo y cuándo. La descripción
+  y las personas involucradas solo se consultan dentro del sistema.
+  Tarjeta, logo, reglas y pie: `components/emails/card.edge`.
+--}}
+@component('components/emails/card', {
+  subject, preheader, tradeName, backgroundImageLogo, footer,
+})
+  {{-- Saludo --}}
+  <h1 style="margin: 33px 0 0 0; font-size: 24px; line-height: 31px; font-weight: 700; color: #17224d;">
+    {{ greeting }}
+  </h1>
+
+  {{-- Intro --}}
+  <p style="margin: 14px 0 0 0; font-size: 13px; line-height: 23px; color: #4b5057;">
+    {{ intro }}
+  </p>
+
+  {{-- Datos del reporte --}}
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 27px 0 0 0; background-color: #eef1fa; border-radius: 8px;">
     <tr>
-      <td align="center" style="padding: 32px 12px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 560px;">
+      <td style="padding: 18px 24px 22px 24px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
           <tr>
-            <td style="background-color: #3d5dc0; height: 4px; line-height: 4px; font-size: 0; border-top-left-radius: 12px; border-top-right-radius: 12px;">&nbsp;</td>
-          </tr>
-          <tr>
-            <td style="background-color: #ffffff; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px; box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);">
-              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-                <tr>
-                  <td align="center" style="padding: 32px 32px 8px 32px;">
-                    @if (backgroundImageLogo)
-                      <img src="{{ backgroundImageLogo }}" alt="{{ tradeName }}" width="140" style="width: auto; height: 45px; display: block; border: 0; margin: 0 auto;" />
-                    @else
-                      <p style="margin: 0; font-size: 18px; font-weight: 700; color: #1f6b95; text-align: center;">{{ tradeName }}</p>
-                    @end
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 16px 32px 12px 32px;">
-                    <h1 style="margin: 0; font-size: 20px; line-height: 1.2; color: #1f6b95; font-weight: 800;">
-                      {{ greeting }}
-                    </h1>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 0 32px 24px 32px;">
-                    <p style="margin: 0; font-size: 15px; line-height: 1.6; color: #475569;">
-                      {{ intro }}
-                    </p>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 0 32px 24px 32px;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #eef2ff; border-radius: 12px;">
-                      <tr>
-                        <td style="padding: 16px 20px; font-size: 13px; line-height: 1.4; color: #64748b; width: 42%;">
-                          {{ workerLabel }}
-                        </td>
-                        <td style="padding: 16px 20px; font-size: 15px; line-height: 1.4; color: #1e1b4b; font-weight: 600;">
-                          {{ workerName }}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding: 16px 20px; font-size: 13px; line-height: 1.4; color: #64748b;">
-                          {{ eventTypeLabel }}
-                        </td>
-                        <td style="padding: 16px 20px; font-size: 15px; line-height: 1.4; color: #1e1b4b; font-weight: 600;">
-                          {{ eventTypeName }}
-                        </td>
-                      </tr>
-                      <tr>
-                        <td style="padding: 16px 20px; font-size: 13px; line-height: 1.4; color: #64748b;">
-                          {{ occurredAtLabel }}
-                        </td>
-                        <td style="padding: 16px 20px; font-size: 15px; line-height: 1.4; color: #1e1b4b; font-weight: 600;">
-                          {{ occurredAt }}
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 0 32px 24px 32px;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0">
-                      <tr>
-                        <td align="center" style="background-color: #3d5dc0; border-radius: 10px;">
-                          <a href="{{ boardUrl }}" target="_blank" style="display: inline-block; padding: 16px 28px; font-size: 15px; font-weight: 600; color: #ffffff; text-decoration: none; line-height: 1;">
-                            {{ cta }}
-                          </a>
-                        </td>
-                      </tr>
-                    </table>
-                  </td>
-                </tr>
-                <tr>
-                  <td style="padding: 0 32px 24px 32px;">
-                    <p style="margin: 0; font-size: 13px; line-height: 1.55; color: #64748b;">
-                      {{ confidentialityNote }}
-                    </p>
-                  </td>
-                </tr>
-              </table>
+            <td valign="top" style="padding: 6px 12px 6px 0; font-size: 13px; line-height: 22px; color: #6e757c; white-space: nowrap;">
+              {{ workerLabel }}
+            </td>
+            <td align="right" style="padding: 6px 0; font-size: 13px; line-height: 22px; font-weight: 700; color: #17224d;">
+              {{ workerName }}
             </td>
           </tr>
           <tr>
-            <td style="padding: 24px 32px 8px 32px;">
-              <p style="margin: 0 0 6px 0; font-size: 12px; line-height: 1.5; color: #94a3b8;">
-                {{ fallbackUrl }}
-              </p>
-              <p style="margin: 0; font-size: 12px; line-height: 1.5; word-break: break-all;">
-                <a href="{{ boardUrl }}" target="_blank" style="color: #3d5dc0; text-decoration: underline;">
-                  {{ boardUrl }}
-                </a>
-              </p>
+            <td valign="top" style="padding: 6px 12px 6px 0; font-size: 13px; line-height: 22px; color: #6e757c; white-space: nowrap;">
+              {{ eventTypeLabel }}
+            </td>
+            <td align="right" style="padding: 6px 0; font-size: 13px; line-height: 22px; font-weight: 700; color: #17224d;">
+              {{ eventTypeName }}
             </td>
           </tr>
           <tr>
-            <td align="center" style="padding: 0 32px 32px 32px;">
-              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #94a3b8;">
-                {{ footer }}
-              </p>
+            <td valign="top" style="padding: 6px 12px 6px 0; font-size: 13px; line-height: 22px; color: #6e757c; white-space: nowrap;">
+              {{ occurredAtLabel }}
+            </td>
+            <td align="right" style="padding: 6px 0; font-size: 13px; line-height: 22px; font-weight: 700; color: #17224d;">
+              {{ occurredAt }}
             </td>
           </tr>
         </table>
       </td>
     </tr>
   </table>
-</body>
-</html>
+
+  {{-- CTA --}}
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin: 26px 0 0 0;">
+    <tr>
+      <td style="background-color: #445cba; border-radius: 8px;">
+        <a href="{{ boardUrl }}" target="_blank" style="display: inline-block; padding: 16px 33px; font-size: 13px; font-weight: 700; color: #ffffff; text-decoration: none; line-height: 16px;">
+          {{ cta }}
+        </a>
+      </td>
+    </tr>
+  </table>
+
+  <p style="margin: 20px 0 0 0; font-size: 13px; line-height: 21px; color: #6e757c;">
+    {{ confidentialityNote }}
+  </p>
+
+  {{-- URL de respaldo para clientes que bloquean el botón --}}
+  <p style="margin: 22px 0 0 0; font-size: 12px; line-height: 21px; color: #6e757c;">
+    {{ fallbackUrl }}<br />
+    <a href="{{ boardUrl }}" target="_blank" style="color: #445cba; text-decoration: underline; word-break: break-all;">{{ boardUrl }}</a>
+  </p>
+@end
