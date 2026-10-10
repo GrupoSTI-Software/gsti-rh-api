@@ -183,6 +183,11 @@ export interface MySubscriptionResult {
    */
   accountStatus: BillingSubscription['billingSubscriptionStatus'] | null
   /**
+   * Indica si la empresa tiene cobro automático con tarjeta (suscripción viva stripe).
+   * Visible para todo el equipo; no incluye montos ni historial.
+   */
+  automaticBilling: boolean
+  /**
    * Mínimo contratable para empresas `self_service` (con o sin suscripción viva).
    * El muro de contratación lo ignora cuando hay suscripción viva; la pantalla de
    * ajuste de cantidad (orden 8) lo consume.
@@ -524,6 +529,10 @@ export default class BillingTenantService {
 
     const renewal = await this.findRenewableSubscription(businessUnitId)
 
+    const automaticBilling =
+      subscription !== null &&
+      subscription.billingSubscriptionProvider === BILLING_PROVIDER_KEYS.STRIPE
+
     return {
       businessUnitOrigin: businessUnit.businessUnitOrigin,
       subscription: subscription
@@ -533,6 +542,7 @@ export default class BillingTenantService {
       accountStatus:
         subscription?.billingSubscriptionStatus ?? renewal?.status ?? null,
       minimumContractedEmployees,
+      automaticBilling,
     }
   }
 

@@ -13,6 +13,8 @@ export interface MySubscriptionRestrictedResult {
   renewal: null
   /** El estado de la cuenta sí viaja: es un aviso, no un dato de cobro. */
   accountStatus: MySubscriptionResult['accountStatus']
+  /** Cobro automático stripe; no es dato financiero detallado. */
+  automaticBilling: boolean
   minimumContractedEmployees: number | null
 }
 
@@ -40,6 +42,7 @@ export function restrictMySubscription(
     subscription: result.subscription ? { hasLiveSubscription: true } : null,
     renewal: null,
     accountStatus: result.accountStatus,
+    automaticBilling: result.automaticBilling,
     minimumContractedEmployees: result.minimumContractedEmployees,
   }
 }

@@ -181,6 +181,18 @@ export function automaticBillingNotActiveError(): BillingSubscriptionServiceErro
   )
 }
 
+/** Solo el dueño puede consultar el resumen de cobro recurrente (USRH1790708507781). */
+export function onlyAccountOwnerCanViewRecurringBillingError(): BillingSubscriptionServiceError {
+  const detail = 'Solo el dueño de la cuenta puede consultar el cobro de la suscripción.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE,
+    403,
+    'solo-el-dueno-de-la-cuenta',
+    detail
+  )
+}
+
 /** Solo el dueño puede ver o cambiar la tarjeta de cobro (USRH1790724549203). */
 export function onlyAccountOwnerCanManagePaymentMethodError(): BillingSubscriptionServiceError {
   const detail =
