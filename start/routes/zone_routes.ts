@@ -19,6 +19,11 @@ router
     router
       .delete('/:zoneId', '#controllers/zone_controller.delete')
       .use(middleware.permissionGate(ZONES_PERMISSION_DECLARATIONS.deleteZone))
+    // La miniatura se transmite como la foto de perfil: el cliente pide la
+    // zona, nunca una ruta de almacenamiento.
+    router
+      .get('/:zoneId/thumbnail', '#controllers/zone_thumbnail_stream_controller.show')
+      .use(middleware.permissionGate(ZONES_PERMISSION_DECLARATIONS.streamZoneThumbnail))
     router
       .put('/:zoneId/thumbnail', '#controllers/zone_controller.uploadThumbnail')
       .use(middleware.permissionGate(ZONES_PERMISSION_DECLARATIONS.uploadZoneThumbnail))

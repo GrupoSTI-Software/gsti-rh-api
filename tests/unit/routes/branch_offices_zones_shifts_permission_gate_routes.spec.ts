@@ -40,7 +40,9 @@ function assertOpen(
   route: { method: string; path: string; handler: string }
 ) {
   const flat = compact(content)
-  const declaration = compact(`router.${route.method}('${route.path}', '#controllers/${route.handler}')`)
+  const declaration = compact(
+    `router.${route.method}('${route.path}', '#controllers/${route.handler}')`
+  )
   const index = flat.indexOf(declaration)
 
   assert.isAbove(index, -1, `${route.method.toUpperCase()} ${route.path} debe existir`)
@@ -104,7 +106,7 @@ test.group('Sucursales — permissionGate en start/routes/branch_offices.ts', ()
 })
 
 test.group('Zonas — permissionGate en start/routes/zone_routes.ts', () => {
-  test('alta, detalle, edición, baja y miniatura declaran su permiso; el listado queda abierto', ({
+  test('alta, detalle, edición, baja, miniatura y su lectura declaran su permiso; el listado queda abierto', ({
     assert,
   }) => {
     const content = readRoutes('zone_routes.ts')
@@ -134,13 +136,19 @@ test.group('Zonas — permissionGate en start/routes/zone_routes.ts', () => {
       declaration: 'ZONES_PERMISSION_DECLARATIONS.deleteZone',
     })
     assertGated(assert, content, {
+      method: 'get',
+      path: '/:zoneId/thumbnail',
+      handler: 'zone_thumbnail_stream_controller.show',
+      declaration: 'ZONES_PERMISSION_DECLARATIONS.streamZoneThumbnail',
+    })
+    assertGated(assert, content, {
       method: 'put',
       path: '/:zoneId/thumbnail',
       handler: 'zone_controller.uploadThumbnail',
       declaration: 'ZONES_PERMISSION_DECLARATIONS.uploadZoneThumbnail',
     })
     assertOpen(assert, content, { method: 'get', path: '/', handler: 'zone_controller.index' })
-    assert.equal(gateCount(content), 5)
+    assert.equal(gateCount(content), 6)
     assert.include(content, 'middleware.auth()')
     // Zonas dejó de ser catálogo compartido: sin businessScope no hay
     // TenantContext y el mixin de Zone no filtraría nada, así que el listado
@@ -154,6 +162,7 @@ test.group('Zonas — permissionGate en start/routes/zone_routes.ts', () => {
     assert.deepEqual(ZONES_PERMISSION_DECLARATIONS, {
       storeZone: { module: 'zones', action: 'create', bypass: 'standard' },
       showZone: { module: 'zones', action: 'read', bypass: 'standard' },
+      streamZoneThumbnail: { module: 'zones', action: 'read', bypass: 'standard' },
       updateZone: { module: 'zones', action: 'update', bypass: 'standard' },
       deleteZone: { module: 'zones', action: 'delete', bypass: 'standard' },
       uploadZoneThumbnail: { module: 'zones', action: ['create', 'update'], bypass: 'standard' },
@@ -185,8 +194,16 @@ test.group('Turnos — permissionGate en shift_routes.ts', () => {
       handler: 'shifts_controller.destroy',
       declaration: 'SHIFTS_PERMISSION_DECLARATIONS.destroyShift',
     })
-    assertOpen(assert, content, { method: 'get', path: '/shift', handler: 'shifts_controller.index' })
-    assertOpen(assert, content, { method: 'get', path: '/shift/:id', handler: 'shifts_controller.show' })
+    assertOpen(assert, content, {
+      method: 'get',
+      path: '/shift',
+      handler: 'shifts_controller.index',
+    })
+    assertOpen(assert, content, {
+      method: 'get',
+      path: '/shift/:id',
+      handler: 'shifts_controller.show',
+    })
     assert.equal(gateCount(content), 3)
     // Retiradas por falta de consumidor: no deben reaparecer sin revisar el corte por empresa.
     assert.notInclude(compact(content), compact("'/shift-department-position'"))

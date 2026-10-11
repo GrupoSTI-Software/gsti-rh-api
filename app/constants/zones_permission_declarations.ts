@@ -13,7 +13,8 @@ const zonesStandard = (action: string | readonly string[]): PermissionGateOption
  * El listado (`GET /api/zones`) no se declara: lo consume el select de zonas
  * con el que Empleados asigna una zona a un colaborador.
  *
- * El detalle pide `read`: solo lo usa el formulario de la página de zonas.
+ * El detalle pide `read`: solo lo usa el formulario de la página de zonas. La
+ * miniatura también: solo la pinta la tarjeta de esa página.
  *
  * La miniatura acepta `create` o `update`: el formulario la sube justo después
  * de crear y también después de editar, así que un rol que solo crea no debe
@@ -27,6 +28,7 @@ const zonesStandard = (action: string | readonly string[]): PermissionGateOption
 export const ZONES_PERMISSION_DECLARATIONS = {
   storeZone: zonesStandard('create'),
   showZone: zonesStandard('read'),
+  streamZoneThumbnail: zonesStandard('read'),
   updateZone: zonesStandard('update'),
   deleteZone: zonesStandard('delete'),
   uploadZoneThumbnail: zonesStandard(['create', 'update']),
