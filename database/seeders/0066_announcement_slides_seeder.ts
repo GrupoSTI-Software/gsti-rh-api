@@ -16,7 +16,7 @@ import { isDeclaredPermissionKey } from '#modules/announcements/domain/permissio
 
 /** Mensaje del slide del botón de información. */
 const HELP_BUTTON_BODY =
-  'Busca el botón de información en la parte superior de la pantalla: abre un recorrido guiado por la pantalla en la que estás, con cada botón, cada panel y cada sección. Ya está en el monitor de asistencias y llegará al resto de las pantallas.'
+  'Busca el botón de información en el encabezado de la pantalla: abre un recorrido guiado por la pantalla en la que estás, con cada botón, cada panel y cada sección.'
 
 /** Carpeta de los banners iniciales (se copia al build por `metaFiles` de adonisrc). */
 const ASSETS_DIR = 'database/seeders/assets/announcements'
