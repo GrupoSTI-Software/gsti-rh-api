@@ -105,6 +105,7 @@ export const FILE_INTAKE_PROFILE_NAMES = [
   'spreadsheet-import',
   'complaint-attachment',
   'tax-receipt-document',
+  'announcement-banner',
 ] as const
 
 export type FileIntakeProfileName = (typeof FILE_INTAKE_PROFILE_NAMES)[number]
@@ -218,6 +219,20 @@ export const FILE_INTAKE_PROFILES: Readonly<Record<FileIntakeProfileName, FileIn
     allowedMimes: [...FILE_INTAKE_PDF_MIMES, ...FILE_INTAKE_XML_MIMES],
     maxBytes: 5 * MB,
     imagePolicy: { kind: 'reject' },
+    storesPublicly: false,
+  },
+
+  /**
+   * Banner de un slide del deck de anuncios del Backoffice. Privado: el deck lo
+   * entrega como URL firmada de lectura, que el `<img src>` del BO carga sin
+   * header de auth. Conserva el formato de origen (los navegadores pintan los
+   * tres) y se re-encodea igual, para descartar EXIF y payloads pegados.
+   */
+  'announcement-banner': {
+    allowedClientExtensions: ['jpg', 'jpeg', 'png', 'webp'],
+    allowedMimes: FILE_INTAKE_IMAGE_MIMES,
+    maxBytes: 2 * MB,
+    imagePolicy: { kind: 'preserve' },
     storesPublicly: false,
   },
 }
