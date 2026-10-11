@@ -2,6 +2,7 @@ import { HttpContext } from '@adonisjs/core/http'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import Zone from '#models/zone'
 import ZoneService from '#services/zone_service'
+import { parseZoneSort } from '#constants/zone_sort'
 import { createZoneValidator, updateZoneValidator } from '#validators/zone'
 import UploadService from '#services/upload_service'
 
@@ -20,6 +21,12 @@ export default class ZoneController {
    *         in: query
    *         required: false
    *         description: Search term for zone name
+   *         schema:
+   *           type: string
+   *       - name: sort
+   *         in: query
+   *         required: false
+   *         description: name_asc o name_desc; sin valor, por fecha de alta
    *         schema:
    *           type: string
    *       - name: page
@@ -55,6 +62,7 @@ export default class ZoneController {
         search,
         page,
         limit,
+        sort: parseZoneSort(request.input('sort')),
       })
       response.status(200)
       return {

@@ -1,5 +1,6 @@
 import Zone from '#models/zone'
 import EmployeeZone from '#models/employee_zone'
+import { ZONE_SORT } from '#constants/zone_sort'
 import { ZoneFilterSearchInterface } from '../interfaces/zone_filter_search_interface.js'
 import { I18n } from '@adonisjs/i18n'
 import { DateTime } from 'luxon'
@@ -21,7 +22,15 @@ export default class ZoneService {
         query.whereRaw('UPPER(zone_name) LIKE ?', [`%${filters.search!.toUpperCase()}%`])
       })
       .select(selectedColumns)
-      .orderBy('zone_created_at', 'asc')
+      .if(
+        filters.sort,
+        (query) => {
+          query.orderBy('zone_name', filters.sort === ZONE_SORT.NAME_DESC ? 'desc' : 'asc')
+        },
+        (query) => {
+          query.orderBy('zone_created_at', 'asc')
+        }
+      )
       .paginate(filters.page, filters.limit)
 
     return zones
