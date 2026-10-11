@@ -3513,5 +3513,14 @@
   "employee_proceeding_file_summary_invalid_input_title": "Datos inválidos",
   "employee_proceeding_file_summary_invalid_input_detail": "El identificador del empleado no es válido.",
   "employee_proceeding_file_summary_unexpected_error_title": "Error inesperado",
-  "employee_proceeding_file_summary_unexpected_error_detail": "Ocurrió un error inesperado al consultar el expediente."
+  "employee_proceeding_file_summary_unexpected_error_detail": "Ocurrió un error inesperado al consultar el expediente.",
+  "announcements_title": "Anuncios",
+  "announcements_show_success": "Marca de anuncios obtenida correctamente.",
+  "announcements_update_success": "Marca de anuncios actualizada correctamente.",
+  "announcements_invalid_date_title": "Fecha inválida",
+  "announcements_invalid_date_detail": "La fecha debe ser una fecha y hora ISO 8601 con zona horaria.",
+  "announcements_future_date_title": "Fecha en el futuro",
+  "announcements_future_date_detail": "La fecha del último anuncio visto no puede estar en el futuro.",
+  "announcements_unexpected_error_title": "Error inesperado",
+  "announcements_unexpected_error_detail": "Ocurrió un error inesperado al procesar la marca de anuncios."
 }

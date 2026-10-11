@@ -175,6 +175,7 @@ import '#modules/onboarding/state/state.routes'
 import '#modules/consent/acceptance/acceptance.routes'
 import '#modules/consent/evidence/evidence.routes'
 import '#modules/consent/physical/physical_consent.routes'
+import '#modules/announcements/announcements.routes'
 import '#modules/nom035-disclosure/nom035_disclosure.routes'
 import '#modules/legal-documents/legal_document.routes'
 if (env.get('APP_MODE') === 'demo') {

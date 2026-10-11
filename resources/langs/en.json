@@ -3510,5 +3510,14 @@
   "employee_proceeding_file_summary_invalid_input_title": "Invalid data",
   "employee_proceeding_file_summary_invalid_input_detail": "The employee identifier is not valid.",
   "employee_proceeding_file_summary_unexpected_error_title": "Unexpected error",
-  "employee_proceeding_file_summary_unexpected_error_detail": "An unexpected error occurred while retrieving the employee file."
+  "employee_proceeding_file_summary_unexpected_error_detail": "An unexpected error occurred while retrieving the employee file.",
+  "announcements_title": "Announcements",
+  "announcements_show_success": "Announcement watermark retrieved successfully.",
+  "announcements_update_success": "Announcement watermark updated successfully.",
+  "announcements_invalid_date_title": "Invalid date",
+  "announcements_invalid_date_detail": "The date must be an ISO 8601 date and time with a time zone.",
+  "announcements_future_date_title": "Date in the future",
+  "announcements_future_date_detail": "The date of the last seen announcement cannot be in the future.",
+  "announcements_unexpected_error_title": "Unexpected error",
+  "announcements_unexpected_error_detail": "An unexpected error occurred while processing the announcement watermark."
 }
