@@ -3520,6 +3520,7 @@
   "announcements_future_date_detail": "The date of the last seen announcement cannot be in the future.",
   "announcements_unexpected_error_title": "Unexpected error",
   "announcements_unexpected_error_detail": "An unexpected error occurred while processing the announcement watermark.",
+  "announcements_deck_success": "Announcements retrieved successfully.",
   "announcements_invalid_input_title": "Invalid data",
   "announcements_invalid_input_detail": "Check the highlighted fields: they are missing or have a value that is not allowed.",
   "announcements_slide_not_found_title": "Slide not found",

@@ -7,7 +7,8 @@ import type { AnnouncementStateDto } from './dto/announcement_state.dto.js'
 
 /**
  * Marca de agua del último anuncio de producto que el usuario vio en el Backoffice.
- * El contenido de los anuncios vive en el Backoffice; aquí solo se guarda la fecha.
+ * Aquí solo se guarda la fecha; el contenido son los slides de `announcement_slides`
+ * (ver `announcement_deck.service.ts`).
  *
  * Reglas de negocio:
  *  - La consulta nunca crea fila: sin registro, `lastSeenAt` es `null`.

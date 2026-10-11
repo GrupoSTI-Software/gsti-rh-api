@@ -42,7 +42,9 @@ export function selectDeckSlides<T extends DeckCandidate>(
 ): T[] {
   const visible = slides
     .filter(isPublished)
-    .filter((slide) => slide.permissionKey === null || grantedPermissionKeys.has(slide.permissionKey))
+    .filter(
+      (slide) => slide.permissionKey === null || grantedPermissionKeys.has(slide.permissionKey)
+    )
 
   if (lastSeenAt === null) {
     return visible
