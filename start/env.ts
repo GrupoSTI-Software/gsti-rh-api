@@ -177,6 +177,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   AWS_ROOT_PATH: Env.schema.string(),
   AWS_ROOT_NAME: Env.schema.string.optional(),
   AWS_URL: Env.schema.string.optional(),
+  /**
+   * `true` para que el seeder del deck de anuncios (0066) cree los slides sin
+   * subir sus banners (quedan con `banner_path` null). Útil sin almacenamiento
+   * alcanzable o en un entorno donde los banners se suben desde la consola.
+   */
+  ANNOUNCEMENTS_SEED_SKIP_BANNERS: Env.schema.boolean.optional(),
   /*
   |----------------------------------------------------------
   | Variables for configuring api host synchronization

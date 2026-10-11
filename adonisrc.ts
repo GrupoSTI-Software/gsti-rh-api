@@ -119,5 +119,10 @@ export default defineConfig({
       pattern: 'models/**/*',
       reloadServer: false,
     },
+    // Banners iniciales del deck de anuncios: los lee el seeder 0066 para subirlos.
+    {
+      pattern: 'database/seeders/assets/**/*',
+      reloadServer: false,
+    },
   ],
 })
