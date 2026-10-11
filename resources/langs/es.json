@@ -3522,5 +3522,22 @@
   "announcements_future_date_title": "Fecha en el futuro",
   "announcements_future_date_detail": "La fecha del último anuncio visto no puede estar en el futuro.",
   "announcements_unexpected_error_title": "Error inesperado",
-  "announcements_unexpected_error_detail": "Ocurrió un error inesperado al procesar la marca de anuncios."
+  "announcements_unexpected_error_detail": "Ocurrió un error inesperado al procesar la marca de anuncios.",
+  "announcements_invalid_input_title": "Datos inválidos",
+  "announcements_invalid_input_detail": "Revisa los campos marcados: faltan o no tienen un valor permitido.",
+  "announcements_slide_not_found_title": "Slide no encontrado",
+  "announcements_slide_not_found_detail": "El slide de anuncios solicitado no existe.",
+  "announcements_invalid_permission_key_title": "Permiso inexistente",
+  "announcements_invalid_permission_key_detail": "La clave de permiso debe tener la forma módulo:permiso y existir en el catálogo de módulos.",
+  "announcements_empty_body_title": "Cuerpo vacío",
+  "announcements_empty_body_detail": "El cuerpo del slide no tiene contenido permitido después de sanear el HTML.",
+  "announcement_slides_title": "Slides de anuncios",
+  "announcement_slides_list_success": "Slides obtenidos correctamente.",
+  "announcement_slides_show_success": "Slide obtenido correctamente.",
+  "announcement_slides_create_success": "Slide creado correctamente.",
+  "announcement_slides_update_success": "Slide actualizado correctamente.",
+  "announcement_slides_publish_success": "Slide publicado correctamente.",
+  "announcement_slides_archive_success": "Slide archivado correctamente.",
+  "announcement_slides_banner_success": "Banner guardado correctamente.",
+  "announcement_slides_unexpected_error_detail": "Ocurrió un error inesperado al procesar los slides de anuncios."
 }

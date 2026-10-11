@@ -17,6 +17,7 @@ export const ANNOUNCEMENTS_ERROR_KEYS = {
   INVALID_INPUT: 'datos-invalidos',
   SLIDE_NOT_FOUND: 'slide-inexistente',
   INVALID_PERMISSION_KEY: 'permiso-inexistente',
+  EMPTY_BODY: 'cuerpo-vacio',
 } as const
 
 export type AnnouncementsErrorKey =
