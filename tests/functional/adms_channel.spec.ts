@@ -128,7 +128,7 @@ test.group('ADMS channel (rebanada 1)', (group) => {
     assert.equal(raw.businessUnitId, businessUnitId)
 
     const stamps = await TenantContext.runUnscoped(
-      () => AccessPointStamp.query().where('access_point_id', accessPoint.accessPointId),
+      () => AccessPointStamp.query().where('access_point_id', accessPoint.accessPointId).exec(),
       'lectura de stamps'
     )
     assert.equal(
@@ -285,7 +285,7 @@ test.group('ADMS channel (rebanada 1)', (group) => {
     const lower = await post(`/iclock/cdata?SN=${SERIAL}&table=attlog&Stamp=9999`, 'a\n')
     assert.equal(await lower.text(), 'OK: 1')
     const stamps = await TenantContext.runUnscoped(
-      () => AccessPointStamp.query().where('access_point_id', accessPoint.accessPointId),
+      () => AccessPointStamp.query().where('access_point_id', accessPoint.accessPointId).exec(),
       'lectura de stamps'
     )
     assert.isUndefined(stamps.find((row) => row.accessPointStampTable === 'attlog'))

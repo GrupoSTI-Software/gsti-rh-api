@@ -92,7 +92,8 @@ test.group('ADMS deduplicacion de incidentes', (group) => {
         AdmsIncident.query()
           .where('access_point_id', accessPoint.accessPointId)
           .where('adms_incident_kind', ADMS_INCIDENT_KIND.IP_ANOMALY)
-          .count('* as total'),
+          .count('* as total')
+          .exec(),
       'conteo de incidentes'
     )
     assert.equal(total[0].$extras.total, 1)
