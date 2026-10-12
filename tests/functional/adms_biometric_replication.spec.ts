@@ -47,9 +47,23 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
   /** Templates que crea alguna prueba: el teardown los retira aunque la prueba falle. */
   const extraTemplateIds: number[] = []
 
+  /**
+   * Los asientos PII se filtran tambien por modelo: `record_id` solo coincide
+   * con registros de cualquier otra tabla, y uno ajeno con sujetos colgando
+   * tumbaba la limpieza por llave foranea.
+   */
   async function deleteTemplate(id: number): Promise<void> {
     await DeviceCommand.query().where('biometric_template_id', id).delete()
-    await db.from('pii_access_logs').where('pii_access_log_record_id', id).delete()
+    const logs = await db
+      .from('pii_access_logs')
+      .where('pii_access_log_model', 'BiometricTemplate')
+      .where('pii_access_log_record_id', id)
+      .select('pii_access_log_id')
+    const logIds = logs.map((row) => Number(row.pii_access_log_id))
+    if (logIds.length > 0) {
+      await db.from('pii_access_log_subjects').whereIn('pii_access_log_id', logIds).delete()
+      await db.from('pii_access_logs').whereIn('pii_access_log_id', logIds).delete()
+    }
     await db.from('biometric_templates').where('biometric_template_id', id).delete()
   }
 
