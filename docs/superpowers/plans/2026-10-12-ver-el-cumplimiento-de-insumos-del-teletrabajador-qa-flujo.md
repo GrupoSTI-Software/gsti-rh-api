@@ -1,6 +1,6 @@
 # Prueba manual — Ver el cumplimiento de insumos del teletrabajador en su ficha
 
-**Estado: entregado el 12 de octubre de 2026 y pendiente del recorrido manual de una persona (quien lo escribió no lo camina).**
+**Estado: entregado el 12 de octubre de 2026 y recorrido manualmente ese mismo día; el checklist quedó completo.**
 
 **Problema:** la NOM-037 obliga a la empresa a entregarle a cada teletrabajador una **silla ergonómica**, el **equipo de cómputo o impresión** y los **aditamentos** que hagan falta, y a poder demostrar en una inspección qué le entregó a cada quien. La ficha del colaborador ya mostraba sus activos, pero no decía nada del cumplimiento de la norma: para saber si a una persona le faltaba la silla había que abrir activo por activo y adivinar qué categoría de la norma era cada uno.
 
@@ -312,17 +312,17 @@ Se declara no revisable desde el navegador y queda cubierto por las pruebas auto
 
 Cada casilla se marca **contra el objetivo de su escenario**, no contra "se hicieron los pasos":
 
-- [ ] 4.1 En la ficha de `QA-TEL-01`, el bloque **Insumos de teletrabajo** va arriba de los activos: silla **Entregado** con su activo (`QA-TEL-ACT-SILLA-01`, **Resguardo firmado**), cómputo **Sin cubrir**, aditamento **Sin entregar**, leyenda de **Obligatorio** y chip **1 sin cubrir**
-- [ ] 4.2 En la ficha de `QA-TEL-02` (Híbrido 20%), el mismo bloque con la leyenda **Registro preventivo** y chip **2 sin cubrir**
-- [ ] 4.3 En la ficha de `QA-TEL-03` (Híbrido 40%) la leyenda es la de **Obligatorio** (la de `QA-TEL-02` es preventivo) y **Vera Quintero** aparece en el listado **Teletrabajadores** con 40% (Ulises Pardo, 20%, no aparece)
-- [ ] 4.4 En `QA-TEL-04`, cómputo **Entregado** con los dos activos y la laptop con chip **En envío**; en `QA-TEL-05`, cómputo **En envío** con la sola laptop, chip **1 en envío**
-- [ ] 4.5 En `QA-TEL-06`, cómputo **Sin cubrir** aunque la laptop devuelta esté en **Activos devueltos**
-- [ ] 4.6 En `QA-TEL-07`, la silla y la laptop vigentes con su etiqueta de categoría; el celular (sin categoría) y el monitor devuelto sin etiqueta
-- [ ] 4.7 Tras quitar la categoría al tipo **Silla QA Reclas** con el Usuario C, la ficha de `QA-TEL-08` deja de contar la silla (pasa a **Sin cubrir**) y su renglón pierde la etiqueta, sin perder la asignación
-- [ ] 5.1 En `QA-TEL-09` (presencial) y `QA-TEL-10` (baja) no aparece el bloque; solo la lista de activos
-- [ ] 5.2 Con el Usuario B no está la sección **Activos** en el submenú, la dirección directa deja la página vacía y no sale ninguna petición a `telework-supplies`
-- [ ] 5.3 Con la petición de la matriz bloqueada (sin respuesta), el backoffice cae a su página de error (**500 / Error interno del servidor**) y al desbloquear y pulsar **Intentar de nuevo** la ficha vuelve con el bloque cargado
-- [ ] 6.1 A 360 px no hay desplazamiento horizontal y los renglones quedan apilados (rótulo, estado, activos); a unos 850 px siguen apilados y desde unos 1024 px el renglón se abre con el estado al extremo derecho
-- [ ] 6.2 **No verificable aquí** (el backoffice fuerza el español y esconde el cambio de idioma); se declara con su motivo y lo cubren los locales es/en y `npm run lint:i18n`
+- [x] 4.1 En la ficha de `QA-TEL-01`, el bloque **Insumos de teletrabajo** va arriba de los activos: silla **Entregado** con su activo (`QA-TEL-ACT-SILLA-01`, **Resguardo firmado**), cómputo **Sin cubrir**, aditamento **Sin entregar**, leyenda de **Obligatorio** y chip **1 sin cubrir**
+- [x] 4.2 En la ficha de `QA-TEL-02` (Híbrido 20%), el mismo bloque con la leyenda **Registro preventivo** y chip **2 sin cubrir**
+- [x] 4.3 En la ficha de `QA-TEL-03` (Híbrido 40%) la leyenda es la de **Obligatorio** (la de `QA-TEL-02` es preventivo) y **Vera Quintero** aparece en el listado **Teletrabajadores** con 40% (Ulises Pardo, 20%, no aparece)
+- [x] 4.4 En `QA-TEL-04`, cómputo **Entregado** con los dos activos y la laptop con chip **En envío**; en `QA-TEL-05`, cómputo **En envío** con la sola laptop, chip **1 en envío**
+- [x] 4.5 En `QA-TEL-06`, cómputo **Sin cubrir** aunque la laptop devuelta esté en **Activos devueltos**
+- [x] 4.6 En `QA-TEL-07`, la silla y la laptop vigentes con su etiqueta de categoría; el celular (sin categoría) y el monitor devuelto sin etiqueta
+- [x] 4.7 Tras quitar la categoría al tipo **Silla QA Reclas** con el Usuario C, la ficha de `QA-TEL-08` deja de contar la silla (pasa a **Sin cubrir**) y su renglón pierde la etiqueta, sin perder la asignación
+- [x] 5.1 En `QA-TEL-09` (presencial) y `QA-TEL-10` (baja) no aparece el bloque; solo la lista de activos
+- [x] 5.2 Con el Usuario B no está la sección **Activos** en el submenú, la dirección directa deja la página vacía y no sale ninguna petición a `telework-supplies`
+- [x] 5.3 Con la petición de la matriz bloqueada (sin respuesta), el backoffice cae a su página de error (**500 / Error interno del servidor**) y al desbloquear y pulsar **Intentar de nuevo** la ficha vuelve con el bloque cargado
+- [x] 6.1 A 360 px no hay desplazamiento horizontal y los renglones quedan apilados (rótulo, estado, activos); a unos 850 px siguen apilados y desde unos 1024 px el renglón se abre con el estado al extremo derecho
+- [x] 6.2 **No verificable aquí** (el backoffice fuerza el español y esconde el cambio de idioma); se declara con su motivo y lo cubren los locales es/en y `npm run lint:i18n`
 
-Recorrido pendiente: cada casilla se marca **contra el objetivo de su escenario**.
+Recorrido completado: cada casilla se marcó **contra el objetivo de su escenario**.
