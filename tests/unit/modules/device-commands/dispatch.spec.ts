@@ -49,8 +49,6 @@ function makeRepository(options: Options = {}) {
   const excludedSeen: string[][] = []
   /** Lo que el despacho le pidio guardar al marcar enviado, con su linea base. */
   const sentWith: Array<{ commandId: number; countersSnapshot?: unknown }> = []
-  /** Cuantas veces se intento rescatar lo que salio sin acuse. */
-  let requeueCalls = 0
   const repository: DeviceCommandRepository = {
     async enqueueIdempotent() {
       return { command: commandOf(), created: true }
@@ -74,9 +72,8 @@ function makeRepository(options: Options = {}) {
     async hasInFlight() {
       return options.inFlight === true
     },
-    async requeueStaleInFlight() {
-      requeueCalls += 1
-      return { requeued: 0, failed: 0 }
+    async requeueOrFailIfStill() {
+      return 'untouched' as const
     },
     async listByDevice() {
       return []
@@ -121,7 +118,7 @@ function makeRepository(options: Options = {}) {
       saved.push(command)
     },
   }
-  return { repository, saved, excludedSeen, sentWith, requeueCount: () => requeueCalls }
+  return { repository, saved, excludedSeen, sentWith }
 }
 
 /** Equipo que ya declaro sus contadores en `options`. */
@@ -147,21 +144,6 @@ test.group('Despacho de comandos', () => {
     assert.equal(line, 'C:1788912000000:DATA DELETE USERINFO PIN=9999')
     assert.equal(saved[0].deviceCommandStatus, 'sent')
     assert.equal(saved[0].deviceCommandSentAt, NOW)
-  })
-
-  /**
-   * El caso real del 2026-09-11: una peticion de prueba se llevo un comando y
-   * nunca lo acuso. Como solo se despacha uno a la vez, la cola de ese equipo
-   * quedo taponada casi dos horas -- el checador sondeando, el servidor
-   * contestando OK, y ninguna alta saliendo.
-   */
-  test('antes de mirar la cola rescata lo que salio y nadie acuso', async ({ assert }) => {
-    const { repository, requeueCount } = makeRepository({ pending: commandOf() })
-    const service = new CommandDispatchService(repository)
-
-    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
-
-    assert.equal(requeueCount(), 1, 'sin esto, un acuse perdido deja al equipo mudo para siempre')
   })
 
   /**

@@ -74,8 +74,8 @@ function makeService(options: Options = {}) {
     async findNextPending() {
       return null
     },
-    async requeueStaleInFlight() {
-      return { requeued: 0, failed: 0 }
+    async requeueOrFailIfStill() {
+      return 'untouched' as const
     },
     async hasInFlight() {
       return false

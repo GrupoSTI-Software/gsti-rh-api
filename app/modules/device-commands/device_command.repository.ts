@@ -119,16 +119,25 @@ export interface DeviceCommandRepository {
     countersSnapshot?: DeviceCommandCountersSnapshot | null
   }): Promise<boolean>
   /**
-   * Devuelve a la cola los comandos que salieron y nadie acuso.
+   * Cierra un comando en vuelo que agoto su plazo, y solo si SIGUE en vuelo.
    *
-   * Suma un intento a cada uno: el que agote los suyos queda `failed`, para
-   * que una orden que el equipo no puede ejecutar no se reintente eternamente.
+   * Vuelve a la cola con un intento mas mientras le queden intentos; al
+   * agotarlos queda `failed`. `null` en el maximo es "insiste siempre" (la
+   * baja de usuario). Un enrolamiento presencial se falla al primer
+   * vencimiento: reabrir la captura sin la persona enfrente no sirve.
+   *
+   * La linea base de contadores se conserva al reencolar: se tomo antes de
+   * que el equipo recibiera la orden y sigue siendo la referencia.
+   *
+   * Es la UNICA politica de plazo en vuelo: antes el despacho tenia otra, a
+   * cinco minutos, que el barrido de cada minuto dejaba sin efecto.
    */
-  requeueStaleInFlight(input: {
-    accessPointId: number
-    sentBefore: DateTime
+  requeueOrFailIfStill(input: {
+    commandId: number
+    expectedStatus: DeviceCommandStatus
     now: DateTime
-  }): Promise<{ requeued: number; failed: number }>
+    error: string
+  }): Promise<'requeued' | 'failed' | 'untouched'>
   /**
    * Falla un comando solo si sigue en el estado en que se leyo.
    *

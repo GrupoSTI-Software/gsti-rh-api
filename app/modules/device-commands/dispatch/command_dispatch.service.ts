@@ -2,7 +2,6 @@ import type { DateTime } from 'luxon'
 import { ADMS_OK } from '#modules/adms/adms.constants'
 import DeviceCommandRepositoryMysql from '../device_command.repository.mysql.js'
 import {
-  DEVICE_COMMAND_IN_FLIGHT_TIMEOUT_MINUTES,
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
   type DeviceCommandKind,
@@ -73,19 +72,11 @@ export default class CommandDispatchService {
 
   async next(input: DispatchInput): Promise<string> {
     /**
-     * Primero, rescatar lo que salio y nadie acuso.
-     *
-     * Solo se despacha un comando a la vez, asi que uno en vuelo que jamas se
-     * acusa taponaba la cola de ese equipo para siempre: bastaba un corte de
-     * luz entre recibir la orden y acusarla. El equipo seguia sondeando, el
-     * servidor seguia contestando `OK`, y ninguna alta volvia a salir.
+     * Lo que salio y nadie acuso lo rescata el barrido (spec 6.2), no el
+     * despacho: corre cada minuto aunque el equipo no vuelva a sondear, y
+     * tener aqui un segundo plazo solo producia dos politicas que se
+     * contradecian.
      */
-    await this.repository.requeueStaleInFlight({
-      accessPointId: input.accessPointId,
-      sentBefore: input.now.minus({ minutes: DEVICE_COMMAND_IN_FLIGHT_TIMEOUT_MINUTES }),
-      now: input.now,
-    })
-
     if (await this.repository.hasInFlight(input.accessPointId)) return ADMS_OK
 
     const excluded = input.ipAnomalyOpen || !input.hotSession ? [...SENSITIVE_KINDS] : []

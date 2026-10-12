@@ -286,45 +286,39 @@ export default class DeviceCommandRepositoryMysql
     })
   }
 
-  async requeueStaleInFlight(input: {
-    accessPointId: number
-    sentBefore: DateTime
+  async requeueOrFailIfStill(input: {
+    commandId: number
+    expectedStatus: DeviceCommandStatus
     now: DateTime
-  }): Promise<{ requeued: number; failed: number }> {
+    error: string
+  }): Promise<'requeued' | 'failed' | 'untouched'> {
     return db.transaction(async (trx) => {
-      const stale = await DeviceCommand.query({ client: trx })
-        .where('access_point_id', input.accessPointId)
-        .where('device_command_status', DEVICE_COMMAND_STATUS.SENT)
-        .where('device_command_sent_at', '<', input.sentBefore.toFormat('yyyy-MM-dd HH:mm:ss'))
+      const command = await DeviceCommand.query({ client: trx })
+        .where('device_command_id', input.commandId)
+        .where('device_command_status', input.expectedStatus)
         .forUpdate()
+        .first()
+      if (!command) return 'untouched'
+      command.useTransaction(trx)
 
-      let requeued = 0
-      let failed = 0
+      const attempts = command.deviceCommandAttempts + 1
+      const max = command.deviceCommandMaxAttempts
+      const exhausted = max !== null && attempts >= max
+      const presencial = command.deviceCommandKind === DEVICE_COMMAND_KIND.ENROLL_FP
 
-      for (const command of stale) {
-        command.useTransaction(trx)
-        command.deviceCommandAttempts += 1
-
-        /**
-         * `null` en el maximo es "insiste siempre": lo usa la baja de usuario,
-         * donde rendirse deja a alguien con acceso que ya no le toca.
-         */
-        const max = command.deviceCommandMaxAttempts
-        if (max !== null && command.deviceCommandAttempts >= max) {
-          command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
-          command.deviceCommandFailedAt = input.now
-          command.deviceCommandLastError = 'sin acuse tras varios intentos'
-          failed += 1
-        } else {
-          command.deviceCommandStatus = DEVICE_COMMAND_STATUS.PENDING
-          command.deviceCommandSentAt = null
-          requeued += 1
-        }
-
+      command.deviceCommandAttempts = attempts
+      if (exhausted || presencial) {
+        command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
+        command.deviceCommandFailedAt = input.now
+        command.deviceCommandLastError = input.error
         await command.save()
+        return 'failed'
       }
 
-      return { requeued, failed }
+      command.deviceCommandStatus = DEVICE_COMMAND_STATUS.PENDING
+      command.deviceCommandSentAt = null
+      await command.save()
+      return 'requeued'
     })
   }
 
