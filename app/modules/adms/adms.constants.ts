@@ -78,7 +78,6 @@ export const ADMS_HOT_SESSION_MINUTES = 30
 export const ADMS_RATE = {
   devicePerMinute: 300,
   ipPerMinute: 1200,
-  photoPerMinute: 60,
   unknownSerialPerHour: 20,
   unknownSerialBlockMinutes: 15,
   quarantineRowsPerIpPerDay: 200,
