@@ -104,7 +104,7 @@ export default class CommandAckService {
      * haber viajado nunca.
      */
     const evidence =
-      parsed.returnCode === 0 ? await this.evidenceAtAck(command) : null
+      parsed.returnCode === 0 ? await this.evidenceAtAck(command, parsed.dump ?? null) : null
     const executed = evidence !== null
     const target =
       parsed.returnCode !== 0
@@ -225,11 +225,22 @@ export default class CommandAckService {
    *   `options` antes de acusar, y esperar un alza posterior era esperar una
    *   que ya habia ocurrido.
    */
-  private async evidenceAtAck(command: DeviceCommand): Promise<DeviceCommandEvidence | null> {
+  private async evidenceAtAck(
+    command: DeviceCommand,
+    dump: string | null
+  ): Promise<DeviceCommandEvidence | null> {
     switch (command.deviceCommandKind) {
       case DEVICE_COMMAND_KIND.USER_UPSERT:
       case DEVICE_COMMAND_KIND.BIOPHOTO_DELETE:
         return DEVICE_COMMAND_EVIDENCE.ACK
+      /**
+       * El `INFO` trae su respuesta en el propio acuse: el volcado de opciones
+       * que alimenta el perfil. Sin volcado el equipo solo dijo "recibido" y
+       * sigue esperando; con el, ya contesto. Antes quedaba `acked` siempre y
+       * el barrido lo daba por fallido con la ficha recien actualizada.
+       */
+      case DEVICE_COMMAND_KIND.INFO:
+        return dump !== null && dump.length > 0 ? DEVICE_COMMAND_EVIDENCE.ACK : null
       case DEVICE_COMMAND_KIND.BIOPHOTO_WRITE:
         if (await this.photos.wasDownloaded(command)) {
           return DEVICE_COMMAND_EVIDENCE.PHOTO_DOWNLOADED

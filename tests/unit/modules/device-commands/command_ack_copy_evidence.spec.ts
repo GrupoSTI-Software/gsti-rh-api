@@ -100,6 +100,32 @@ function makeService(
 
 const ACK = { accessPointId: 33, body: 'ID=1791825600000&Return=0&CMD=DATA', now: NOW }
 
+test.group('Acuse del INFO', () => {
+  test('con volcado de opciones en el acuse, el INFO queda ejecutado', async ({ assert }) => {
+    const { service, saved } = makeService(
+      copyOf({ deviceCommandKind: DEVICE_COMMAND_KIND.INFO, deviceCommandCorrelationKey: null }),
+      false
+    )
+    const outcome = await service.apply({
+      accessPointId: 33,
+      body: 'ID=1791825600000&Return=0&CMD=INFO\n~DeviceName=SenseFace\nFPCount=5\nFaceCount=1',
+      now: NOW,
+    })
+    assert.equal(outcome.kind, 'applied')
+    assert.equal(saved[0].deviceCommandStatus, 'executed')
+    assert.equal(saved[0].deviceCommandExecutionEvidence, 'ack')
+  })
+
+  test('un acuse del INFO sin volcado solo es recibido', async ({ assert }) => {
+    const { service, saved } = makeService(
+      copyOf({ deviceCommandKind: DEVICE_COMMAND_KIND.INFO, deviceCommandCorrelationKey: null }),
+      false
+    )
+    await service.apply({ accessPointId: 33, body: 'ID=1791825600000&Return=0&CMD=INFO', now: NOW })
+    assert.equal(saved[0].deviceCommandStatus, 'acked')
+  })
+})
+
 test.group('Acuse de una copia de huella', () => {
   test('con una entrega previa ejecutada, el acuse basta', async ({ assert }) => {
     const { service, saved, asked } = makeService(copyOf(), true)
