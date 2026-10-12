@@ -49,6 +49,8 @@ export const ADMS_ERROR_CODES = {
   CMD_NOT_APPLIED: 'ADMS.CMD.001',
   /** El equipo declara una version de algoritmo que ningun template guardado alcanza. */
   BIO_VERSION_MISMATCH: 'ADMS.BIO.001',
+  /** El equipo subio una huella sin orden del sistema y no se repartio a los demas equipos. */
+  BIO_NOT_SPREAD: 'ADMS.BIO.002',
   /** El equipo declara menos gente dentro de la que se le dio de alta. */
   DEV_ROSTER_SHRUNK: 'ADMS.DEV.005',
   /** La direccion no corresponde al secreto de esa serie. */
