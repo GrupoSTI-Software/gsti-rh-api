@@ -84,7 +84,9 @@ Para elegir la empresa (si el usuario tiene más de una): arriba a la derecha ab
 
 Para llegar a la ficha: menú lateral → **Empleados**; busca a la persona por su código de nómina (por ejemplo `QA-TEL-01`) y, en su tarjeta, pulsa **Ver detalles**. La ficha abre en la sección **Información del empleado**.
 
-La sección nueva es **Activos**: está en el submenú lateral de la ficha, **al final, después de Expediente**, con el icono de un portátil. Dentro, el bloque **Insumos de teletrabajo** aparece **arriba** y, debajo, la lista de **Activos vigentes** / **Activos devueltos**.
+La sección nueva es **Activos**: está en el submenú lateral de la ficha, **al final, después de Expediente**, con el icono de un portátil. Dentro hay dos tarjetas separadas: arriba el bloque **Insumos de teletrabajo** y, debajo, la lista de **Activos vigentes** / **Activos devueltos**.
+
+Cómo se lee el bloque, de arriba a abajo: el título; la leyenda que dice si el registro es obligatorio o preventivo; y las tres categorías de la norma, **cada una en su renglón** con su chip de estado **al extremo derecho** y, debajo del rótulo, los activos que la cubren (uno por línea, con su folio y sus chips). Las tres categorías salen siempre en el mismo orden: silla, cómputo, aditamento.
 
 URL directa de la sección: `http://127.0.0.1:3000/employees/<slug-o-token-del-colaborador>/assets` (la dirección **no** lleva `/es`).
 
@@ -107,7 +109,7 @@ Objetivo: comprobar que en la ficha de un teletrabajador obligatorio al que ya s
 3. Arriba de la lista de activos está la tarjeta **Insumos de teletrabajo**.
 4. Bajo el título, la leyenda: **Obligatorio: este colaborador está en el listado de teletrabajadores (NOM-037 5.7, LFT 330-E)**.
 5. En el encabezado de la tarjeta, un chip rojo de resumen: **1 sin cubrir**.
-6. El renglón **Silla ergonómica** muestra el chip **Entregado**, y debajo el activo **Silla de oficina** con su **Folio QA-TEL-ACT-SILLA-01** y el chip **Resguardo firmado**. El nombre del activo es un enlace.
+6. El renglón **Silla ergonómica** lleva su chip **Entregado** al extremo derecho; debajo, en una sola línea, el activo **Silla de oficina** con su **Folio QA-TEL-ACT-SILLA-01** y el chip **Resguardo firmado**. El nombre del activo es un enlace.
 7. El renglón **Equipo de cómputo o impresión** muestra el chip **Sin cubrir** y ningún activo debajo.
 8. El renglón **Aditamento** muestra el chip **Sin entregar** y ningún activo debajo.
 9. Debajo del bloque, la lista de **Activos vigentes** sigue funcionando: trae la misma **Silla de oficina** (`QA-TEL-ACT-SILLA-01`).
@@ -131,7 +133,7 @@ Objetivo: comprobar que un colaborador híbrido por debajo del umbral ve el mism
 3. La leyenda bajo el título dice: **Registro preventivo: no está en el listado de teletrabajadores**.
 4. Chip de resumen: **2 sin cubrir**.
 5. **Silla ergonómica** → **Sin cubrir**; **Equipo de cómputo o impresión** → **Sin cubrir**; **Aditamento** → **Sin entregar**.
-6. Debajo del bloque, la lista de activos muestra el aviso **Sin activos asignados** (la persona no tiene activos).
+6. Debajo del bloque, la lista de activos muestra el aviso **Sin activos asignados** con la línea **Los activos se asignan desde Activos e insumos y aparecen aquí.** (la persona no tiene activos).
 
 **Qué significa lo nuevo aquí:**
 
@@ -276,14 +278,14 @@ Objetivo: comprobar que si la lectura de la matriz de insumos falla, el bloque m
 
 ### 6.1 Anchos angostos y anchos intermedios
 
-Objetivo: comprobar que el bloque, dentro del carril angosto de la ficha, no se desborda a lo ancho en un teléfono (360 px) y que a partir de tableta cada renglón pasa de una columna apilada a tres columnas (categoría, estado, activos).
+Objetivo: comprobar que el bloque, dentro del carril angosto de la ficha, no se desborda a lo ancho en un teléfono (360 px) y que en escritorio cada renglón se abre a lo ancho (el rótulo de la categoría con sus activos a la izquierda y el estado al extremo derecho).
 
 1. Con el Usuario A, en la ficha de **Tania Robles Vera** (`QA-TEL-01`), entra a **Activos**.
 2. Estrecha la ventana del navegador hasta unos **360 px** de ancho (o usa el modo de dispositivo móvil).
 3. La página **no se desplaza en horizontal**: no hay barra inferior de desplazamiento y el contenido del bloque no se sale hacia los lados.
 4. En cada renglón, el contenido queda **apilado en una sola columna**, de arriba a abajo: primero el nombre de la categoría, luego su chip de estado y al final sus activos.
-5. Ensancha la ventana a un **ancho intermedio, entre tableta y escritorio** (unos **850 px**): cada renglón pasa a **tres columnas** —nombre de la categoría | chip de estado | activos— sin desbordarse.
-6. A ancho de escritorio se mantiene el mismo arreglo de tres columnas, más holgado.
+5. Ensancha la ventana a un **ancho intermedio, entre tableta y escritorio** (unos **850 px**): el renglón **sigue apilado en una sola columna** (el chip de estado viaja junto al rótulo); la pantalla intermedia no lo parte en dos. Es a propósito: entre tableta y escritorio la ficha deja al bloque un carril angosto.
+6. Pon la ventana a **ancho de escritorio** (desde unos **1024 px**): ahí sí el renglón se abre —el rótulo de la categoría con sus activos a la izquierda y el chip de estado al extremo derecho— sin desbordarse.
 
 (Lo que se ve es lo ya explicado en el Escenario 4.1.)
 
@@ -318,7 +320,7 @@ Cada casilla se marca **contra el objetivo de su escenario**, no contra "se hici
 - [ ] 5.1 En `QA-TEL-09` (presencial) y `QA-TEL-10` (baja) no aparece el bloque; solo la lista de activos
 - [ ] 5.2 Con el Usuario B no está la sección **Activos** en el submenú, la dirección directa deja la página vacía y no sale ninguna petición a `telework-supplies`
 - [ ] 5.3 Con la petición de la matriz bloqueada, el bloque muestra **No se pudo cargar el cumplimiento de insumos.** con **Reintentar**, la lista de activos sigue funcionando, y al desbloquear y reintentar, el bloque vuelve
-- [ ] 6.1 A 360 px no hay desplazamiento horizontal y los renglones quedan en una columna apilada; desde unos 850 px cada renglón pasa a tres columnas
+- [ ] 6.1 A 360 px no hay desplazamiento horizontal y los renglones quedan apilados (rótulo, estado, activos); a unos 850 px siguen apilados y desde unos 1024 px el renglón se abre con el estado al extremo derecho
 - [ ] 6.2 **No verificable aquí** (el backoffice fuerza el español y esconde el cambio de idioma); se declara con su motivo y lo cubren los locales es/en y `npm run lint:i18n`
 
 Recorrido pendiente: cada casilla se marca **contra el objetivo de su escenario**.
