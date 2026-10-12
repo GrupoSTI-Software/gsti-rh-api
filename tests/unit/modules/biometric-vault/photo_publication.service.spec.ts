@@ -12,6 +12,7 @@ import type {
   PublicationInsert,
 } from '#modules/biometric-vault/photo/photo_publication.repository'
 import type { DeviceCommandPort, EnqueueCommandInput } from '#modules/device-commands/device_command_port'
+import type DeviceCommand from '#models/device_command'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
 
@@ -26,7 +27,17 @@ function publicationOf(overrides: Partial<BiometricPhotoPublication> = {}): Biom
   } as BiometricPhotoPublication
 }
 
-function makeService(live: BiometricPhotoPublication[] = []) {
+interface Options {
+  live?: BiometricPhotoPublication[]
+  /** Orden de foto viva hacia ese equipo, si ya habia una. */
+  liveCommand?: DeviceCommand | null
+  /** Lo que devuelve `findById`: la publicacion que esa orden ya lleva. */
+  byId?: BiometricPhotoPublication | null
+}
+
+function makeService(liveOrOptions: BiometricPhotoPublication[] | Options = []) {
+  const options: Options = Array.isArray(liveOrOptions) ? { live: liveOrOptions } : liveOrOptions
+  const live = options.live ?? []
   const created: PublicationInsert[] = []
   const saved: BiometricPhotoPublication[] = []
   const enqueued: EnqueueCommandInput[] = []
@@ -40,7 +51,7 @@ function makeService(live: BiometricPhotoPublication[] = []) {
       return null
     },
     async findById() {
-      return null
+      return options.byId ?? null
     },
     async findByIdUnscoped() {
       return null
@@ -56,6 +67,9 @@ function makeService(live: BiometricPhotoPublication[] = []) {
     async enqueue(input: EnqueueCommandInput) {
       enqueued.push(input)
       return { command: {}, created: true }
+    },
+    async findLive() {
+      return options.liveCommand ?? null
     },
   } as unknown as DeviceCommandPort
 
@@ -102,6 +116,25 @@ test.group('Publicacion de la foto hacia un checador', () => {
     const { service, created } = makeService()
     await service.publish(INPUT)
     assert.equal(created[0].expiresAt.toISO(), NOW.plus({ hours: 24 }).toISO())
+  })
+
+  /**
+   * Antes se creaba el permiso con su enlace y DESPUES la orden; si la orden
+   * ya vivia, el permiso nuevo quedaba 24 h abierto sin nadie que lo llevara.
+   */
+  test('con la orden ya viva no se publica otra vez', async ({ assert }) => {
+    const existente = publicationOf({ biometricPhotoPublicationId: 9 })
+    const { service, created, enqueued } = makeService({
+      liveCommand: { biometricPhotoPublicationId: 9 } as DeviceCommand,
+      byId: existente,
+    })
+    const result = await service.publish(INPUT)
+
+    assert.isFalse(result.commandCreated)
+    assert.equal(result.publication.biometricPhotoPublicationId, 9)
+    assert.equal(result.token, '')
+    assert.lengthOf(created, 0)
+    assert.lengthOf(enqueued, 0)
   })
 
   test('retirar cierra todas las publicaciones vivas del colaborador', async ({ assert }) => {
