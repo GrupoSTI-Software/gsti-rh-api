@@ -10,7 +10,11 @@ import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/emp
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 import type DeviceCommand from '#models/device_command'
 import { parseDeviceCmdBody } from '../wire/adms_ack.parser.js'
-import type { DeviceCommandRepository } from '../device_command.repository.js'
+import type {
+  DeviceCommandRepository,
+  ExecutedCopyLookup,
+} from '../device_command.repository.js'
+import { isFaceCommand } from '../evidence/execution_evidence.service.js'
 import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/device_profile.repository.mysql'
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
 import type { DeviceCommandCountersSnapshot } from '#models/device_command'
@@ -70,7 +74,8 @@ export default class CommandAckService {
     private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
     private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
     private readonly commands: DeviceCommandService = new DeviceCommandService(),
-    private readonly photos: PhotoDispatchPort = new PhotoDispatchService()
+    private readonly photos: PhotoDispatchPort = new PhotoDispatchService(),
+    private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql()
   ) {}
 
   async apply(input: AckInput): Promise<AckOutcome> {
@@ -193,6 +198,9 @@ export default class CommandAckService {
    * - La foto nueva solo cuenta si el equipo la descargo por su enlace ANTES
    *   de acusar. Sin descarga queda acusada y espera su contador o su checada;
    *   el barrido la da por fallida si no llega.
+   * - La recopia de un dedo que ese equipo ya tenia ejecutado se cierra con
+   *   el acuse: reescribir un dedo no mueve el contador, asi que esperar una
+   *   prueba posterior era esperar algo que no iba a llegar.
    */
   private async evidenceAtAck(command: DeviceCommand): Promise<DeviceCommandEvidence | null> {
     switch (command.deviceCommandKind) {
@@ -203,6 +211,16 @@ export default class CommandAckService {
         return (await this.photos.wasDownloaded(command))
           ? DEVICE_COMMAND_EVIDENCE.PHOTO_DOWNLOADED
           : null
+      case DEVICE_COMMAND_KIND.BIODATA_WRITE: {
+        const key = command.deviceCommandCorrelationKey
+        if (key === null || isFaceCommand(command)) return null
+        const delivered = await this.copies.hasExecutedByCorrelation(
+          command.accessPointId,
+          key,
+          command.deviceCommandId
+        )
+        return delivered ? DEVICE_COMMAND_EVIDENCE.ACK : null
+      }
       default:
         return null
     }

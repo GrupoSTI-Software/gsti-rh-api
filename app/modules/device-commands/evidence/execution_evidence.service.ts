@@ -110,6 +110,12 @@ export default class ExecutionEvidenceService {
    * Aqui no hay dedo: la checada no dice con cual se marco, asi que cierra
    * cualquier enrolamiento vivo de ese PIN. Es correcto: si la persona marco
    * con huella, el aparato tiene al menos una suya, que es lo que se pedia.
+   *
+   * Cierra tambien las COPIAS de huella de ese PIN, igual que una checada con
+   * rostro cierra las de rostro. Antes solo cerraba enrolamientos, y una copia
+   * acusada se quedaba esperando un contador que no siempre llega: a los
+   * treinta minutos el barrido la daba por fallida con la persona marcando con
+   * ese mismo dedo.
    */
   async fromPunch(input: {
     accessPointId: number
@@ -124,10 +130,11 @@ export default class ExecutionEvidenceService {
     if (input.verify !== ATTLOG_VERIFY_FINGERPRINT) return 0
     const commands = await this.repository.findAwaitingEvidence({
       accessPointId: input.accessPointId,
-      kinds: [DEVICE_COMMAND_KIND.ENROLL_FP],
+      kinds: [DEVICE_COMMAND_KIND.ENROLL_FP, DEVICE_COMMAND_KIND.BIODATA_WRITE],
       pin: input.pin,
     })
-    return this.markAll(commands, DEVICE_COMMAND_EVIDENCE.ATTLOG_VERIFY, input.now)
+    const fingerprints = commands.filter((command) => !isFaceCommand(command))
+    return this.markAll(fingerprints, DEVICE_COMMAND_EVIDENCE.ATTLOG_VERIFY, input.now)
   }
 
   /**
@@ -208,9 +215,24 @@ export default class ExecutionEvidenceService {
         (command) => current - (command.deviceCommandCountersSnapshot?.[args.counter] ?? 0)
       )
     )
-    if (rise < acked.length) return 0
+    if (rise >= acked.length) {
+      return this.markAll(acked, DEVICE_COMMAND_EVIDENCE.COUNTER_UP, args.now)
+    }
 
-    return this.markAll(acked, DEVICE_COMMAND_EVIDENCE.COUNTER_UP, args.now)
+    /**
+     * El alza no cubre todo. Entre COPIAS se acreditan las mas antiguas hasta
+     * donde alcanza: un dedo que ya estaba dentro se reescribe sin mover el
+     * contador, asi que exigir que el alza las cubra a todas dejaba todas sin
+     * acreditar y el barrido las daba por fallidas con el dato dentro.
+     *
+     * Los enrolamientos quedan fuera del reparto parcial: ahi el contador no
+     * dice de quien es la huella nueva y acreditarle el alza a uno seria
+     * adivinar. Su prueba fuerte es la subida del biometrico.
+     */
+    const copies = acked
+      .filter((command) => command.deviceCommandKind === DEVICE_COMMAND_KIND.BIODATA_WRITE)
+      .sort(byAckedAt)
+    return this.markAll(copies.slice(0, rise), DEVICE_COMMAND_EVIDENCE.COUNTER_UP, args.now)
   }
 
   /** Fotos y copias de rostro esperando prueba para ese PIN en ese equipo. */
@@ -238,6 +260,13 @@ export default class ExecutionEvidenceService {
     }
     return marked
   }
+}
+
+/** Del acuse mas viejo al mas nuevo; sin fecha de acuse, al final. */
+function byAckedAt(a: DeviceCommand, b: DeviceCommand): number {
+  const left = a.deviceCommandAckedAt?.toMillis() ?? Number.MAX_SAFE_INTEGER
+  const right = b.deviceCommandAckedAt?.toMillis() ?? Number.MAX_SAFE_INTEGER
+  return left - right || a.deviceCommandId - b.deviceCommandId
 }
 
 /**
