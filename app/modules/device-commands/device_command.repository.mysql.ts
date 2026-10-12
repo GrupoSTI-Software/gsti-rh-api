@@ -362,6 +362,39 @@ export default class DeviceCommandRepositoryMysql
     return query.orderBy('device_command_id', 'asc')
   }
 
+  async countFingerprintsBelievedInside(accessPointId: number): Promise<number> {
+    /**
+     * Consulta cruda a proposito: une dos tablas y la corte por empresa ya la
+     * hizo quien resolvio el equipo. Una copia de rostro se distingue por su
+     * llave de correlacion (`biodata:<pin>:9:<no>`), igual que en `isFaceCommand`.
+     */
+    const result = await db.rawQuery(
+      `SELECT COUNT(*) AS total FROM (
+         SELECT employee_id, biometric_template_bio_no AS bio_no
+           FROM biometric_templates
+          WHERE source_access_point_id = ? AND biometric_template_bio_type = ?
+         UNION
+         SELECT employee_id, device_command_bio_no
+           FROM device_commands
+          WHERE access_point_id = ? AND device_command_kind = ?
+            AND device_command_status IN (?, ?)
+            AND employee_id IS NOT NULL AND device_command_bio_no IS NOT NULL
+            AND (device_command_correlation_key IS NULL OR device_command_correlation_key NOT LIKE ?)
+       ) AS inside`,
+      [
+        accessPointId,
+        BIO_TYPE.FINGERPRINT,
+        accessPointId,
+        DEVICE_COMMAND_KIND.BIODATA_WRITE,
+        DEVICE_COMMAND_STATUS.EXECUTED,
+        DEVICE_COMMAND_STATUS.ACKED,
+        `biodata:%:${BIO_TYPE.FACE}:%`,
+      ]
+    )
+    const rows = result[0] as Array<{ total: number | string }>
+    return Number(rows[0]?.total ?? 0)
+  }
+
   async save(command: DeviceCommand): Promise<void> {
     await command.save()
   }

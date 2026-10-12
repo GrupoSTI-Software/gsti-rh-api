@@ -119,6 +119,12 @@ export const DEVICE_COMMAND_EVIDENCE = {
   ATTLOG_VERIFY: 'attlog_verify',
   /** El contador del equipo subio respecto al que se guardo al acusar. */
   COUNTER_UP: 'counter_up',
+  /**
+   * El contador del equipo cubre todo lo que el sistema cree dentro, copias
+   * acusadas incluidas. Prueba de una recopia a un equipo que ya tenia el dedo
+   * sin que la base lo supiera: reescribirlo no mueve el contador.
+   */
+  COUNTER_MATCHES: 'counter_matches',
   /** El equipo bajo la foto por su enlace y despues acuso `Return=0`. */
   PHOTO_DOWNLOADED: 'photo_downloaded',
 } as const

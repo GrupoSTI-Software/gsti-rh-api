@@ -168,5 +168,11 @@ export interface DeviceCommandRepository {
     pin?: string
     bioNo?: number
   }): Promise<DeviceCommand[]>
+  /**
+   * Dedos distintos (colaborador y numero) que el sistema cree dentro de ese
+   * equipo: los capturados ahi mas las copias ejecutadas o acusadas. Es con lo
+   * que se compara el contador de huellas del aparato.
+   */
+  countFingerprintsBelievedInside(accessPointId: number): Promise<number>
   save(command: DeviceCommand): Promise<void>
 }

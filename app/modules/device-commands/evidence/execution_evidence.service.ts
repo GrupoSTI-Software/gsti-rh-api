@@ -166,6 +166,11 @@ export default class ExecutionEvidenceService {
       counters: input.counters,
       now: input.now,
     })
+    const matched = await this.closeCopiesByMatch({
+      accessPointId: input.accessPointId,
+      fpCount: input.counters.fpCount,
+      now: input.now,
+    })
     /**
      * El rostro se mide con su propio contador. Una foto que reemplaza a otra
      * no lo mueve --el PIN ya tenia cara-- y por eso la prueba principal de la
@@ -179,7 +184,47 @@ export default class ExecutionEvidenceService {
       counters: input.counters,
       now: input.now,
     })
-    return fingerprints + faces
+    return fingerprints + matched + faces
+  }
+
+  /**
+   * Copias de huella acusadas cuyo contador no subio porque el equipo YA tenia
+   * el dedo sin que la base lo supiera (equipo recreado, huellas de antes del
+   * sistema, recopia tras un reset).
+   *
+   * Se acreditan cuando el contador del aparato cubre todo lo que el sistema
+   * cree dentro, estas copias incluidas. El aparato rechaza con `Return` distinto
+   * de cero un template que no puede escribir (la bateria midio `-30` por
+   * version), asi que una copia acusada sin prueba es casi siempre un dedo
+   * reescrito; el contador es la comprobacion de que nada falta. Si el contador
+   * queda corto, alguna no entro y no se puede decir cual: se dejan abiertas.
+   *
+   * Solo copias, nunca enrolamientos: un dedo nuevo si tiene que mover el
+   * contador, y su prueba fuerte es la subida del biometrico.
+   */
+  private async closeCopiesByMatch(args: {
+    accessPointId: number
+    fpCount: number | null
+    now: DateTime
+  }): Promise<number> {
+    if (args.fpCount === null) return 0
+    const awaiting = await this.repository.findAwaitingEvidence({
+      accessPointId: args.accessPointId,
+      kinds: [DEVICE_COMMAND_KIND.BIODATA_WRITE],
+    })
+    const copies = awaiting.filter(
+      (command) =>
+        command.deviceCommandKind === DEVICE_COMMAND_KIND.BIODATA_WRITE &&
+        !isFaceCommand(command) &&
+        command.deviceCommandStatus === DEVICE_COMMAND_STATUS.ACKED
+    )
+    if (copies.length === 0) return 0
+
+    const believedInside = await this.repository.countFingerprintsBelievedInside(
+      args.accessPointId
+    )
+    if (believedInside === 0 || args.fpCount < believedInside) return 0
+    return this.markAll(copies, DEVICE_COMMAND_EVIDENCE.COUNTER_MATCHES, args.now)
   }
 
   /** Cierra lo que el alza de UN contador alcanza a explicar. */

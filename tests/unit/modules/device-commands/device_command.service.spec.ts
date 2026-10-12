@@ -104,6 +104,9 @@ function makeService(options: Options = {}) {
     async markFailedIfStill() {
       return true
     },
+    async countFingerprintsBelievedInside() {
+      return 0
+    },
     async save(command) {
       saved.push(command)
     },
