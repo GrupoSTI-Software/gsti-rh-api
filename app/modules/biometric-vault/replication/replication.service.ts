@@ -120,8 +120,9 @@ export default class ReplicationService {
       .where('employee_id', input.employeeId)
       .whereNull('employee_biometric_face_id_deleted_at')
       .first()
+    const faceUse = faceId?.employeeBiometricFaceIdDeviceUse === true
     /** Con `only` la foto no viaja: ya tiene sus propios caminos. */
-    const photoEnabled = only === null && faceId?.employeeBiometricFaceIdDeviceUse === true
+    const photoEnabled = only === null && faceUse
 
     const targets: ReplicationTargetResult[] = []
     for (const accessPointId of input.targetAccessPointIds) {
@@ -132,6 +133,7 @@ export default class ReplicationService {
           slots,
           modalities,
           photoEnabled,
+          faceUse,
           derivativeVersion: faceId?.employeeBiometricFaceIdDerivativeVersion ?? 0,
           now,
         })
@@ -147,6 +149,7 @@ export default class ReplicationService {
     slots: TemplateSlot[]
     modalities: ReplicationModality[]
     photoEnabled: boolean
+    faceUse: boolean
     derivativeVersion: number
     now: DateTime
   }): Promise<ReplicationTargetResult> {
@@ -202,6 +205,7 @@ export default class ReplicationService {
           pin,
           slots,
           photoEnabled,
+          faceUse: args.faceUse,
           faceSupported: acceptsFacePhoto(profile ?? null),
           derivativeVersion: args.derivativeVersion,
           targetVersion: result.faceVersion,
@@ -358,6 +362,7 @@ export default class ReplicationService {
     pin: string
     slots: TemplateSlot[]
     photoEnabled: boolean
+    faceUse: boolean
     faceSupported: boolean
     derivativeVersion: number
     targetVersion: string | null
@@ -368,6 +373,10 @@ export default class ReplicationService {
 
     if (!args.faceSupported) {
       return skip(REPLICATION_MODALITY.FACE, BIO_TYPE.FACE, REPLICATION_SKIP.NO_FACE_SUPPORT)
+    }
+    /** Con el interruptor apagado el rostro no sale por ninguna via, tampoco por template. */
+    if (!args.faceUse) {
+      return skip(REPLICATION_MODALITY.FACE, BIO_TYPE.FACE, REPLICATION_SKIP.FACE_USE_OFF)
     }
 
     /**

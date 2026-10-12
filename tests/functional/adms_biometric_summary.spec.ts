@@ -10,6 +10,7 @@ import AdmsIncident from '#models/adms_incident'
 import DeviceCommand from '#models/device_command'
 import Employee from '#models/employee'
 import EmployeeBiometric from '#models/employee_biometric'
+import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import { TenantContext } from '#utils/tenant_context'
 import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
@@ -314,6 +315,65 @@ test.group('ADMS resumen de biometricos del colaborador', (group) => {
     assert.equal(summary.face.state, BIOMETRIC_SLOT_STATE.REGISTERED)
 
     await TenantContext.runUnscoped(() => deleteTemplate(faceId), 'limpieza del rostro')
+  })
+
+  /**
+   * "Usar tambien para reconocimiento facial en checadores" manda sobre el
+   * rostro: apagado, no se ofrece ni como copiable ni como incompatible,
+   * porque no va a viajar por ninguna via (decision de Wilvardo 2026-10-12).
+   */
+  test('con el uso en checadores apagado el rostro no se ofrece; encendido, es copiable', async ({
+    assert,
+  }) => {
+    const faceTemplateId = await TenantContext.runUnscoped(
+      () =>
+        storeTemplate({
+          bioType: BIO_TYPE.FACE,
+          bioNo: 0,
+          majorVer: FACE_VERSION,
+          sourceAccessPointId: one.accessPointId,
+          blob: FACE_BLOB,
+        }),
+      'rostro capturado en el primero'
+    )
+    const faceRow = await TenantContext.runUnscoped(async () => {
+      await AccessPointProfile.query()
+        .where('access_point_id', two.accessPointId)
+        .update({ access_point_profile_face_version: FACE_VERSION })
+      const row = new EmployeeBiometricFaceId()
+      row.employeeId = employee.employeeId
+      row.businessUnitId = businessUnitId
+      row.employeeBiometricFaceIdPhotoUrl = `test/${STAMP}.jpg`
+      row.employeeBiometricFaceIdDeviceUse = false
+      row.employeeBiometricFaceIdDerivativeVersion = 0
+      await row.save()
+      return row
+    }, 'foto con el interruptor apagado')
+
+    try {
+      const off = await summaryOf(two.accessPointId)
+      assert.isNull(off.face.state)
+      assert.isFalse(off.face.registered)
+
+      await TenantContext.runUnscoped(async () => {
+        faceRow.employeeBiometricFaceIdDeviceUse = true
+        await faceRow.save()
+      }, 'interruptor encendido')
+
+      const on = await summaryOf(two.accessPointId)
+      assert.equal(on.face.state, BIOMETRIC_SLOT_STATE.COPYABLE)
+    } finally {
+      await TenantContext.runUnscoped(async () => {
+        await db
+          .from('employee_biometric_face_ids')
+          .where('employee_biometric_face_id_id', faceRow.employeeBiometricFaceIdId)
+          .delete()
+        await AccessPointProfile.query()
+          .where('access_point_id', two.accessPointId)
+          .update({ access_point_profile_face_version: null })
+        await deleteTemplate(faceTemplateId)
+      }, 'limpieza del rostro')
+    }
   })
 
   /**

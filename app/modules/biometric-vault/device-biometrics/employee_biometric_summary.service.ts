@@ -4,6 +4,7 @@ import AccessPointEmployee, {
 } from '#models/access_point_employee'
 import AccessPointProfile from '#models/access_point_profile'
 import AdmsIncident from '#models/adms_incident'
+import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import { ADMS_COPY_BLOCKING_KINDS, ADMS_PROFILE_UNSCOPED_REASON } from '#modules/adms/adms.constants'
 import { TenantContext } from '#utils/tenant_context'
 import DeviceCommand from '#models/device_command'
@@ -288,6 +289,16 @@ export default class EmployeeBiometricSummaryService {
       face = betterState(face, BIOMETRIC_SLOT_STATE.SENT)
     }
 
+    /**
+     * Con "usar tambien para reconocimiento facial en checadores" apagado, el
+     * rostro no se ofrece: ni copiable ni incompatible, porque no va a viajar
+     * por ninguna via. Lo que ya este dentro o en camino se sigue diciendo,
+     * que es la verdad del aparato hasta que la baja lo retire.
+     */
+    if (withPhoto && face !== null && !(await this.faceUseOf(employeeId))) {
+      if (face !== BIOMETRIC_SLOT_STATE.HERE && face !== BIOMETRIC_SLOT_STATE.SENT) face = null
+    }
+
     return {
       fingers: [...fingers.entries()]
         .sort(([a], [b]) => a - b)
@@ -298,6 +309,16 @@ export default class EmployeeBiometricSummaryService {
       withheldBy: await this.withholdingIncident(accessPointId),
       facePhoto,
     }
+  }
+
+  /** El interruptor de la foto: manda sobre todo lo que sea rostro hacia checadores. */
+  private async faceUseOf(employeeId: number): Promise<boolean> {
+    const faceId = await EmployeeBiometricFaceId.query()
+      .where('employee_id', employeeId)
+      .whereNull('employee_biometric_face_id_deleted_at')
+      .select('employee_biometric_face_id_device_use')
+      .first()
+    return faceId?.employeeBiometricFaceIdDeviceUse === true
   }
 
   /**
