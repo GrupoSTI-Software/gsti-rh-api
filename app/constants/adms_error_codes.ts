@@ -44,6 +44,8 @@ export const ADMS_ERROR_CODES = {
   PIN_INVALID: 'ADMS.PIN.003',
   /** PIN pendiente no encontrado. */
   PIN_PENDING_NOT_FOUND: 'ADMS.PIN.004',
+  /** El numero pendiente ya se vinculo o se descarto. */
+  PIN_PENDING_RESOLVED: 'ADMS.PIN.005',
 
   /** El equipo acuso una orden y su propio estado dice que no la aplico. */
   CMD_NOT_APPLIED: 'ADMS.CMD.001',

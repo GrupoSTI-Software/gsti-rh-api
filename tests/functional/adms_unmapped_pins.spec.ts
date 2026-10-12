@@ -508,6 +508,9 @@ test.group('ADMS PINs sin dueno (servicio)', (group) => {
         .where('adms_held_punch_status', 'attributed')
       assert.lengthOf(attributed, 3)
       assert.isTrue(attributed.every((punch) => punch.admsHeldPunchAttributedAt !== null))
+      /** Las dos acreditadas hoy quedan enlazadas a la checada que las acredito. */
+      const linkedNow = attributed.filter((punch) => punch.assistId !== null)
+      assert.lengthOf(linkedNow, 2)
 
       /** Las checadas existen ya a nombre del colaborador, con la serie del equipo. */
       const assists = await Assist.query()
@@ -519,6 +522,10 @@ test.group('ADMS PINs sin dueno (servicio)', (group) => {
       assert.sameMembers(
         assists.map((assist) => assist.assistPunchTimeUtc.toMillis()),
         heldPunchTimes.map((at) => at.toMillis())
+      )
+      assert.sameMembers(
+        linkedNow.map((punch) => punch.assistId),
+        assists.map((assist) => assist.assistId)
       )
 
       /** Con `deferCalendarRecalc` el recalculo se encola, una vez por colaborador. */
@@ -548,6 +555,7 @@ test.group('ADMS PINs sin dueno (servicio)', (group) => {
 
       const row = await AdmsUnmappedPin.findOrFail(mainRow.admsUnmappedPinId)
       assert.equal(row.admsUnmappedPinStatus, 'linked')
+      assert.equal(row.linkedEmployeeId, codeEmployee.employeeId)
       assert.isNull(row.admsUnmappedPinName)
       assert.equal(row.admsUnmappedPinResolvedByUserId, userId)
       assert.isNotNull(row.admsUnmappedPinResolvedAt)
@@ -559,6 +567,42 @@ test.group('ADMS PINs sin dueno (servicio)', (group) => {
         .first()
       assert.isNull(raw.adms_unmapped_pin_name)
     }, 'verificacion del vinculo')
+  })
+
+  /** Volver a vincular una fila resuelta le colgaria un segundo pivote a otra persona. */
+  test('una fila ya resuelta no se vuelve a vincular ni a descartar', async ({ assert }) => {
+    const attempts: Array<() => Promise<unknown>> = [
+      () =>
+        inScope(() =>
+          service.link({
+            unmappedPinId: mainRow.admsUnmappedPinId,
+            employeeId: nameEmployee.employeeId,
+            businessUnitIds: [businessUnitId],
+            userId,
+          })
+        ),
+      () =>
+        inScope(() =>
+          service.dismiss({
+            unmappedPinId: mainRow.admsUnmappedPinId,
+            reason: 'tarde',
+            businessUnitIds: [businessUnitId],
+            userId,
+          })
+        ),
+    ]
+    for (const attempt of attempts) {
+      const error = await expectAdmsError(attempt)
+      assert.equal(error.httpStatus, 409)
+      assert.equal(error.key, 'pin-pendiente-resuelto')
+      assert.equal(error.code, ADMS_ERROR_CODES.PIN_PENDING_RESOLVED)
+    }
+    const row = await unscoped(
+      () => AdmsUnmappedPin.findOrFail(mainRow.admsUnmappedPinId),
+      'sigue vinculada al primero'
+    )
+    assert.equal(row.admsUnmappedPinStatus, 'linked')
+    assert.equal(row.linkedEmployeeId, codeEmployee.employeeId)
   })
 
   test('la fila vinculada sale de pendientes y ya no cuenta nada retenido', async ({ assert }) => {
