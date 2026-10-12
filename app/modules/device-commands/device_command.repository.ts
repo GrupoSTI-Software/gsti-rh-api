@@ -1,5 +1,6 @@
 import type { DateTime } from 'luxon'
 import type DeviceCommand from '#models/device_command'
+import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import type { DeviceCommandKind, DeviceCommandStatus } from './device_command.constants.js'
 
 export interface CommandInsert {
@@ -104,8 +105,19 @@ export interface DeviceCommandRepository {
    *
    * Devuelve falso si otra peticion se lo llevo primero; el que pierde no
    * entrega nada.
+   *
+   * `countersSnapshot` es la foto de los contadores del equipo ANTES de que
+   * reciba la orden: la linea base con la que despues se acredita que el
+   * biometrico entro. Se toma aqui y no al acusar porque hay firmwares que
+   * suben `options` antes de acusar, y una foto tomada al acusar ya traia el
+   * dato nuevo dentro.
    */
-  markSent(input: { commandId: number; payload: string; sentAt: DateTime }): Promise<boolean>
+  markSent(input: {
+    commandId: number
+    payload: string
+    sentAt: DateTime
+    countersSnapshot?: DeviceCommandCountersSnapshot | null
+  }): Promise<boolean>
   /**
    * Devuelve a la cola los comandos que salieron y nadie acuso.
    *

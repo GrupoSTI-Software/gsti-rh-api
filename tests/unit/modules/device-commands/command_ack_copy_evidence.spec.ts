@@ -44,7 +44,25 @@ function copyOf(overrides: Partial<DeviceCommand> = {}): DeviceCommand {
   } as DeviceCommand
 }
 
-function makeService(command: DeviceCommand, delivered: boolean) {
+/** Perfil con contadores declarados; `null` es un equipo que aun no sube `options`. */
+function profileWith(fpCount: number | null): DeviceProfileRepository {
+  return {
+    async findByAccessPoint() {
+      if (fpCount === null) return null
+      return {
+        accessPointProfileUserCount: 1,
+        accessPointProfileFpCount: fpCount,
+        accessPointProfileFaceCount: 1,
+      }
+    },
+  } as unknown as DeviceProfileRepository
+}
+
+function makeService(
+  command: DeviceCommand,
+  delivered: boolean,
+  profiles: DeviceProfileRepository = NO_PROFILE
+) {
   const saved: DeviceCommand[] = []
   const asked: Array<{ accessPointId: number; key: string; exclude?: number }> = []
   const repository = {
@@ -61,14 +79,7 @@ function makeService(command: DeviceCommand, delivered: boolean) {
       return delivered
     },
   }
-  const service = new CommandAckService(
-    repository,
-    undefined,
-    NO_PROFILE,
-    undefined,
-    undefined,
-    copies
-  )
+  const service = new CommandAckService(repository, undefined, profiles, undefined, undefined, copies)
   return { service, saved, asked }
 }
 
@@ -119,6 +130,66 @@ test.group('Acuse de una copia de huella', () => {
 
     assert.equal(saved[0].deviceCommandStatus, 'acked')
     assert.lengthOf(asked, 0)
+  })
+
+  /**
+   * Medido el 2026-10-12 con el SpeedFace: subio `options` con el dedo nuevo
+   * ya contado DOS SEGUNDOS ANTES de acusar. Con la linea base tomada al
+   * despachar, el propio acuse ya trae la prueba: el contador subio.
+   */
+  test('si el contador ya subio desde el despacho, el acuse cierra con counter_up', async ({
+    assert,
+  }) => {
+    const { service, saved } = makeService(
+      copyOf({ deviceCommandCountersSnapshot: { userCount: 1, fpCount: 1, faceCount: 1 } }),
+      false,
+      profileWith(2)
+    )
+    await service.apply(ACK)
+
+    assert.equal(saved[0].deviceCommandStatus, 'executed')
+    assert.equal(saved[0].deviceCommandExecutionEvidence, 'counter_up')
+    // La linea base del despacho se conserva: es la que explica el alza.
+    assert.deepEqual(saved[0].deviceCommandCountersSnapshot, {
+      userCount: 1,
+      fpCount: 1,
+      faceCount: 1,
+    })
+  })
+
+  test('si el contador no se movio desde el despacho, el acuse espera su prueba', async ({
+    assert,
+  }) => {
+    const { service, saved } = makeService(
+      copyOf({ deviceCommandCountersSnapshot: { userCount: 1, fpCount: 2, faceCount: 1 } }),
+      false,
+      profileWith(2)
+    )
+    await service.apply(ACK)
+
+    assert.equal(saved[0].deviceCommandStatus, 'acked')
+    assert.deepEqual(saved[0].deviceCommandCountersSnapshot, {
+      userCount: 1,
+      fpCount: 2,
+      faceCount: 1,
+    })
+  })
+
+  /** Un comando que salio antes de este cambio no trae linea base: se le toma al acusar. */
+  test('sin linea base del despacho, el acuse la toma como antes', async ({ assert }) => {
+    const { service, saved } = makeService(
+      copyOf({ deviceCommandCountersSnapshot: null }),
+      false,
+      profileWith(2)
+    )
+    await service.apply(ACK)
+
+    assert.equal(saved[0].deviceCommandStatus, 'acked')
+    assert.deepEqual(saved[0].deviceCommandCountersSnapshot, {
+      userCount: 1,
+      fpCount: 2,
+      faceCount: 1,
+    })
   })
 
   test('un rechazo del equipo sigue siendo un fallo, haya entrega previa o no', async ({

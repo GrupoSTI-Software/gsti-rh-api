@@ -1,6 +1,7 @@
 import type { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import DeviceCommand from '#models/device_command'
+import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
@@ -264,6 +265,7 @@ export default class DeviceCommandRepositoryMysql
     commandId: number
     payload: string
     sentAt: DateTime
+    countersSnapshot?: DeviceCommandCountersSnapshot | null
   }): Promise<boolean> {
     return db.transaction(async (trx) => {
       const command = await DeviceCommand.query({ client: trx })
@@ -276,6 +278,9 @@ export default class DeviceCommandRepositoryMysql
       command.deviceCommandPayload = input.payload
       command.deviceCommandStatus = DEVICE_COMMAND_STATUS.SENT
       command.deviceCommandSentAt = input.sentAt
+      if (input.countersSnapshot !== undefined) {
+        command.deviceCommandCountersSnapshot = input.countersSnapshot
+      }
       await command.save()
       return true
     })
