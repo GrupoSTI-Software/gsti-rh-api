@@ -393,4 +393,75 @@ test.group('Activos e insumos — permissionGate con exigencia encendida', (grou
       await cleanupEmployeeFixture(superAdminEmployee)
     }
   })
+
+  test('matriz de insumos de teletrabajo: 403 sin supplies:read, 200 con read, owner y root cruzan por bypass', async ({
+    client,
+    assert,
+  }) => {
+    const tenant = required(actor, 'el actor')
+    const ownerAccount = required(owner, 'el owner')
+    const rootAccount = required(root, 'el root')
+    const superAdminAccount = required(superAdmin, 'el super-administrador')
+    const tenantEmployee = await createEmployeeFixture(
+      tenant.businessUnit.businessUnitId,
+      'twTenant'
+    )
+    const ownerEmployee = await createEmployeeFixture(
+      ownerAccount.businessUnit.businessUnitId,
+      'twOwner'
+    )
+    const rootEmployee = await createEmployeeFixture(rootAccount.businessUnit.businessUnitId, 'twRoot')
+    const superAdminEmployee = await createEmployeeFixture(
+      superAdminAccount.businessUnit.businessUnitId,
+      'twSuper'
+    )
+
+    try {
+      const url = (employeeId: number) => `/api/employees/${employeeId}/telework-supplies`
+
+      await grantModulePermissions(tenant, MODULE, [])
+      assertPermissionDenied(
+        assert,
+        await client
+          .get(url(tenantEmployee.employee.employeeId))
+          .loginAs(tenant.user)
+          .headers(businessUnitHeaders(tenant))
+      )
+
+      await grantModulePermissions(tenant, MODULE, ['read'])
+      const withRead = await client
+        .get(url(tenantEmployee.employee.employeeId))
+        .loginAs(tenant.user)
+        .headers(businessUnitHeaders(tenant))
+      withRead.assertStatus(200)
+
+      // El owner cruza el gate por el bypass `standard` y ve a su colaborador.
+      const ownerResponse = await client
+        .get(url(ownerEmployee.employee.employeeId))
+        .loginAs(ownerAccount.user)
+        .headers(businessUnitHeaders(ownerAccount))
+      ownerResponse.assertStatus(200)
+
+      // El root cruza el mismo bypass `standard` (isPlatformAccount) para la ruta nueva.
+      const rootResponse = await client
+        .get(url(rootEmployee.employee.employeeId))
+        .loginAs(rootAccount.user)
+        .headers(businessUnitHeaders(rootAccount))
+      rootResponse.assertStatus(200)
+
+      // El super-administrador no cruza el bypass `standard`.
+      assertPermissionDenied(
+        assert,
+        await client
+          .get(url(superAdminEmployee.employee.employeeId))
+          .loginAs(superAdminAccount.user)
+          .headers(businessUnitHeaders(superAdminAccount))
+      )
+    } finally {
+      await cleanupEmployeeFixture(tenantEmployee)
+      await cleanupEmployeeFixture(ownerEmployee)
+      await cleanupEmployeeFixture(rootEmployee)
+      await cleanupEmployeeFixture(superAdminEmployee)
+    }
+  })
 })
