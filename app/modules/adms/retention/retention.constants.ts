@@ -32,6 +32,7 @@ export const ADMS_RAW_RETENTION_MIN_DAYS = 30
 export const ADMS_COMMAND_RETENTION_MIN_DAYS = 30
 export const ADMS_PHOTO_PUBLICATION_RETENTION_MIN_DAYS = 1
 export const ADMS_QUARANTINE_RETENTION_MIN_DAYS = 7
+export const ADMS_INCIDENT_ORPHAN_RETENTION_MIN_DAYS = 7
 
 /**
  * Plazos por omision: los que corren en cualquier despliegue que no configure
@@ -45,6 +46,11 @@ export const ADMS_RAW_FAILED_RETENTION_DEFAULT_DAYS = 30
 export const ADMS_COMMAND_RETENTION_DEFAULT_DAYS = 365
 export const ADMS_PHOTO_PUBLICATION_RETENTION_DEFAULT_DAYS = 7
 export const ADMS_QUARANTINE_RETENTION_DEFAULT_DAYS = 30
+/**
+ * Un aviso sin equipo ni empresa --el punto de acceso se borro despues-- no
+ * tiene pantalla donde cerrarse: se va por plazo.
+ */
+export const ADMS_INCIDENT_ORPHAN_RETENTION_DEFAULT_DAYS = 30
 
 export function admsRawRetentionDays(): number {
   return boundedRetentionDays(
@@ -86,6 +92,14 @@ export function admsQuarantineRetentionDays(): number {
   )
 }
 
+export function admsIncidentOrphanRetentionDays(): number {
+  return boundedRetentionDays(
+    env.get('ADMS_INCIDENT_ORPHAN_RETENTION_DAYS'),
+    ADMS_INCIDENT_ORPHAN_RETENTION_DEFAULT_DAYS,
+    ADMS_INCIDENT_ORPHAN_RETENTION_MIN_DAYS
+  )
+}
+
 /** Filas por corrida. Purgar en tandas no bloquea la tabla para el canal. */
 export const ADMS_PURGE_BATCH_SIZE = 500
 
@@ -97,5 +111,6 @@ export function admsRetentionSummary(): Record<string, number> {
     commandDays: admsCommandRetentionDays(),
     photoPublicationDays: admsPhotoPublicationRetentionDays(),
     quarantineDays: admsQuarantineRetentionDays(),
+    incidentOrphanDays: admsIncidentOrphanRetentionDays(),
   }
 }

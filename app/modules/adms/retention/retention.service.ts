@@ -8,6 +8,7 @@ import { PHOTO_PUBLICATION_STATUS } from '#models/biometric_photo_publication'
 import {
   ADMS_PURGE_BATCH_SIZE,
   admsCommandRetentionDays,
+  admsIncidentOrphanRetentionDays,
   admsPhotoPublicationRetentionDays,
   admsQuarantineRetentionDays,
   admsRawFailedRetentionDays,
@@ -161,6 +162,29 @@ export default class RetentionService {
         'adms_quarantined_device_id',
         ids
       )
+    }, TENANT_UNSCOPED_REASON.ADMS_RETENTION)
+  }
+
+  /**
+   * Avisos que se quedaron sin equipo ni empresa.
+   *
+   * Pasa al borrar un punto de acceso: la llave foranea deja el aviso con el
+   * equipo en nulo, fuera de toda pantalla y sin nadie que lo cierre. Se van
+   * por plazo, nunca por tipo: el filtro es "sin equipo" y la fecha, nada mas.
+   */
+  async purgeOrphanIncidents(now: DateTime = DateTime.utc()): Promise<PurgeResult> {
+    const cutoff = now.minus({ days: admsIncidentOrphanRetentionDays() })
+
+    return TenantContext.runUnscoped(async () => {
+      const ids = await db
+        .from('adms_incidents')
+        .whereNull('access_point_id')
+        .where('adms_incident_created_at', '<', format(cutoff))
+        .orderBy('adms_incident_id', 'asc')
+        .limit(ADMS_PURGE_BATCH_SIZE)
+        .select('adms_incident_id')
+
+      return this.deleteByIds('adms_incidents', 'adms_incident_id', ids)
     }, TENANT_UNSCOPED_REASON.ADMS_RETENTION)
   }
 

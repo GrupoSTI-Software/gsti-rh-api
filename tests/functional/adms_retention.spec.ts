@@ -254,6 +254,61 @@ test.group('ADMS retencion (rebanada 12)', (group) => {
     )
   })
 
+  /**
+   * Un aviso cuyo equipo se borro queda con el punto de acceso en nulo y sin
+   * pantalla donde cerrarse. Se va por plazo; uno reciente o uno con equipo
+   * no se tocan, por viejo que sea el segundo.
+   */
+  test('un aviso sin equipo y viejo se purga; con equipo o reciente, no', async ({ assert }) => {
+    const insertIncident = (accessPointId: number | null, createdAt: DateTime) =>
+      db
+        .table('adms_incidents')
+        .insert({
+          access_point_id: accessPointId,
+          business_unit_id: accessPointId === null ? null : businessUnitId,
+          adms_incident_kind: 'parse_error',
+          adms_incident_severity: 'warning',
+          adms_incident_code: 'ADMS.VAL.002',
+          adms_incident_title: 'Prueba de retencion de avisos',
+          adms_incident_detail: 'Aviso de prueba',
+          adms_incident_key: `prueba-${STAMP}`,
+          adms_incident_status: 'open',
+          adms_incident_created_at: createdAt.toFormat('yyyy-MM-dd HH:mm:ss'),
+          adms_incident_updated_at: createdAt.toFormat('yyyy-MM-dd HH:mm:ss'),
+        })
+        .then(([id]) => Number(id))
+
+    const ids = await TenantContext.runUnscoped(async () => {
+      const now = DateTime.utc()
+      return {
+        huerfanoViejo: await insertIncident(null, now.minus({ days: 400 })),
+        huerfanoReciente: await insertIncident(null, now.minus({ days: 1 })),
+        conEquipoViejo: await insertIncident(accessPoint.accessPointId, now.minus({ days: 400 })),
+      }
+    }, 'avisos de prueba')
+
+    const result = await new RetentionService().purgeOrphanIncidents()
+    assert.isAtLeast(result.deleted, 1)
+
+    const quedan = await TenantContext.runUnscoped(
+      () =>
+        db
+          .from('adms_incidents')
+          .whereIn('adms_incident_id', Object.values(ids))
+          .select('adms_incident_id'),
+      'avisos tras la purga'
+    )
+    const vivos = quedan.map((row) => Number(row.adms_incident_id))
+    assert.notInclude(vivos, ids.huerfanoViejo)
+    assert.include(vivos, ids.huerfanoReciente)
+    assert.include(vivos, ids.conEquipoViejo)
+
+    await TenantContext.runUnscoped(
+      () => db.from('adms_incidents').whereIn('adms_incident_id', Object.values(ids)).delete(),
+      'limpieza de avisos'
+    )
+  })
+
   test('una cuarentena reclamada no se purga: es historia', async ({ assert }) => {
     const reclamada = await TenantContext.runUnscoped(async () => {
       const row = new AdmsQuarantinedDevice()
