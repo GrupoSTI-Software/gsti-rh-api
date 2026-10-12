@@ -125,6 +125,8 @@ export const DEVICE_COMMAND_EVIDENCE = {
    * sin que la base lo supiera: reescribirlo no mueve el contador.
    */
   COUNTER_MATCHES: 'counter_matches',
+  /** El equipo subio su padron despues del `CHECK` que se lo pidio. */
+  ROSTER_UPLOADED: 'roster_uploaded',
   /** El equipo bajo la foto por su enlace y despues acuso `Return=0`. */
   PHOTO_DOWNLOADED: 'photo_downloaded',
 } as const
