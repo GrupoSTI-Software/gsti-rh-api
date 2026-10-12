@@ -9,7 +9,7 @@ import {
 import { PLATFORM_DEVICE_ERROR_CODES } from '../constants/platform_device_error_codes.js'
 import { PlatformDeviceServiceError } from '../exceptions/platform_device_service_error.js'
 
-export type AccessPointPreloadOutcome = 'created' | 'adopted'
+export type AccessPointPreloadOutcome = 'created' | 'adopted' | 'restored'
 
 export interface PreloadAccessPointInput {
   /** Tenant que recibe la unidad, resuelto desde tenantPublicId. Nunca del request. */
@@ -83,6 +83,19 @@ export default class PlatformDeviceAccessPointService {
 
       if (existing) {
         return await this.resolveExisting(existing, businessUnitId, platformDeviceId, trx)
+      }
+
+      // El indice unico de la serie no distingue filas borradas: si la empresa
+      // borro el punto desde el Backoffice, crear uno nuevo chocaria con el
+      // renglon muerto. Ese renglon es el que hay que revivir.
+      const trashed = await AccessPoint.query({ client: trx })
+        .withTrashed()
+        .whereNotNull('access_point_deleted_at')
+        .where('access_point_serial_number', serial)
+        .first()
+
+      if (trashed) {
+        return await this.restoreTrashed(trashed, businessUnitId, platformDeviceId, trx)
       }
 
       return await this.createNew(businessUnitId, platformDeviceId, serial, modelName, trx)
@@ -222,6 +235,57 @@ export default class PlatformDeviceAccessPointService {
     await existing.save()
 
     return 'desactivado'
+  }
+
+  /**
+   * Revive el punto de acceso que la empresa borro desde el Backoffice.
+   *
+   * Se revive el mismo renglon en vez de crear otro: conserva el historial de
+   * checadas que apunta a el y su direccion del canal, que es la que ya esta
+   * tecleada en el aparato.
+   *
+   * @throws PlatformDeviceServiceError 409 — la serie quedo en un punto borrado de otra empresa.
+   */
+  private async restoreTrashed(
+    trashed: AccessPoint,
+    businessUnitId: number,
+    platformDeviceId: number,
+    trx: TransactionClientContract
+  ): Promise<PreloadAccessPointResult> {
+    if (trashed.businessUnitId !== businessUnitId) {
+      logger.warn(
+        {
+          serialNumber: trashed.accessPointSerialNumber,
+          occupantBusinessUnitId: trashed.businessUnitId,
+          occupantAccessPointId: trashed.accessPointId,
+          requestedBusinessUnitId: businessUnitId,
+        },
+        'Precarga de punto de acceso: serie retenida por un punto borrado de otro tenant'
+      )
+      throw new PlatformDeviceServiceError(
+        'Serie retenida por un punto de acceso borrado de otro tenant',
+        PLATFORM_DEVICE_ERROR_CODES.SERIAL_TAKEN_BY_OTHER_TENANT,
+        409,
+        PLATFORM_DEVICE_ERROR_CODES.SERIAL_TAKEN_BY_OTHER_TENANT,
+        'Ese checador estuvo dado de alta en otra empresa y conserva su historial. Retíralo del inventario de esa empresa antes de entregarlo a esta.'
+      )
+    }
+
+    trashed.useTransaction(trx)
+    trashed.deletedAt = null
+    trashed.platformDeviceId = platformDeviceId
+    trashed.accessPointActive = 1
+    AccessPoint.assignChannelSecret(trashed)
+    await trashed.save()
+
+    return {
+      outcome: 'restored',
+      accessPoint: {
+        accessPointId: trashed.accessPointId,
+        accessPointName: trashed.accessPointName,
+        accessPointSerialNumber: trashed.accessPointSerialNumber,
+      },
+    }
   }
 
   private async createNew(
