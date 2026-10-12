@@ -138,6 +138,8 @@ test('el resumen cuenta por estado, silla y cómputo como sin cubrir, y el enví
   ])
 
   assert.deepEqual(summarizeTeleworkSupplies(matrix), {
+    applies: true,
+    isLegallyRequired: true,
     deliveredCount: 1,
     shippingCount: 1,
     ownEquipmentCount: 0,
@@ -150,11 +152,28 @@ test('el resumen cuenta por estado, silla y cómputo como sin cubrir, y el enví
   ])
 
   assert.deepEqual(summarizeTeleworkSupplies(unsignedMatrix), {
+    applies: true,
+    isLegallyRequired: true,
     deliveredCount: 1,
     shippingCount: 0,
     ownEquipmentCount: 0,
     uncoveredCount: 1,
     unsignedCustodyCount: 1,
+  })
+
+  const belowThresholdMatrix = buildEmployeeTeleworkSupplies(
+    makeProfile({ workSchedule: EMPLOYEE_WORK_SCHEDULE.HYBRID, teleworkPercentage: 39.99 }),
+    [makeRow({ category: 'ergonomic_chair', assignmentStatus: 'active', hasContract: true })]
+  )
+
+  assert.deepEqual(summarizeTeleworkSupplies(belowThresholdMatrix), {
+    applies: true,
+    isLegallyRequired: false,
+    deliveredCount: 1,
+    shippingCount: 0,
+    ownEquipmentCount: 0,
+    uncoveredCount: 1,
+    unsignedCustodyCount: 0,
   })
 
   const noneMatrix = buildEmployeeTeleworkSupplies(
@@ -163,6 +182,8 @@ test('el resumen cuenta por estado, silla y cómputo como sin cubrir, y el enví
   )
 
   assert.deepEqual(summarizeTeleworkSupplies(noneMatrix), {
+    applies: false,
+    isLegallyRequired: false,
     deliveredCount: 0,
     shippingCount: 0,
     ownEquipmentCount: 0,

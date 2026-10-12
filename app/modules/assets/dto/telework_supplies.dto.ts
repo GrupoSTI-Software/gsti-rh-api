@@ -55,8 +55,16 @@ export type TeleworkSupplyCategoryDto =
       assets: []
     }
 
-/** Conteos por estado de la matriz de un colaborador. */
+/**
+ * Resumen de la matriz de un colaborador (§11): además de los conteos por
+ * estado reporta si le aplica la matriz y si el teletrabajo es obligatorio
+ * —los cinco HUs consumidores leen solo este resumen, nunca la matriz.
+ */
 export interface TeleworkSuppliesSummary {
+  /** Si el colaborador aplica a la matriz (modalidad, porcentaje y alta). */
+  applies: boolean
+  /** Si su porcentaje alcanza el umbral legal inclusivo (R4). */
+  isLegallyRequired: boolean
   deliveredCount: number
   shippingCount: number
   ownEquipmentCount: number

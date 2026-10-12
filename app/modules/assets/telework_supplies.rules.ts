@@ -33,9 +33,15 @@ function assertNever(value: never): never {
   throw new Error(`Estado de cobertura no manejado: ${String(value)}`)
 }
 
-/** Resumen en ceros, siempre una instancia nueva (evita mutación compartida). */
+/**
+ * Resumen base sin aplicar, siempre una instancia nueva (evita mutación
+ * compartida): `applies`/`isLegallyRequired` en falso y los cinco conteos en
+ * cero.
+ */
 function emptySummary(): TeleworkSuppliesSummary {
   return {
+    applies: false,
+    isLegallyRequired: false,
     deliveredCount: 0,
     shippingCount: 0,
     ownEquipmentCount: 0,
@@ -154,6 +160,8 @@ export function summarizeTeleworkSupplies(
   }
 
   const summary = emptySummary()
+  summary.applies = matrix.applies
+  summary.isLegallyRequired = matrix.isLegallyRequired
   const unsignedCustodyIds = new Set<number>()
 
   for (const category of matrix.categories) {
