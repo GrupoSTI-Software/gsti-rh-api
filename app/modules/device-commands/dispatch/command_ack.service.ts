@@ -19,7 +19,7 @@ import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/d
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
 import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import DeviceCommandService from '../device_command.service.js'
-import { canTransition } from '../device_command.state.js'
+import { canTransition, wasDispatchedBefore } from '../device_command.state.js'
 import PhotoDispatchService from '#modules/biometric-vault/photo/photo_dispatch.service'
 import type { PhotoDispatchPort } from '#modules/biometric-vault/photo/photo_dispatch.port'
 import type { DeviceCommandEvidence } from '../device_command.constants.js'
@@ -126,7 +126,13 @@ export default class CommandAckService {
       }
     }
 
-    if (!canTransition(command.deviceCommandStatus, target)) {
+    /**
+     * Un acuse tardio: la orden viajo, el barrido la devolvio a la cola y el
+     * equipo la acusa antes de que se reenvie. Se aplica como si siguiera en
+     * vuelo; rechazarla dejaba fallido o repetido algo que el aparato ya hizo.
+     */
+    const from = wasDispatchedBefore(command) ? DEVICE_COMMAND_STATUS.SENT : command.deviceCommandStatus
+    if (!canTransition(from, target)) {
       return {
         kind: 'stale',
         commandId: command.deviceCommandId,
