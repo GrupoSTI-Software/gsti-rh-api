@@ -52,6 +52,7 @@ const CONTEXT_WHITELIST: ReadonlyArray<AdmsIncidentContextKey> = [
   'vaultVersions',
   'declared',
   'expected',
+  'bioNo',
 ]
 
 const CONTEXT_VALUE_MAX_LENGTH = 200

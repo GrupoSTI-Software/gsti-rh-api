@@ -55,13 +55,13 @@ test.group('ADMS incident service', () => {
       businessUnitId: 1,
       // Cast deliberado: el tipo ya no admite `name`, pero el contexto puede
       // llegar de un JSON externo. La lista blanca debe descartarlo en runtime.
-      context: { table: 'FOO', lines: 3, name: 'NO DEBE PASAR' } as AdmsIncidentContext,
+      context: { table: 'FOO', lines: 3, bioNo: 5, name: 'NO DEBE PASAR' } as AdmsIncidentContext,
       now: DateTime.utc(),
     })
     assert.equal(outcome, 'created')
     assert.lengthOf(inserted, 1)
     assert.equal(inserted[0].key, 'tabla-desconocida')
-    assert.deepEqual(inserted[0].context, { table: 'FOO', lines: 3 })
+    assert.deepEqual(inserted[0].context, { table: 'FOO', lines: 3, bioNo: 5 })
   })
 
   test('con dedupe no repite el mismo incidente abierto dentro de la ventana', async ({
