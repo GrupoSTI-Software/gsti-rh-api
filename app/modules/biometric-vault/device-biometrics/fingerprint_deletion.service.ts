@@ -127,9 +127,9 @@ export default class FingerprintDeletionService {
   /**
    * Primer checador vivo que todavia tiene ese dato dentro.
    *
-   * Cuenta el equipo donde se capturo y aquel al que se copio con exito. Un
-   * vinculo revocado no cuenta: el aparato ya recibio la baja del colaborador y
-   * con ella se fueron sus huellas.
+   * Cuenta el equipo donde se capturo y aquel al que se copio o se esta
+   * copiando. Un vinculo revocado no cuenta: el aparato ya recibio la baja del
+   * colaborador y con ella se fueron sus huellas.
    */
   private async deviceHolding(
     templates: BiometricTemplate[],
@@ -147,10 +147,22 @@ export default class FingerprintDeletionService {
       }
     }
 
+    /**
+     * Una copia en camino retiene igual que una ejecutada: entre el acuse y la
+     * evidencia el dedo ya puede estar dentro, y borrar el template en esa
+     * ventana dejaria el comando apuntando a nada y el aparato con una huella
+     * que el expediente no conoce. Para borrarla, primero se retira al
+     * colaborador del equipo, que cancela lo vivo.
+     */
     const replicas = await DeviceCommand.query()
       .whereIn('access_point_id', [...assigned])
       .where('device_command_kind', DEVICE_COMMAND_KIND.BIODATA_WRITE)
-      .where('device_command_status', DEVICE_COMMAND_STATUS.EXECUTED)
+      .whereIn('device_command_status', [
+        DEVICE_COMMAND_STATUS.PENDING,
+        DEVICE_COMMAND_STATUS.SENT,
+        DEVICE_COMMAND_STATUS.ACKED,
+        DEVICE_COMMAND_STATUS.EXECUTED,
+      ])
       .whereIn(
         'biometric_template_id',
         templates.map((template) => template.biometricTemplateId)

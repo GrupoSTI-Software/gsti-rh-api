@@ -122,7 +122,8 @@ test.group('ADMS borrado de huellas del expediente', (group) => {
   async function makeExecutedCopy(
     accessPoint: AccessPoint,
     pin: string,
-    template: BiometricTemplate
+    template: BiometricTemplate,
+    status: DeviceCommand['deviceCommandStatus'] = DEVICE_COMMAND_STATUS.EXECUTED
   ): Promise<DeviceCommand> {
     const command = new DeviceCommand()
     command.deviceCommandWireId = Number(
@@ -135,11 +136,12 @@ test.group('ADMS borrado de huellas del expediente', (group) => {
     command.deviceCommandPin = pin
     command.deviceCommandBioNo = template.biometricTemplateBioNo
     command.deviceCommandPayload = `DATA UPDATE FINGERTMP PIN=${pin}\tFID=${template.biometricTemplateBioNo}`
-    command.deviceCommandStatus = DEVICE_COMMAND_STATUS.EXECUTED
+    command.deviceCommandStatus = status
     command.deviceCommandPriority = 5
     command.deviceCommandAttempts = 1
     command.deviceCommandMaxAttempts = 3
-    command.deviceCommandExecutedAt = DateTime.utc()
+    command.deviceCommandExecutedAt =
+      status === DEVICE_COMMAND_STATUS.EXECUTED ? DateTime.utc() : null
     command.biometricTemplateId = template.biometricTemplateId
     await command.save()
     return command
@@ -217,8 +219,8 @@ test.group('ADMS borrado de huellas del expediente', (group) => {
         .select('biometric_template_bio_no')
       const takenFingers = new Set(taken.map((row) => row.biometricTemplateBioNo))
       freeFingers = [9, 8, 7, 6, 5, 4, 3, 2, 1, 0].filter((finger) => !takenFingers.has(finger))
-      if (freeFingers.length < 5) {
-        throw new Error('El colaborador de prueba necesita al menos cinco dedos sin huella.')
+      if (freeFingers.length < 6) {
+        throw new Error('El colaborador de prueba necesita al menos seis dedos sin huella.')
       }
 
       origin = await makeDevice(
@@ -297,6 +299,25 @@ test.group('ADMS borrado de huellas del expediente', (group) => {
   })
 
   /**
+   * Entre el acuse y la evidencia el dedo ya puede estar dentro del aparato:
+   * borrar el template en esa ventana dejaria el comando apuntando a nada y
+   * al equipo con una huella que el expediente no conoce.
+   */
+  test('una copia acusada pero sin evidencia tambien retiene la huella', async ({ assert }) => {
+    const finger = freeFingers[5]
+    await TenantContext.runUnscoped(async () => {
+      const template = await makeTemplate(finger, '13', retired.accessPointId)
+      await makeExecutedCopy(target, PIN_TARGET, template, DEVICE_COMMAND_STATUS.ACKED)
+    }, 'huella acusada en el equipo destino')
+
+    const error = await expectVaultError(finger)
+
+    assert.equal(error.httpStatus, 409)
+    assert.equal(error.key, 'huella-en-uso')
+    assert.equal(await countTemplatesOf(finger), 1)
+  })
+
+  /**
    * Un vinculo `revoked` no retiene nada: el aparato ya recibio la baja del
    * colaborador y con ella se fueron sus huellas. El borrado procede y deja
    * constancia de quien lo pidio, porque una supresion sin rastro es justo lo
@@ -323,6 +344,7 @@ test.group('ADMS borrado de huellas del expediente', (group) => {
           .where('pii_access_log_model', 'BiometricTemplate')
           .where('pii_access_log_record_id', template.biometricTemplateId)
           .select(
+            'pii_access_log_id',
             'user_id',
             'business_unit_id',
             'pii_access_log_model_column',
@@ -332,6 +354,23 @@ test.group('ADMS borrado de huellas del expediente', (group) => {
       'bitacora del borrado'
     )
     assert.lengthOf(logs, 1)
+    /**
+     * El sujeto va asentado aparte: la fila del template ya no existe, y sin
+     * sujeto la bitacora filtrada por colaborador no mostraria la supresion.
+     */
+    const subjects = await TenantContext.runUnscoped(
+      () =>
+        db
+          .from('pii_access_log_subjects')
+          .where('pii_access_log_id', logs[0].pii_access_log_id)
+          .whereNull('pii_access_log_subject_deleted_at')
+          .select('employee_id'),
+      'sujeto del asiento'
+    )
+    assert.deepEqual(
+      subjects.map((row) => Number(row.employee_id)),
+      [employee.employeeId]
+    )
     assert.equal(logs[0].user_id, userId)
     assert.equal(logs[0].business_unit_id, businessUnitId)
     assert.equal(logs[0].pii_access_log_model_column, 'biometricTemplateTemplate')
