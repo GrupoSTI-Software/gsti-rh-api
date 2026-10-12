@@ -134,7 +134,7 @@ export default class EmployeeAssetsController {
    *                     applies: true
    *                     isLegallyRequired: true
    *                     teleworkPercentage: 100
-   *                     legalThresholdPercent: 100
+   *                     legalThresholdPercent: "<umbral legal vigente>"
    *                     categories:
    *                       - category: ergonomic_chair
    *                         status: delivered
@@ -171,7 +171,7 @@ export default class EmployeeAssetsController {
    *                     applies: false
    *                     isLegallyRequired: false
    *                     teleworkPercentage: 0
-   *                     legalThresholdPercent: 100
+   *                     legalThresholdPercent: "<umbral legal vigente>"
    *                     categories: []
    *                     teleworkSuppliesSummary:
    *                       applies: false

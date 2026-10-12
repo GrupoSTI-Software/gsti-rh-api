@@ -227,6 +227,7 @@ function buildCategoryDto(
     return { category, status, assets: [] }
   }
 
+  // Inalcanzable por construcción: el resolver solo da `not_delivered` al aditamento, así que `category` ya es ACCESSORY aquí; se deja explícito por la unión discriminada, no como sustitución silenciosa.
   return { category: SUPPLY_TYPE_TELEWORK_CATEGORY.ACCESSORY, status: 'not_delivered', assets: [] }
 }
 

@@ -799,7 +799,9 @@ test.group('Insumos de teletrabajo — endpoint HTTP', (group) => {
       .first()
 
     const body = await matrixBody(client, employeeId)
-    const asset = categoryOf(body, 'ergonomic_chair').assets[0]
+    const chairCategory = categoryOf(body, 'ergonomic_chair')
+    assert.isNotEmpty(chairCategory.assets, 'RF-2: hace falta el activo de ergonomic_chair')
+    const asset = chairCategory.assets[0]
     assert.equal(asset.assignedAt, required(row, 'la fecha de alta').assigned_at)
   })
 })
