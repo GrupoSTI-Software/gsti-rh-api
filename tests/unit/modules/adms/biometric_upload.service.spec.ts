@@ -263,13 +263,35 @@ test.group('Subida de biometricos: reparto a los demas equipos', () => {
     assert.isFalse(replicated[0].dryRun)
   })
 
-  test('sin quien responda por la lectura, no se reparte', async ({ assert }) => {
-    const { service, replicated } = makeService(EMPLOYEE, {
+  /**
+   * Una huella enrolada en el teclado del aparato no tiene quien responda por
+   * la lectura, asi que no se copia. Pero callarlo dejaba al operador sin saber
+   * que esa huella vive en un solo equipo: queda un aviso en el que la capturo.
+   */
+  test('sin quien responda por la lectura, no se reparte pero se avisa', async ({ assert }) => {
+    const { service, replicated, incidents } = makeService(EMPLOYEE, {
       requestedByUserId: null,
       pivots: [{ accessPointId: 33 }],
     })
     await service.ingestBiodata(contextOf())
     assert.lengthOf(replicated, 0)
+
+    assert.lengthOf(incidents, 1)
+    assert.equal(incidents[0].kind, 'fingerprint_not_spread')
+    assert.equal(incidents[0].severity, 'info')
+    assert.equal(incidents[0].key, 'huella-sin-repartir')
+    assert.equal(incidents[0].accessPointId, 12)
+    assert.equal(incidents[0].context?.pin, '9995')
+    assert.equal(incidents[0].context?.bioNo, 7)
+  })
+
+  test('sin otro equipo al que repartir, tampoco hay aviso', async ({ assert }) => {
+    const { service, incidents } = makeService(EMPLOYEE, {
+      requestedByUserId: null,
+      pivots: [{ accessPointId: 12 }],
+    })
+    await service.ingestBiodata(contextOf())
+    assert.lengthOf(incidents, 0)
   })
 
   test('un blob que ya estaba guardado no vuelve a repartirse', async ({ assert }) => {
