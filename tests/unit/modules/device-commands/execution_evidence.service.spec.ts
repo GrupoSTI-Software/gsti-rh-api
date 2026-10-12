@@ -28,6 +28,9 @@ function makeService(awaiting: DeviceCommand[], options: { believedInside?: numb
   const noticed: number[] = []
   let asked: { pin?: string; bioNo?: number } | null = null
   const repository = {
+    async countFacesBelievedInside() {
+      return 0
+    },
     async countFingerprintsBelievedInside() {
       return options.believedInside ?? 0
     },

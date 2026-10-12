@@ -395,6 +395,35 @@ export default class DeviceCommandRepositoryMysql
     return Number(rows[0]?.total ?? 0)
   }
 
+  async countFacesBelievedInside(accessPointId: number): Promise<number> {
+    const result = await db.rawQuery(
+      `SELECT COUNT(*) AS total FROM (
+         SELECT employee_id
+           FROM biometric_templates
+          WHERE source_access_point_id = ? AND biometric_template_bio_type = ?
+         UNION
+         SELECT employee_id
+           FROM device_commands
+          WHERE access_point_id = ? AND device_command_status IN (?, ?)
+            AND employee_id IS NOT NULL
+            AND (device_command_kind = ?
+                 OR (device_command_kind = ? AND device_command_correlation_key LIKE ?))
+       ) AS inside`,
+      [
+        accessPointId,
+        BIO_TYPE.FACE,
+        accessPointId,
+        DEVICE_COMMAND_STATUS.EXECUTED,
+        DEVICE_COMMAND_STATUS.ACKED,
+        DEVICE_COMMAND_KIND.BIOPHOTO_WRITE,
+        DEVICE_COMMAND_KIND.BIODATA_WRITE,
+        `biodata:%:${BIO_TYPE.FACE}:%`,
+      ]
+    )
+    const rows = result[0] as Array<{ total: number | string }>
+    return Number(rows[0]?.total ?? 0)
+  }
+
   async save(command: DeviceCommand): Promise<void> {
     await command.save()
   }
