@@ -28,9 +28,9 @@ import AttlogIngestionService from '#modules/adms/ingestion/attlog_ingestion.ser
 import CommandAckService from '#modules/device-commands/dispatch/command_ack.service'
 import BiometricUploadService from '#modules/adms/uploads/biometric_upload.service'
 import { attlogLayoutFor } from '#modules/adms/parsers/parser.types'
-import AccessPoint from '#models/access_point'
-import BusinessUnit from '#models/business_unit'
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
+import UploadContextRepositoryMysql from './upload_context.repository.mysql.js'
+import type { UploadContextRepository } from './upload_context.repository.js'
 import type { ResolvedAdmsDevice } from './adms_device_resolver.service.js'
 import { errorKind, summarizeError } from './error_summary.js'
 
@@ -79,7 +79,8 @@ export default class AdmsChannelService {
     private readonly deviceProfiles: DeviceProfileService = new DeviceProfileService(),
     private readonly attlog: AttlogIngestionService = new AttlogIngestionService(),
     private readonly ack: CommandAckService = new CommandAckService(),
-    private readonly biometrics: BiometricUploadService = new BiometricUploadService()
+    private readonly biometrics: BiometricUploadService = new BiometricUploadService(),
+    private readonly uploadContext: UploadContextRepository = new UploadContextRepositoryMysql()
   ) {}
 
   async receiveUpload(input: UploadInput): Promise<ChannelReply> {
@@ -427,21 +428,17 @@ export default class AdmsChannelService {
   ): Promise<TableProcessingResult> {
     const { device } = input
     const profile = await this.profiles.ensure(device.accessPointId, device.businessUnitId)
-    const accessPoint = await AccessPoint.query()
-      .where('access_point_id', device.accessPointId)
-      .first()
-    const businessUnit = await BusinessUnit.query()
-      .where('business_unit_id', device.businessUnitId)
-      .first()
+    const accessPointName = await this.uploadContext.accessPointName(device.accessPointId)
+    const businessUnitZone = await this.uploadContext.businessUnitTimezone(device.businessUnitId)
 
     const result = await this.attlog.ingest({
       device,
       body: input.body,
       rawMessageId,
       layout: attlogLayoutFor(profile.accessPointProfilePlatform ?? null),
-      accessPointName: accessPoint?.accessPointName ?? '',
+      accessPointName,
       deviceZone: device.timezone,
-      businessUnitZone: businessUnit?.businessUnitTimezone ?? null,
+      businessUnitZone,
     })
     return { status: result.status, error: result.error }
   }
