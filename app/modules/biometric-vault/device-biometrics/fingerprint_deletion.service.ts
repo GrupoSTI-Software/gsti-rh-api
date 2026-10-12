@@ -102,6 +102,12 @@ export default class FingerprintDeletionService {
             // admite nulo y una constancia sin empresa no se puede rastrear.
             businessUnitId: template.businessUnitId ?? input.actor.businessUnitId,
             accessorUserId: input.actor.userId,
+            /**
+             * El sujeto va explicito: la fila del template se destruye en esta
+             * misma transaccion y sin el, la bitacora filtrada por colaborador
+             * nunca mostraria que se suprimio su huella ni de quien era.
+             */
+            subjectEmployeeId: template.employeeId,
             model: 'BiometricTemplate',
             modelColumn: 'biometricTemplateTemplate',
             recordId: template.biometricTemplateId,
