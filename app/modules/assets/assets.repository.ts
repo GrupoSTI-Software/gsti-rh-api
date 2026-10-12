@@ -10,6 +10,7 @@ import type {
   AssetValueHistoryEntryDto,
   EmployeeAssetItemDto,
 } from './dto/assets.dto.js'
+import type { TeleworkCoverageRow, TeleworkProfile } from './dto/telework_supplies.dto.js'
 
 /** Filtro del listado. `businessUnitIds` vacío = sin resultados. */
 export interface AssetListFilter {
@@ -70,6 +71,26 @@ export interface AssetsRepository {
     businessUnitIds: readonly number[],
     employeeId: number
   ): Promise<EmployeeAssetItemDto[]>
+  /**
+   * Perfiles de teletrabajo de un lote de colaboradores, con el alcance de
+   * empresas DENTRO de la consulta. No filtra por borrado del colaborador
+   * (R12: la baja se resuelve como `applies: false` en las reglas puras).
+   * Cualquier argumento vacío → `[]` sin consultar. Una sola consulta por lote.
+   */
+  findTeleworkProfiles(
+    businessUnitIds: readonly number[],
+    employeeIds: readonly number[]
+  ): Promise<TeleworkProfile[]>
+  /**
+   * Renglones de cobertura abierta (resguardos `active`/`shipping` de insumos
+   * con categoría de teletrabajo) de un lote de colaboradores, con el alcance
+   * de empresas DENTRO de la consulta y el resguardo firmado por `EXISTS`.
+   * Cualquier argumento vacío → `[]` sin consultar. Una sola consulta por lote.
+   */
+  findTeleworkCoverage(
+    businessUnitIds: readonly number[],
+    employeeIds: readonly number[]
+  ): Promise<TeleworkCoverageRow[]>
   findValueHistory(supplyId: number): Promise<AssetValueHistoryEntryDto[]>
   findTypes(businessUnitIds: readonly number[]): Promise<AssetTypeDto[]>
   upsertCharacteristicValues(

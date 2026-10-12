@@ -28,6 +28,7 @@ import type {
   EmployeeAssetDto,
   EmployeeAssetItemDto,
 } from './dto/assets.dto.js'
+import type { TeleworkCoverageRow, TeleworkProfile } from './dto/telework_supplies.dto.js'
 
 /** Mismo tipo que devuelve `db.from`, para que las filas se tipen en cada consulta. */
 type QueryBuilder = ReturnType<typeof db.from>
@@ -535,6 +536,114 @@ export default class AssetsRepositoryMysql implements AssetsRepository {
         retirementReason: null,
       }
     })
+  }
+
+  /**
+   * Perfiles de teletrabajo de un lote de colaboradores: una sola consulta con
+   * `whereIn` de ids y el scope de empresas DENTRO de la query. NO filtra
+   * `employee_deleted_at` (R12: la baja se resuelve como `applies: false` en
+   * las reglas). Cualquier argumento vacío → `[]` sin consultar.
+   */
+  async findTeleworkProfiles(
+    businessUnitIds: readonly number[],
+    employeeIds: readonly number[]
+  ): Promise<TeleworkProfile[]> {
+    if (businessUnitIds.length === 0 || employeeIds.length === 0) return []
+
+    const rows: Array<{
+      employee_id: number
+      employee_work_schedule: string
+      employee_telework_percentage: DecimalValue
+      employee_deleted_at: Date | string | null
+    }> = await db
+      .from('employees')
+      .whereIn('employee_id', [...employeeIds])
+      .whereIn('business_unit_id', [...businessUnitIds]) // el scope DENTRO de la consulta (§13)
+      // R12: SIN filtro de employee_deleted_at (la baja sale con `isDeleted`).
+      .select(
+        'employee_id',
+        'employee_work_schedule',
+        'employee_telework_percentage',
+        'employee_deleted_at'
+      )
+
+    return rows.map((row) => ({
+      employeeId: Number(row.employee_id),
+      workSchedule: row.employee_work_schedule,
+      teleworkPercentage: Number(row.employee_telework_percentage ?? 0), // DECIMAL llega como texto
+      isDeleted: row.employee_deleted_at !== null,
+    }))
+  }
+
+  /**
+   * Cobertura abierta de insumos de teletrabajo de un lote: una sola consulta
+   * con el scope DENTRO (defensa en profundidad sobre `es` y `s`), solo
+   * resguardos abiertos vivos de insumos con categoría, y `hasContract` por
+   * `EXISTS` sobre el resguardo firmado vivo. Cualquier argumento vacío → `[]`
+   * sin consultar.
+   */
+  async findTeleworkCoverage(
+    businessUnitIds: readonly number[],
+    employeeIds: readonly number[]
+  ): Promise<TeleworkCoverageRow[]> {
+    if (businessUnitIds.length === 0 || employeeIds.length === 0) return []
+
+    const rows: Array<{
+      employee_id: number
+      employee_supply_id: number
+      supply_id: number
+      supply_name: string
+      supply_file_number: string | number
+      employee_supply_status: OpenAssignmentStatus
+      supply_type_telework_category: SupplyTypeTeleworkCategory
+      has_contract: number
+      assigned_at: string
+    }> = await db
+      .from('employee_supplies as es')
+      .join('supplies as s', 's.supply_id', 'es.supply_id')
+      .join('supply_types as st', 'st.supply_type_id', 's.supply_type_id')
+      .whereIn('es.business_unit_id', [...businessUnitIds]) // el scope DENTRO de la consulta (§13)
+      .whereIn('s.business_unit_id', [...businessUnitIds]) // defensa en profundidad
+      .whereIn('es.employee_id', [...employeeIds])
+      .whereIn('es.employee_supply_status', [...OPEN_ASSIGNMENT_STATUSES])
+      .whereNull('es.employee_supply_deleted_at')
+      .whereNull('s.supply_deleted_at')
+      .whereNotNull('st.supply_type_telework_category')
+      .orderByRaw(
+        'COALESCE(es.employee_supply_assignament_date, es.employee_supply_created_at) DESC, es.employee_supply_id DESC'
+      )
+      .select(
+        'es.employee_id',
+        'es.employee_supply_id',
+        's.supply_id',
+        's.supply_name',
+        's.supply_file_number',
+        'es.employee_supply_status',
+        'st.supply_type_telework_category',
+        // Resguardo firmado vivo: solo la existencia, nunca el archivo.
+        db.knexRawQuery(
+          `EXISTS (SELECT 1
+                     FROM employee_supplies_response_contracts AS rsc
+                    WHERE rsc.employee_supply_id = es.employee_supply_id
+                      AND rsc.employee_supply_response_contract_deleted_at IS NULL) as has_contract`
+        ),
+        calendarDate(
+          'COALESCE(es.employee_supply_assignament_date, es.employee_supply_created_at)',
+          'assigned_at'
+        )
+      )
+
+    return rows.map((row) => ({
+      employeeId: Number(row.employee_id),
+      employeeSupplyId: Number(row.employee_supply_id),
+      supplyId: Number(row.supply_id),
+      name: row.supply_name,
+      fileNumber: String(row.supply_file_number),
+      assignmentStatus: row.employee_supply_status,
+      category: row.supply_type_telework_category,
+      hasContract: Number(row.has_contract) === 1,
+      assignedAt: row.assigned_at,
+    }))
   }
 
   async findOwnership(
