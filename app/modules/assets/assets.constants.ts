@@ -27,6 +27,23 @@ export const OPEN_ASSIGNMENT_STATUSES = ['active', 'shipping'] as const
 export type OpenAssignmentStatus = (typeof OPEN_ASSIGNMENT_STATUSES)[number]
 
 /**
+ * Estado de cobertura de una categoría de insumo de teletrabajo vista en la
+ * matriz de cumplimiento (NOM-037-STPS-2023 5.7, R5). Prioridad:
+ * `delivered` si hay algún resguardo `active`; si no, `shipping` si hay
+ * resguardos abiertos; si no hay ninguno, `own_equipment` cuando el
+ * colaborador declaró equipo propio, `uncovered` para silla y cómputo, y
+ * `not_delivered` para el aditamento (opcional). Un insumo devuelto no cubre.
+ */
+export const TELEWORK_SUPPLY_COVERAGE_STATUSES = [
+  'delivered',
+  'shipping',
+  'own_equipment',
+  'uncovered',
+  'not_delivered',
+] as const
+export type TeleworkSupplyCoverageStatus = (typeof TELEWORK_SUPPLY_COVERAGE_STATUSES)[number]
+
+/**
  * Estado del resguardo de una asignación vista desde la ficha del colaborador:
  * `signed` si existe al menos un contrato de resguardo vivo, `unsigned` si no.
  */
