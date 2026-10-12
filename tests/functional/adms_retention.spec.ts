@@ -259,13 +259,19 @@ test.group('ADMS retencion (rebanada 12)', (group) => {
    * pantalla donde cerrarse. Se va por plazo; uno reciente o uno con equipo
    * no se tocan, por viejo que sea el segundo.
    */
-  test('un aviso sin equipo y viejo se purga; con equipo o reciente, no', async ({ assert }) => {
-    const insertIncident = (accessPointId: number | null, createdAt: DateTime) =>
+  test('un aviso que perdio su equipo se purga; con equipo, reciente o global, no', async ({
+    assert,
+  }) => {
+    const insertIncident = (
+      accessPointId: number | null,
+      unitId: number | null,
+      createdAt: DateTime
+    ) =>
       db
         .table('adms_incidents')
         .insert({
           access_point_id: accessPointId,
-          business_unit_id: accessPointId === null ? null : businessUnitId,
+          business_unit_id: unitId,
           adms_incident_kind: 'parse_error',
           adms_incident_severity: 'warning',
           adms_incident_code: 'ADMS.VAL.002',
@@ -281,9 +287,15 @@ test.group('ADMS retencion (rebanada 12)', (group) => {
     const ids = await TenantContext.runUnscoped(async () => {
       const now = DateTime.utc()
       return {
-        huerfanoViejo: await insertIncident(null, now.minus({ days: 400 })),
-        huerfanoReciente: await insertIncident(null, now.minus({ days: 1 })),
-        conEquipoViejo: await insertIncident(accessPoint.accessPointId, now.minus({ days: 400 })),
+        huerfanoViejo: await insertIncident(null, businessUnitId, now.minus({ days: 400 })),
+        huerfanoReciente: await insertIncident(null, businessUnitId, now.minus({ days: 1 })),
+        conEquipoViejo: await insertIncident(
+          accessPoint.accessPointId,
+          businessUnitId,
+          now.minus({ days: 400 })
+        ),
+        /** Sondeo global: sin equipo NI empresa, como los levanta el resolutor. Es evidencia de seguridad. */
+        sondeoViejo: await insertIncident(null, null, now.minus({ days: 400 })),
       }
     }, 'avisos de prueba')
 
@@ -302,6 +314,7 @@ test.group('ADMS retencion (rebanada 12)', (group) => {
     assert.notInclude(vivos, ids.huerfanoViejo)
     assert.include(vivos, ids.huerfanoReciente)
     assert.include(vivos, ids.conEquipoViejo)
+    assert.include(vivos, ids.sondeoViejo)
 
     await TenantContext.runUnscoped(
       () => db.from('adms_incidents').whereIn('adms_incident_id', Object.values(ids)).delete(),

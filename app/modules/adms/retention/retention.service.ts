@@ -166,11 +166,16 @@ export default class RetentionService {
   }
 
   /**
-   * Avisos que se quedaron sin equipo ni empresa.
+   * Avisos que perdieron su equipo.
    *
    * Pasa al borrar un punto de acceso: la llave foranea deja el aviso con el
-   * equipo en nulo, fuera de toda pantalla y sin nadie que lo cierre. Se van
-   * por plazo, nunca por tipo: el filtro es "sin equipo" y la fecha, nada mas.
+   * equipo en nulo, pero conserva la empresa (ese FK es RESTRICT). Se van por
+   * plazo, nunca por tipo: el filtro es "sin equipo, con empresa" y la fecha.
+   *
+   * Los avisos globales --sondeos de series y de direcciones del canal-- nacen
+   * sin equipo NI empresa a proposito y no entran aqui: son el rastro de quien
+   * prueba el canal, y borrarlos por un filtro pensado para huerfanos era tirar
+   * evidencia de seguridad (pre-revision de VLRH-H1791836612205, B1).
    */
   async purgeOrphanIncidents(now: DateTime = DateTime.utc()): Promise<PurgeResult> {
     const cutoff = now.minus({ days: admsIncidentOrphanRetentionDays() })
@@ -179,6 +184,7 @@ export default class RetentionService {
       const ids = await db
         .from('adms_incidents')
         .whereNull('access_point_id')
+        .whereNotNull('business_unit_id')
         .where('adms_incident_created_at', '<', format(cutoff))
         .orderBy('adms_incident_id', 'asc')
         .limit(ADMS_PURGE_BATCH_SIZE)

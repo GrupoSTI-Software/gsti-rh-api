@@ -47,8 +47,9 @@ export const ADMS_COMMAND_RETENTION_DEFAULT_DAYS = 365
 export const ADMS_PHOTO_PUBLICATION_RETENTION_DEFAULT_DAYS = 7
 export const ADMS_QUARANTINE_RETENTION_DEFAULT_DAYS = 30
 /**
- * Un aviso sin equipo ni empresa --el punto de acceso se borro despues-- no
- * tiene pantalla donde cerrarse: se va por plazo.
+ * Un aviso que perdio su equipo --el punto de acceso se borro despues-- ya no
+ * tiene equipo donde cerrarse: se va por plazo. Conserva la empresa; los
+ * avisos globales (sin empresa: sondeos al canal) no se purgan por esta via.
  */
 export const ADMS_INCIDENT_ORPHAN_RETENTION_DEFAULT_DAYS = 30
 
