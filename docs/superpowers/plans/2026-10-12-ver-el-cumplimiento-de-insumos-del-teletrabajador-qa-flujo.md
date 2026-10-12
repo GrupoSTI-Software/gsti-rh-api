@@ -257,22 +257,23 @@ Objetivo: comprobar que con un rol sin lectura de **Activos e insumos** la secci
 
 - **Que no esté la sección** no es un fallo de la pantalla: el rol no tiene la lectura del módulo de activos, así que la sección no se le ofrece y su dirección directa no consulta nada.
 
-### 5.3 Error aislado de la matriz
+### 5.3 Qué pasa cuando la lectura de la matriz no llega a responder
 
-Objetivo: comprobar que si la lectura de la matriz de insumos falla, el bloque muestra su propio error con un botón **Reintentar** mientras la lista de activos de abajo sigue funcionando.
+Objetivo: comprobar qué hace el backoffice cuando la petición de la matriz no recibe respuesta del servidor: por su política global, un fallo de red (o un error 500 del servidor) lleva a la **página de error del propio backoffice**, igual que en cualquier otra pantalla, y al reintentar la página completa la ficha vuelve con su bloque cargado.
 
 1. Con el Usuario A, abre la ficha de **Tania Robles Vera** (`QA-TEL-01`) y entra a **Activos**.
 2. Abre el navegador en F12 → **Red**.
 3. Localiza la petición cuya dirección termina en `telework-supplies`, púlsala con el botón derecho y elige **Block request URL** (Bloquear URL de la petición).
 4. Recarga la página (`F5`).
-5. En el lugar del bloque aparece un mensaje de error en rojo con el texto **No se pudo cargar el cumplimiento de insumos.** y, debajo, un botón **Reintentar**.
-6. Debajo, la lista **Activos vigentes** sigue funcionando y muestra la **Silla de oficina** (`QA-TEL-ACT-SILLA-01`): el error del bloque no tumbó la sección.
-7. Quita el bloqueo (mismo botón derecho → **Unblock**), vuelve a cargar y pulsa **Reintentar**: el bloque **Insumos de teletrabajo** se carga otra vez con su silla **Entregado**.
+5. Lo que se ve: la **página de error del backoffice** —**500**, **Error interno del servidor**, con **Intentar de nuevo**, **Volver al inicio** y **Cerrar sesión**—. No aparece un error suelto dentro de la ficha, y es correcto: la política del backoffice trata una petición sin respuesta como un problema de la aplicación completa.
+6. Quita el bloqueo (mismo botón derecho → **Unblock**) y pulsa **Intentar de nuevo**: la ficha vuelve a cargar y el bloque aparece otra vez con su silla **Entregado**.
+7. **Negativo a comprobar a propósito:** en ningún momento se ve medio bloque pintado ni una ficha a medias; o carga la pantalla completa, o se ve la página de error.
 
 **Qué significa lo nuevo aquí:**
 
-- **No se pudo cargar el cumplimiento de insumos.**: el bloque no pudo leer la matriz; el error es **local** a ese bloque, por eso la lista de activos de abajo sigue viva.
-- **Reintentar**: vuelve a pedir la matriz sin recargar toda la ficha.
+- **Que el aviso sea de página y no del bloque**: la política global del backoffice manda a la página de error cuando la petición no recibe respuesta o el servidor falla con 500; ninguna pantalla se salva de eso, y el bloque tampoco inventa un error propio en ese caso.
+- **Intentar de nuevo**: vuelve a cargar la pantalla completa, con sus peticiones.
+- El error **propio** del bloque (**No se pudo cargar el cumplimiento de insumos.** con **Reintentar**) se ve cuando el servidor sí contesta con un rechazo de negocio (por ejemplo, sin permiso). Desde el navegador no se provoca recortando la petición: ver el apartado 7.
 
 ## 6. Responsivo e idiomas
 
@@ -300,6 +301,7 @@ Objetivo: comprobar que en inglés la leyenda y los rótulos del bloque salen tr
 Se declara no revisable desde el navegador y queda cubierto por las pruebas automatizadas del plan:
 
 - **El idioma inglés del bloque.** El backoffice fuerza el español y esconde el cambio de idioma (ver el Escenario 6.2): desde el navegador no se provoca. Lo cubren los locales es/en del bloque y `npm run lint:i18n`.
+- **El error propio del bloque** (**No se pudo cargar el cumplimiento de insumos.** con **Reintentar**). Por la política global del backoffice, una petición **sin respuesta** o un **500** llevan a la página de error de toda la aplicación (Escenario 5.3), así que desde el navegador no se provoca un error *solo* del bloque: aparece cuando el servidor sí contesta un rechazo de negocio. Lo cubren las pruebas del panel (estado de error y reintento) y las del API.
 - **Que el servidor rechace la lectura sin el permiso de Activos e insumos.** En pantalla solo se ve la ausencia de la sección (Escenario 5.2); el rechazo con su código solo se ve por HTTP.
 - **Un colaborador de otra empresa o inexistente, y un identificador de colaborador inválido.** No se provocan desde la ficha; lo cubren las pruebas del API.
 - **El detalle de la respuesta** (que no viajen datos de más y que el colaborador ajeno y el inexistente respondan igual). Por pantalla no se ve; lo cubren las pruebas del API.
@@ -319,7 +321,7 @@ Cada casilla se marca **contra el objetivo de su escenario**, no contra "se hici
 - [ ] 4.7 Tras quitar la categoría al tipo **Silla QA Reclas** con el Usuario C, la ficha de `QA-TEL-08` deja de contar la silla (pasa a **Sin cubrir**) y su renglón pierde la etiqueta, sin perder la asignación
 - [ ] 5.1 En `QA-TEL-09` (presencial) y `QA-TEL-10` (baja) no aparece el bloque; solo la lista de activos
 - [ ] 5.2 Con el Usuario B no está la sección **Activos** en el submenú, la dirección directa deja la página vacía y no sale ninguna petición a `telework-supplies`
-- [ ] 5.3 Con la petición de la matriz bloqueada, el bloque muestra **No se pudo cargar el cumplimiento de insumos.** con **Reintentar**, la lista de activos sigue funcionando, y al desbloquear y reintentar, el bloque vuelve
+- [ ] 5.3 Con la petición de la matriz bloqueada (sin respuesta), el backoffice cae a su página de error (**500 / Error interno del servidor**) y al desbloquear y pulsar **Intentar de nuevo** la ficha vuelve con el bloque cargado
 - [ ] 6.1 A 360 px no hay desplazamiento horizontal y los renglones quedan apilados (rótulo, estado, activos); a unos 850 px siguen apilados y desde unos 1024 px el renglón se abre con el estado al extremo derecho
 - [ ] 6.2 **No verificable aquí** (el backoffice fuerza el español y esconde el cambio de idioma); se declara con su motivo y lo cubren los locales es/en y `npm run lint:i18n`
 
