@@ -452,6 +452,34 @@ test.group('ADMS resumen de biometricos del colaborador', (group) => {
   })
 
   /**
+   * Huerfano es lo que ningun equipo asignado puede usar, no lo que todavia no
+   * tiene equipo: a alguien recien dado de alta la ficha no le ofrece borrar
+   * todos sus dedos.
+   */
+  test('sin ningun equipo asignado no hay dedos huerfanos', async ({ assert }) => {
+    await TenantContext.runUnscoped(
+      () =>
+        AccessPointEmployee.query()
+          .where('employee_id', employee.employeeId)
+          .update({ access_point_employee_sync_status: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED }),
+      'se retiran todos los vinculos'
+    )
+    try {
+      const consolidated = await summaryOf()
+      assert.deepEqual(consolidated.orphanFingers, [])
+      assert.isNotEmpty(consolidated.fingers)
+    } finally {
+      await TenantContext.runUnscoped(
+        () =>
+          AccessPointEmployee.query()
+            .where('employee_id', employee.employeeId)
+            .update({ access_point_employee_sync_status: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED }),
+        'se restauran los vinculos'
+      )
+    }
+  })
+
+  /**
    * De nada sirve decir que una huella se puede copiar si el canal no la va a
    * despachar: el incidente que la retiene viaja con la misma respuesta.
    */
