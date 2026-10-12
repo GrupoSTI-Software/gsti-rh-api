@@ -14,6 +14,7 @@ import type {
   CommandInsert,
   DeviceCommandRepository,
   EnqueueIdempotentResult,
+  ExecutedCopyLookup,
 } from './device_command.repository.js'
 
 /** Verdadero si el choque es contra la UNIQUE del identificador de cable. */
@@ -28,7 +29,9 @@ const LIVE_STATUSES: readonly DeviceCommandStatus[] = [
 ]
 
 /** Adaptador Lucid de la cola de comandos. */
-export default class DeviceCommandRepositoryMysql implements DeviceCommandRepository {
+export default class DeviceCommandRepositoryMysql
+  implements DeviceCommandRepository, ExecutedCopyLookup
+{
   /**
    * Bloquea la fila del punto de acceso, busca por llave de correlacion e
    * inserta, todo en la MISMA transaccion.
@@ -123,6 +126,24 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
       .whereIn('device_command_status', [...LIVE_STATUSES])
       .orderBy('device_command_id', 'asc')
       .first()
+  }
+
+  /**
+   * Espejo de `findLiveByCorrelation` para lo ya entregado: misma llave, mismo
+   * equipo, pero en `executed`. Es lo que decide si una copia se repite.
+   */
+  async hasExecutedByCorrelation(
+    accessPointId: number,
+    correlationKey: string,
+    excludeCommandId?: number
+  ): Promise<boolean> {
+    const query = DeviceCommand.query()
+      .where('access_point_id', accessPointId)
+      .where('device_command_correlation_key', correlationKey)
+      .where('device_command_status', DEVICE_COMMAND_STATUS.EXECUTED)
+    if (excludeCommandId !== undefined) query.whereNot('device_command_id', excludeCommandId)
+    const row = await query.first()
+    return row !== null
   }
 
   async findById(commandId: number): Promise<DeviceCommand | null> {

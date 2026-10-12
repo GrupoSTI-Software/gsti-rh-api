@@ -25,6 +25,26 @@ export interface EnqueueIdempotentResult {
   created: boolean
 }
 
+/**
+ * Lo unico que la replicacion y el acuse necesitan saber de la cola: si ya
+ * hubo una copia EJECUTADA con esa llave hacia ese equipo.
+ *
+ * Es un puerto aparte, y no un metodo mas del repositorio completo, para que
+ * quien solo hace esta pregunta no cargue con la cola entera ni obligue a cada
+ * doble de pruebas a conocerla.
+ */
+export interface ExecutedCopyLookup {
+  /**
+   * @param excludeCommandId - El propio comando que se esta acusando: una
+   *   recopia solo cuenta como repetida si hubo OTRA entrega antes.
+   */
+  hasExecutedByCorrelation(
+    accessPointId: number,
+    correlationKey: string,
+    excludeCommandId?: number
+  ): Promise<boolean>
+}
+
 /** Puerto de persistencia de la cola. El servicio no toca Lucid. */
 export interface DeviceCommandRepository {
   /**

@@ -8,6 +8,8 @@ import { BIO_TYPE } from '../biometric_vault.constants.js'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import DeviceCommandService from '#modules/device-commands/device_command.service'
 import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
+import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
+import type { ExecutedCopyLookup } from '#modules/device-commands/device_command.repository'
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 import type AccessPointEmployee from '#models/access_point_employee'
@@ -24,6 +26,7 @@ import {
   type ReplicationItem,
   type ReplicationModality,
   type ReplicationResult,
+  type ReplicationSlotRef,
   type ReplicationTargetResult,
 } from './replication.types.js'
 
@@ -49,6 +52,16 @@ export interface ReplicationInput {
   sourceAccessPointId: number | null
   targetAccessPointIds: number[]
   modalities: ReplicationModality[]
+  /**
+   * Un solo biometrico, y nada mas.
+   *
+   * Es el modo del reparto desde el canal: la huella que acaba de entrar viaja
+   * sola. Con `only`, `modalities` se deduce del tipo, la foto no viaja --ya
+   * lo hace al encenderla desde la ficha y al dar de alta en un equipo-- y una
+   * copia que ese equipo ya tiene ejecutada no se vuelve a encolar. Sin `only`
+   * (ficha y alta en equipo) el reparto es el de siempre.
+   */
+  only?: ReplicationSlotRef
   /** Quien pide la copia. Su IP se asienta con cada lectura de un blob. */
   actor: {
     userId: number | null
@@ -79,7 +92,8 @@ export default class ReplicationService {
     private readonly commands: DeviceCommandPort = new DeviceCommandService(),
     private readonly publications: PhotoPublicationService = new PhotoPublicationService(),
     private readonly consent: ConsentGate = new ConsentGate(),
-    private readonly incidents: IncidentService = new IncidentService()
+    private readonly incidents: IncidentService = new IncidentService(),
+    private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql()
   ) {}
 
   async replicate(input: ReplicationInput): Promise<ReplicationResult> {
@@ -91,17 +105,23 @@ export default class ReplicationService {
      */
     await this.consent.assertGranted(input.employeeId)
 
-    const modalities =
-      input.modalities.length > 0
+    const only = input.only ?? null
+    const modalities = only
+      ? [only.bioType === BIO_TYPE.FACE ? REPLICATION_MODALITY.FACE : REPLICATION_MODALITY.FINGERPRINT]
+      : input.modalities.length > 0
         ? input.modalities
         : [REPLICATION_MODALITY.FINGERPRINT, REPLICATION_MODALITY.FACE]
 
-    const slots = await this.templates.occupiedSlots(input.employeeId)
+    const allSlots = await this.templates.occupiedSlots(input.employeeId)
+    const slots = only
+      ? allSlots.filter((slot) => slot.bioType === only.bioType && slot.bioNo === only.bioNo)
+      : allSlots
     const faceId = await EmployeeBiometricFaceId.query()
       .where('employee_id', input.employeeId)
       .whereNull('employee_biometric_face_id_deleted_at')
       .first()
-    const photoEnabled = faceId?.employeeBiometricFaceIdDeviceUse === true
+    /** Con `only` la foto no viaja: ya tiene sus propios caminos. */
+    const photoEnabled = only === null && faceId?.employeeBiometricFaceIdDeviceUse === true
 
     const targets: ReplicationTargetResult[] = []
     for (const accessPointId of input.targetAccessPointIds) {
@@ -420,6 +440,25 @@ export default class ReplicationService {
     platform: string | null
   }): Promise<ReplicationItem> {
     const { input, pivot, pin, slot, bioType, modality, platform } = args
+    const correlationKey = `biodata:${pin}:${bioType}:${slot.bioNo}`
+
+    /**
+     * Desde el canal, lo ya entregado no se repite. Se pregunta ANTES de leer
+     * el blob: una lectura que acaba descartada deja asiento en la bitacora
+     * PII sin que nada haya viajado.
+     */
+    if (
+      input.only &&
+      (await this.copies.hasExecutedByCorrelation(pivot.accessPointId, correlationKey))
+    ) {
+      return {
+        modality,
+        bioNo: slot.bioNo,
+        status: 'skipped',
+        reason: REPLICATION_SKIP.ALREADY_DELIVERED,
+        majorVer: slot.majorVer,
+      }
+    }
 
     if (input.dryRun) {
       return { modality, bioNo: slot.bioNo, status: 'queued', majorVer: slot.majorVer }
@@ -462,7 +501,7 @@ export default class ReplicationService {
       employeeId: input.employeeId,
       accessPointEmployeeId: pivot.accessPointEmployeeId,
       biometricTemplateId: slot.templateId,
-      correlationKey: `biodata:${pin}:${bioType}:${slot.bioNo}`,
+      correlationKey,
       requestedByUserId: input.actor.userId,
     })
 
