@@ -1,6 +1,7 @@
 import type { DateTime } from 'luxon'
 import logger from '@adonisjs/core/services/logger'
 import BiometricTemplate from '#models/biometric_template'
+import AccessPointEmployee from '#models/access_point_employee'
 import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import IncidentService from './incident.service.js'
 import type { SpreadNoticePort } from '#modules/device-commands/evidence/spread_notice.port'
@@ -18,14 +19,27 @@ export default class SpreadNoticeAdapter implements SpreadNoticePort {
     try {
       const template = await BiometricTemplate.query()
         .where('biometric_template_id', biometricTemplateId)
-        .select('biometric_template_id', 'source_access_point_id')
+        .select('biometric_template_id', 'source_access_point_id', 'employee_id', 'biometric_template_bio_no')
         .first()
       const sourceAccessPointId = template?.sourceAccessPointId ?? null
-      if (sourceAccessPointId === null) return 0
+      if (!template || sourceAccessPointId === null) return 0
+      /**
+       * El aviso es por PIN y dedo: se cierra solo el de esta persona y este
+       * dedo, no todos los del equipo. El PIN vive en el vinculo del colaborador
+       * con el equipo de origen; sin vinculo no hay aviso que cerrar.
+       */
+      const pivot = await AccessPointEmployee.query()
+        .where('access_point_id', sourceAccessPointId)
+        .where('employee_id', template.employeeId)
+        .select('access_point_employee_pin')
+        .first()
+      const pin = pivot?.accessPointEmployeePin ?? null
+      if (pin === null || pin.length === 0) return 0
       return await this.incidents.resolveResolvedCause(
         ADMS_INCIDENT_KIND.FINGERPRINT_NOT_SPREAD,
         sourceAccessPointId,
-        now
+        now,
+        { pin, bioNo: template.biometricTemplateBioNo }
       )
     } catch (error) {
       logger.warn(

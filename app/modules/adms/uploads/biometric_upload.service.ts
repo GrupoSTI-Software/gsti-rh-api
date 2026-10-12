@@ -55,7 +55,7 @@ export interface BiometricUploadResult {
 
 const INVALID_TEMPLATE_DEDUPE_MINUTES = 60
 const OPLOG_DEDUPE_MINUTES = 24 * 60
-/** Un enrolamiento en el teclado suele traer varios dedos seguidos: un aviso por hora basta. */
+/** El mismo dedo de la misma persona suele subir varias veces seguidas: un aviso por hora basta. Otro dedo u otra persona es otro aviso. */
 const NOT_SPREAD_DEDUPE_MINUTES = 60
 
 /**
@@ -377,7 +377,7 @@ export default class BiometricUploadService {
           context: { pin: row.pin, bioNo: row.bioNo },
           now: device.receivedAt,
         },
-        { dedupeMinutes: NOT_SPREAD_DEDUPE_MINUTES }
+        { dedupeMinutes: NOT_SPREAD_DEDUPE_MINUTES, dedupeBy: ['pin', 'bioNo'] }
       )
       return
     }

@@ -6,7 +6,7 @@ import {
   type AdmsIncidentSeverity,
 } from '#modules/adms/adms.constants'
 import IncidentRepositoryMysql from './incident.repository.mysql.js'
-import type { IncidentRepository } from './incident.repository.js'
+import type { IncidentContextFilter, IncidentRepository } from './incident.repository.js'
 
 export interface IncidentInput {
   kind: AdmsIncidentKind
@@ -110,14 +110,15 @@ export default class IncidentService {
   async resolveResolvedCause(
     kind: AdmsIncidentKind,
     accessPointId: number,
-    now: DateTime
+    now: DateTime,
+    context?: IncidentContextFilter
   ): Promise<number> {
-    return this.repository.resolveOpen(kind, accessPointId, now)
+    return this.repository.resolveOpen(kind, accessPointId, now, context)
   }
 
   async record(
     input: IncidentInput,
-    options: { dedupeMinutes?: number } = {}
+    options: { dedupeMinutes?: number; dedupeBy?: Array<keyof IncidentContextFilter> } = {}
   ): Promise<IncidentOutcome> {
     const serialForContext =
       input.accessPointId === null && input.serial ? { serial: input.serial } : {}
@@ -130,7 +131,16 @@ export default class IncidentService {
        * Cuenta lo resuelto tambien: si alguien acaba de decir que ese aparato
        * es suyo, no se le vuelve a preguntar lo mismo hasta pasada la ventana.
        */
-      const existing = await this.repository.findRecentSince(input.kind, scope, since)
+      /**
+       * `dedupeBy` acota la ventana a un dato del contexto: el aviso de huella
+       * sin repartir es por colaborador y dedo, no por equipo.
+       */
+      const filter: IncidentContextFilter = {}
+      for (const key of options.dedupeBy ?? []) {
+        if (key === 'pin' && typeof context?.pin === 'string') filter.pin = context.pin
+        if (key === 'bioNo' && typeof context?.bioNo === 'number') filter.bioNo = context.bioNo
+      }
+      const existing = await this.repository.findRecentSince(input.kind, scope, since, filter)
       if (existing) return 'deduped'
     }
 

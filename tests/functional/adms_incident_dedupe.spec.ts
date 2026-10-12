@@ -99,6 +99,66 @@ test.group('ADMS deduplicacion de incidentes', (group) => {
     assert.equal(total[0].$extras.total, 1)
   })
 
+  /**
+   * El aviso de huella sin repartir es por colaborador y dedo: dos personas
+   * enroladas en el mismo equipo dentro de la hora son dos avisos, y copiar el
+   * dedo de una cierra solo el suyo.
+   */
+  test('la huella sin repartir se deduplica y se cierra por PIN y dedo, no por equipo', async ({
+    assert,
+  }) => {
+    const service = new IncidentService()
+    const now = DateTime.utc()
+    const aviso = (pin: string, bioNo: number) =>
+      TenantContext.run([businessUnitId], () =>
+        service.record(
+          {
+            kind: ADMS_INCIDENT_KIND.FINGERPRINT_NOT_SPREAD,
+            severity: 'info',
+            code: ADMS_ERROR_CODES.BIO_NOT_SPREAD,
+            title: 'Huella capturada en el equipo sin orden del sistema',
+            detail: 'Prueba',
+            key: 'huella-sin-repartir',
+            serial: SERIAL,
+            accessPointId: accessPoint.accessPointId,
+            businessUnitId,
+            context: { pin, bioNo },
+            now,
+          },
+          { dedupeMinutes: VENTANA_MINUTOS, dedupeBy: ['pin', 'bioNo'] }
+        )
+      )
+
+    assert.equal(await aviso('7001', 5), 'created')
+    assert.equal(await aviso('7001', 5), 'deduped')
+    assert.equal(await aviso('7002', 5), 'created')
+    assert.equal(await aviso('7001', 6), 'created')
+
+    const closed = await TenantContext.run([businessUnitId], () =>
+      service.resolveResolvedCause(
+        ADMS_INCIDENT_KIND.FINGERPRINT_NOT_SPREAD,
+        accessPoint.accessPointId,
+        now,
+        { pin: '7001', bioNo: 5 }
+      )
+    )
+    assert.equal(closed, 1)
+
+    const abiertos = await TenantContext.runUnscoped(
+      () =>
+        AdmsIncident.query()
+          .where('access_point_id', accessPoint.accessPointId)
+          .where('adms_incident_kind', ADMS_INCIDENT_KIND.FINGERPRINT_NOT_SPREAD)
+          .where('adms_incident_status', 'open')
+          .exec(),
+      'avisos que siguen abiertos'
+    )
+    assert.sameDeepMembers(
+      abiertos.map((row) => [row.admsIncidentContext?.pin, row.admsIncidentContext?.bioNo]),
+      [['7002', 5], ['7001', 6]]
+    )
+  })
+
   test('pasada la ventana, la causa que persiste vuelve a avisar', async ({ assert }) => {
     const despues = DateTime.utc().plus({ minutes: VENTANA_MINUTOS + 1 })
 

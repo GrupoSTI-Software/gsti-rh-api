@@ -137,9 +137,11 @@ function makeService(resolution: PinResolution = EMPLOYEE, options: Options = {}
     },
   } as unknown as HeldPunchRepository
 
+  const recordOptions: Array<Record<string, unknown>> = []
   const incidentService = {
-    async record(input: IncidentInput): Promise<IncidentOutcome> {
+    async record(input: IncidentInput, opts?: Record<string, unknown>): Promise<IncidentOutcome> {
       incidents.push(input)
+      recordOptions.push(opts ?? {})
       return 'created'
     },
   } as unknown as IncidentService
@@ -155,7 +157,7 @@ function makeService(resolution: PinResolution = EMPLOYEE, options: Options = {}
     roster,
     pivots
   )
-  return { service, stored, heldBio, unmapped, incidents, replicated }
+  return { service, stored, heldBio, unmapped, incidents, recordOptions, replicated }
 }
 
 test.group('Subida de biometricos: BIODATA', () => {
@@ -269,7 +271,7 @@ test.group('Subida de biometricos: reparto a los demas equipos', () => {
    * que esa huella vive en un solo equipo: queda un aviso en el que la capturo.
    */
   test('sin quien responda por la lectura, no se reparte pero se avisa', async ({ assert }) => {
-    const { service, replicated, incidents } = makeService(EMPLOYEE, {
+    const { service, replicated, incidents, recordOptions } = makeService(EMPLOYEE, {
       requestedByUserId: null,
       pivots: [{ accessPointId: 33 }],
     })
@@ -278,6 +280,8 @@ test.group('Subida de biometricos: reparto a los demas equipos', () => {
 
     assert.lengthOf(incidents, 1)
     assert.equal(incidents[0].kind, 'fingerprint_not_spread')
+    // Un aviso por persona y dedo: otra persona en la misma hora no se deduplica.
+    assert.deepEqual(recordOptions[0].dedupeBy, ['pin', 'bioNo'])
     assert.equal(incidents[0].severity, 'info')
     assert.equal(incidents[0].key, 'huella-sin-repartir')
     assert.equal(incidents[0].accessPointId, 12)
