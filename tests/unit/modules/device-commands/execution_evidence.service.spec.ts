@@ -403,7 +403,7 @@ test.group('Evidencia de ejecucion: contador que cubre lo que se cree dentro', (
     })
   }
 
-  test('si el contador cubre todo lo que se cree dentro, las copias acusadas quedan ejecutadas', async ({
+  test('si el contador es exactamente lo que se cree dentro, las copias acusadas quedan ejecutadas', async ({
     assert,
   }) => {
     const { service, saved, noticed } = makeService([ackedCopy(1, 6), ackedCopy(2, 8)], {
@@ -419,8 +419,29 @@ test.group('Evidencia de ejecucion: contador que cubre lo que se cree dentro', (
     assert.isTrue(
       saved.every((command) => command.deviceCommandExecutionEvidence === 'counter_matches')
     )
-    // Cada copia que llego cierra el aviso del equipo donde se capturo.
-    assert.deepEqual(noticed, [106, 108])
+    // La cobertura no dice QUE dedo entro: no cierra ningun aviso.
+    assert.deepEqual(noticed, [])
+  })
+
+  test('si el contador supera lo que se cree dentro, el aparato tiene huellas ajenas y no se acredita nada', async ({
+    assert,
+  }) => {
+    // Sin alza desde el despacho (la linea base ya era 6): la unica via seria la cobertura.
+    const sinAlza = (id: number, bioNo: number) =>
+      ({
+        ...ackedCopy(id, bioNo),
+        deviceCommandCountersSnapshot: { fpCount: 6, faceCount: 1, userCount: 1 },
+      }) as DeviceCommand
+    const { service, saved } = makeService([sinAlza(1, 6), sinAlza(2, 8)], {
+      believedInside: 5,
+    })
+    const marked = await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 6, faceCount: 1, userCount: 1 },
+      now: NOW,
+    })
+    assert.equal(marked, 0)
+    assert.lengthOf(saved, 0)
   })
 
   test('si el contador queda corto, alguna no entro y ninguna se acredita', async ({ assert }) => {

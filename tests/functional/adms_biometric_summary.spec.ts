@@ -19,6 +19,7 @@ import type { BiometricSlotState } from '#modules/biometric-vault/device-biometr
 import EmployeeBiometricSummaryService from '#modules/biometric-vault/device-biometrics/employee_biometric_summary.service'
 import type { EmployeeBiometricSummary } from '#modules/biometric-vault/device-biometrics/employee_biometric_summary.service'
 import TemplateService from '#modules/biometric-vault/template/template.service'
+import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
 import {
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
@@ -535,6 +536,47 @@ test.group('ADMS resumen de biometricos del colaborador', (group) => {
             .where('employee_id', employee.employeeId)
             .update({ access_point_employee_sync_status: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED }),
         'se restauran los vinculos'
+      )
+    }
+  })
+
+  /**
+   * Lo que el sistema cree dentro del equipo descuenta a quien ya no tiene
+   * vinculo vivo: la baja se lleva sus huellas del aparato y el contador baja
+   * con ella; seguir contandolas dejaba el numero inflado para siempre.
+   */
+  test('un colaborador con el vinculo revocado no cuenta entre las huellas que se creen dentro', async ({
+    assert,
+  }) => {
+    const repository = new DeviceCommandRepositoryMysql()
+    const before = await TenantContext.runUnscoped(
+      () => repository.countFingerprintsBelievedInside(one.accessPointId),
+      'conteo con vinculo vivo'
+    )
+    assert.equal(before, 1)
+
+    await TenantContext.runUnscoped(
+      () =>
+        AccessPointEmployee.query()
+          .where('employee_id', employee.employeeId)
+          .where('access_point_id', one.accessPointId)
+          .update({ access_point_employee_sync_status: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED }),
+      'baja en el primer equipo'
+    )
+    try {
+      const after = await TenantContext.runUnscoped(
+        () => repository.countFingerprintsBelievedInside(one.accessPointId),
+        'conteo tras la baja'
+      )
+      assert.equal(after, 0)
+    } finally {
+      await TenantContext.runUnscoped(
+        () =>
+          AccessPointEmployee.query()
+            .where('employee_id', employee.employeeId)
+            .where('access_point_id', one.accessPointId)
+            .update({ access_point_employee_sync_status: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED }),
+        'se restaura el vinculo'
       )
     }
   })

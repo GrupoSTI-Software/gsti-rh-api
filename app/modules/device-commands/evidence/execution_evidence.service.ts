@@ -195,15 +195,19 @@ export default class ExecutionEvidenceService {
    * el dedo sin que la base lo supiera (equipo recreado, huellas de antes del
    * sistema, recopia tras un reset).
    *
-   * Se acreditan cuando el contador del aparato cubre todo lo que el sistema
-   * cree dentro, estas copias incluidas. El aparato rechaza con `Return` distinto
-   * de cero un template que no puede escribir (la bateria midio `-30` por
-   * version), asi que una copia acusada sin prueba es casi siempre un dedo
-   * reescrito; el contador es la comprobacion de que nada falta. Si el contador
-   * queda corto, alguna no entro y no se puede decir cual: se dejan abiertas.
+   * Se acreditan cuando el contador del aparato es EXACTAMENTE lo que el
+   * sistema cree dentro, estas copias incluidas. El aparato rechaza con
+   * `Return` distinto de cero un template que no puede escribir (la bateria
+   * midio `-30` por version), asi que una copia acusada sin prueba es casi
+   * siempre un dedo reescrito; el contador es la comprobacion de que nada
+   * falta. Con el contador corto, alguna no entro y no se puede decir cual; con
+   * el contador largo, el aparato tiene huellas que el sistema no conoce y ya
+   * no prueba nada sobre estas: en los dos casos se dejan abiertas
+   * (pre-revision de VLRH-H1791836612205, W2).
    *
    * Solo copias, nunca enrolamientos: un dedo nuevo si tiene que mover el
-   * contador, y su prueba fuerte es la subida del biometrico.
+   * contador, y su prueba fuerte es la subida del biometrico. Y esta evidencia
+   * no cierra avisos: es la mas debil de todas.
    */
   private async closeCopiesByMatch(args: {
     accessPointId: number
@@ -226,7 +230,7 @@ export default class ExecutionEvidenceService {
     const believedInside = await this.repository.countFingerprintsBelievedInside(
       args.accessPointId
     )
-    if (believedInside === 0 || args.fpCount < believedInside) return 0
+    if (believedInside === 0 || args.fpCount !== believedInside) return 0
     return this.markAll(copies, DEVICE_COMMAND_EVIDENCE.COUNTER_MATCHES, args.now)
   }
 
@@ -305,7 +309,10 @@ export default class ExecutionEvidenceService {
       command.deviceCommandExecutionEvidence = evidence
       await this.repository.save(command)
       marked += 1
-      await this.noticeCopyExecuted(command, now)
+      /** La cobertura del contador no prueba QUE dedo entro: no cierra avisos. */
+      if (evidence !== DEVICE_COMMAND_EVIDENCE.COUNTER_MATCHES) {
+        await this.noticeCopyExecuted(command, now)
+      }
     }
     return marked
   }
