@@ -79,8 +79,23 @@ function makeService(
       return delivered
     },
   }
-  const service = new CommandAckService(repository, undefined, profiles, undefined, undefined, copies)
-  return { service, saved, asked }
+  const noticed: number[] = []
+  const notices = {
+    async copyExecuted(templateId: number) {
+      noticed.push(templateId)
+      return 1
+    },
+  }
+  const service = new CommandAckService(
+    repository,
+    undefined,
+    profiles,
+    undefined,
+    undefined,
+    copies,
+    notices
+  )
+  return { service, saved, asked, noticed }
 }
 
 const ACK = { accessPointId: 33, body: 'ID=1791825600000&Return=0&CMD=DATA', now: NOW }
@@ -98,12 +113,22 @@ test.group('Acuse de una copia de huella', () => {
     assert.deepEqual(asked, [{ accessPointId: 33, key: 'biodata:1:1:6', exclude: 40 }])
   })
 
+  test('la copia ejecutada en el acuse cierra el aviso del equipo que capturo la huella', async ({
+    assert,
+  }) => {
+    const { service, noticed } = makeService(copyOf({ biometricTemplateId: 151 }), true)
+    await service.apply(ACK)
+    assert.deepEqual(noticed, [151])
+  })
+
   test('la primera copia hacia ese equipo sigue esperando su prueba', async ({ assert }) => {
-    const { service, saved } = makeService(copyOf(), false)
+    const { service, saved, noticed } = makeService(copyOf({ biometricTemplateId: 151 }), false)
     await service.apply(ACK)
 
     assert.equal(saved[0].deviceCommandStatus, 'acked')
     assert.isNull(saved[0].deviceCommandExecutedAt ?? null)
+    // Sin ejecucion no hay nada que avisar todavia.
+    assert.deepEqual(noticed, [])
   })
 
   /**

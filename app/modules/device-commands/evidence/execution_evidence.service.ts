@@ -12,6 +12,8 @@ import {
 import type { DeviceCommandRepository } from '../device_command.repository.js'
 import type DeviceCommand from '#models/device_command'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
+import SpreadNoticeAdapter from '#modules/adms/raw/spread_notice.adapter'
+import type { SpreadNoticePort } from './spread_notice.port.js'
 
 /** Contadores que el equipo declara en `options`, para comparar con el snapshot. */
 export interface DeviceCounters {
@@ -40,7 +42,8 @@ export interface BiometricUploadEvidence {
 
 export default class ExecutionEvidenceService {
   constructor(
-    private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql()
+    private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
+    private readonly notices: SpreadNoticePort = new SpreadNoticeAdapter()
   ) {}
 
   /**
@@ -302,8 +305,17 @@ export default class ExecutionEvidenceService {
       command.deviceCommandExecutionEvidence = evidence
       await this.repository.save(command)
       marked += 1
+      await this.noticeCopyExecuted(command, now)
     }
     return marked
+  }
+
+  /** Una copia de huella que ya llego cierra el aviso del equipo que la capturo. */
+  private async noticeCopyExecuted(command: DeviceCommand, now: DateTime): Promise<void> {
+    if (command.deviceCommandKind !== DEVICE_COMMAND_KIND.BIODATA_WRITE) return
+    if (isFaceCommand(command)) return
+    if (typeof command.biometricTemplateId !== 'number') return
+    await this.notices.copyExecuted(command.biometricTemplateId, now)
   }
 }
 

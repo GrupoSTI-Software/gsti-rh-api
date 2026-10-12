@@ -23,6 +23,8 @@ import { canTransition, wasDispatchedBefore } from '../device_command.state.js'
 import PhotoDispatchService from '#modules/biometric-vault/photo/photo_dispatch.service'
 import type { PhotoDispatchPort } from '#modules/biometric-vault/photo/photo_dispatch.port'
 import type { DeviceCommandEvidence } from '../device_command.constants.js'
+import SpreadNoticeAdapter from '#modules/adms/raw/spread_notice.adapter'
+import type { SpreadNoticePort } from '../evidence/spread_notice.port.js'
 
 export type AckOutcome =
   | {
@@ -75,7 +77,8 @@ export default class CommandAckService {
     private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
     private readonly commands: DeviceCommandService = new DeviceCommandService(),
     private readonly photos: PhotoDispatchPort = new PhotoDispatchService(),
-    private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql()
+    private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql(),
+    private readonly notices: SpreadNoticePort = new SpreadNoticeAdapter()
   ) {}
 
   async apply(input: AckInput): Promise<AckOutcome> {
@@ -169,6 +172,15 @@ export default class CommandAckService {
     await this.syncPivot(command, parsed.returnCode)
     if (evidence === DEVICE_COMMAND_EVIDENCE.PHOTO_DOWNLOADED) {
       await this.photos.closeAfterDelivery(command, input.now)
+    }
+    /** Una copia de huella ejecutada aqui mismo cierra el aviso del equipo que la capturo. */
+    if (
+      executed &&
+      command.deviceCommandKind === DEVICE_COMMAND_KIND.BIODATA_WRITE &&
+      !isFaceCommand(command) &&
+      typeof command.biometricTemplateId === 'number'
+    ) {
+      await this.notices.copyExecuted(command.biometricTemplateId, input.now)
     }
 
     return {
