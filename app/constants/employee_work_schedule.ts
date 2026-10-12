@@ -66,8 +66,10 @@ export type EmployeeHybridConfig =
 export const WEEKS_PER_MONTH_STANDARD = 52 / 12
 
 /**
- * Umbral de la NOM-037: superar el 40% (estrictamente) califica al
- * empleado como teletrabajador para el listado obligatorio 5.1.
+ * Umbral de la NOM-037: 40% o más (inclusivo) califica al empleado como
+ * teletrabajador para el listado obligatorio 5.1. Decisión de producto del
+ * 2026-07-08: el 40% exacto SÍ entra al listado (el operador del código es
+ * `>=`, ver `telework_worker_service.ts`).
  */
 export const TELEWORK_LEGAL_THRESHOLD_PERCENT = 40
 

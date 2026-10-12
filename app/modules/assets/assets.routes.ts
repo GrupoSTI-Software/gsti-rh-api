@@ -46,6 +46,12 @@ router
     router
       .get('/employees/:employeeId/assets', '#modules/assets/employee_assets.controller.assets')
       .use(middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.indexEmployeeAssets))
+    router
+      .get(
+        '/employees/:employeeId/telework-supplies',
+        '#modules/assets/employee_assets.controller.teleworkSupplies'
+      )
+      .use(middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.showEmployeeTeleworkSupplies))
   })
   .prefix('/api')
   .use(middleware.auth())
