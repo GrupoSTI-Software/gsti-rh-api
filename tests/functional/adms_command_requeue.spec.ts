@@ -10,6 +10,7 @@ import {
   DEVICE_COMMAND_STATUS,
 } from '#modules/device-commands/device_command.constants'
 import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
+import CommandSweepService from '#modules/device-commands/sweep/command_sweep.service'
 import { TenantContext } from '#utils/tenant_context'
 
 /**
@@ -143,6 +144,24 @@ test.group('Comandos en vuelo sin acuse', (group) => {
     const actual = await fresco(command.deviceCommandId)
     assert.equal(actual.deviceCommandStatus, DEVICE_COMMAND_STATUS.PENDING)
     assert.equal(actual.deviceCommandAttempts, 100)
+  })
+
+  /**
+   * El barrido completo, como lo lanza el scheduler: desde la consola, sin
+   * peticion ni empresa. Las escrituras por comando corrian sin bypass y el
+   * mixin las bloqueaba en silencio, asi que el adaptador probado arriba nunca
+   * llegaba a ejecutarse. Medido el 2026-10-12 con un alta en vuelo que siguio
+   * `sent` tras tres barridos.
+   */
+  test('el barrido real reencola lo que salio sin acuse', async ({ assert }) => {
+    const command = await enVuelo()
+
+    const result = await new CommandSweepService().run()
+
+    assert.isAtLeast(result.requeued, 1)
+    const actual = await fresco(command.deviceCommandId)
+    assert.equal(actual.deviceCommandStatus, DEVICE_COMMAND_STATUS.PENDING)
+    assert.equal(actual.deviceCommandAttempts, 1)
   })
 
   /** Reabrir la captura sin la persona enfrente no sirve: se falla a la primera. */

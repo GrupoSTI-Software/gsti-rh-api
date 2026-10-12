@@ -95,12 +95,16 @@ export default class CommandSweepService {
          * sigue en camino, y moverlo en cada vuelta lo dejaria contando una
          * historia que no paso.
          */
-        const outcome = await this.repository.requeueOrFailIfStill({
-          commandId: command.deviceCommandId,
-          expectedStatus: DEVICE_COMMAND_STATUS.SENT,
-          now,
-          error: DEVICE_COMMAND_FAILURE.INFLIGHT_TIMEOUT,
-        })
+        const outcome = await TenantContext.runUnscoped(
+          () =>
+            this.repository.requeueOrFailIfStill({
+              commandId: command.deviceCommandId,
+              expectedStatus: DEVICE_COMMAND_STATUS.SENT,
+              now,
+              error: DEVICE_COMMAND_FAILURE.INFLIGHT_TIMEOUT,
+            }),
+          TENANT_UNSCOPED_REASON.ADMS_COMMAND_SWEEP
+        )
         if (outcome === 'requeued') requeued += 1
         if (outcome === 'failed') {
           timedOut += 1
@@ -128,12 +132,23 @@ export default class CommandSweepService {
         continue
       }
 
-      const failed = await this.repository.markFailedIfStill({
-        commandId: command.deviceCommandId,
-        expectedStatus: DEVICE_COMMAND_STATUS.ACKED,
-        failedAt: now,
-        error: DEVICE_COMMAND_FAILURE.NO_EVIDENCE,
-      })
+      /**
+       * Tambien fuera del corte por empresa, como la lectura de la tanda. Las
+       * escrituras del barrido corrian sin bypass y el mixin las bloqueaba en
+       * silencio desde la consola (`mode: blocked`): ningun comando colgado se
+       * cerraba nunca. Se vio el 2026-10-12 con un alta en vuelo que siguio
+       * `sent` despues de tres barridos.
+       */
+      const failed = await TenantContext.runUnscoped(
+        () =>
+          this.repository.markFailedIfStill({
+            commandId: command.deviceCommandId,
+            expectedStatus: DEVICE_COMMAND_STATUS.ACKED,
+            failedAt: now,
+            error: DEVICE_COMMAND_FAILURE.NO_EVIDENCE,
+          }),
+        TENANT_UNSCOPED_REASON.ADMS_COMMAND_SWEEP
+      )
       if (failed) withoutEvidence += 1
     }
 
