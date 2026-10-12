@@ -10,7 +10,11 @@ import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/emp
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 import type DeviceCommand from '#models/device_command'
 import { parseDeviceCmdBody } from '../wire/adms_ack.parser.js'
-import type { DeviceCommandRepository } from '../device_command.repository.js'
+import type {
+  DeviceCommandRepository,
+  ExecutedCopyLookup,
+} from '../device_command.repository.js'
+import { isFaceCommand } from '../evidence/execution_evidence.service.js'
 import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/device_profile.repository.mysql'
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
 import type { DeviceCommandCountersSnapshot } from '#models/device_command'
@@ -70,7 +74,8 @@ export default class CommandAckService {
     private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
     private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
     private readonly commands: DeviceCommandService = new DeviceCommandService(),
-    private readonly photos: PhotoDispatchPort = new PhotoDispatchService()
+    private readonly photos: PhotoDispatchPort = new PhotoDispatchService(),
+    private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql()
   ) {}
 
   async apply(input: AckInput): Promise<AckOutcome> {
@@ -139,11 +144,12 @@ export default class CommandAckService {
       if (executed) {
         command.deviceCommandExecutedAt = input.now
         command.deviceCommandExecutionEvidence = evidence
-      } else {
+      } else if (command.deviceCommandCountersSnapshot === null) {
         /**
-         * Foto de los contadores en el momento del acuse. La prueba de que el
-         * equipo hizo el trabajo es que el numero suba DESPUES; sin esta linea
-         * base no hay con que comparar y esa via de evidencia nunca se cumple.
+         * Linea base de respaldo para un comando que salio antes de que el
+         * despacho la tomara. Los nuevos ya la traen desde que se marcan
+         * `sent`; a estos se les toma al acusar, como antes, para que el alza
+         * posterior tenga con que compararse.
          */
         command.deviceCommandCountersSnapshot = await this.readCounters(command.accessPointId)
       }
@@ -193,6 +199,13 @@ export default class CommandAckService {
    * - La foto nueva solo cuenta si el equipo la descargo por su enlace ANTES
    *   de acusar. Sin descarga queda acusada y espera su contador o su checada;
    *   el barrido la da por fallida si no llega.
+   * - La recopia de un dedo que ese equipo ya tenia ejecutado se cierra con
+   *   el acuse: reescribir un dedo no mueve el contador, asi que esperar una
+   *   prueba posterior era esperar algo que no iba a llegar.
+   * - Si el contador del equipo ya subio respecto a la linea base tomada al
+   *   despachar, el acuse llega con la prueba hecha: el SpeedFace sube
+   *   `options` antes de acusar, y esperar un alza posterior era esperar una
+   *   que ya habia ocurrido.
    */
   private async evidenceAtAck(command: DeviceCommand): Promise<DeviceCommandEvidence | null> {
     switch (command.deviceCommandKind) {
@@ -200,12 +213,48 @@ export default class CommandAckService {
       case DEVICE_COMMAND_KIND.BIOPHOTO_DELETE:
         return DEVICE_COMMAND_EVIDENCE.ACK
       case DEVICE_COMMAND_KIND.BIOPHOTO_WRITE:
-        return (await this.photos.wasDownloaded(command))
-          ? DEVICE_COMMAND_EVIDENCE.PHOTO_DOWNLOADED
-          : null
+        if (await this.photos.wasDownloaded(command)) {
+          return DEVICE_COMMAND_EVIDENCE.PHOTO_DOWNLOADED
+        }
+        return this.counterRoseSinceDispatch(command)
+      case DEVICE_COMMAND_KIND.BIODATA_WRITE: {
+        const key = command.deviceCommandCorrelationKey
+        if (key !== null && !isFaceCommand(command)) {
+          const delivered = await this.copies.hasExecutedByCorrelation(
+            command.accessPointId,
+            key,
+            command.deviceCommandId
+          )
+          if (delivered) return DEVICE_COMMAND_EVIDENCE.ACK
+        }
+        return this.counterRoseSinceDispatch(command)
+      }
+      case DEVICE_COMMAND_KIND.ENROLL_FP:
+        return this.counterRoseSinceDispatch(command)
       default:
         return null
     }
+  }
+
+  /**
+   * `counter_up` en el propio acuse: el contador que el equipo declara hoy ya
+   * es mayor que el de la linea base tomada al despachar. Solo con linea base
+   * del despacho; un comando viejo sin ella sigue el camino de siempre.
+   */
+  private async counterRoseSinceDispatch(
+    command: DeviceCommand
+  ): Promise<DeviceCommandEvidence | null> {
+    const snapshot = command.deviceCommandCountersSnapshot
+    if (!snapshot) return null
+    const counter: keyof DeviceCommandCountersSnapshot = isFaceCommand(command)
+      ? 'faceCount'
+      : 'fpCount'
+    const before = snapshot[counter] ?? null
+    if (before === null) return null
+    const now = await this.readCounters(command.accessPointId)
+    const current = now?.[counter] ?? null
+    if (current === null || current <= before) return null
+    return DEVICE_COMMAND_EVIDENCE.COUNTER_UP
   }
 
   /**

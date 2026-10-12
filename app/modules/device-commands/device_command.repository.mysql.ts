@@ -1,6 +1,7 @@
 import type { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import DeviceCommand from '#models/device_command'
+import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
@@ -14,6 +15,7 @@ import type {
   CommandInsert,
   DeviceCommandRepository,
   EnqueueIdempotentResult,
+  ExecutedCopyLookup,
 } from './device_command.repository.js'
 
 /** Verdadero si el choque es contra la UNIQUE del identificador de cable. */
@@ -28,7 +30,9 @@ const LIVE_STATUSES: readonly DeviceCommandStatus[] = [
 ]
 
 /** Adaptador Lucid de la cola de comandos. */
-export default class DeviceCommandRepositoryMysql implements DeviceCommandRepository {
+export default class DeviceCommandRepositoryMysql
+  implements DeviceCommandRepository, ExecutedCopyLookup
+{
   /**
    * Bloquea la fila del punto de acceso, busca por llave de correlacion e
    * inserta, todo en la MISMA transaccion.
@@ -123,6 +127,24 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
       .whereIn('device_command_status', [...LIVE_STATUSES])
       .orderBy('device_command_id', 'asc')
       .first()
+  }
+
+  /**
+   * Espejo de `findLiveByCorrelation` para lo ya entregado: misma llave, mismo
+   * equipo, pero en `executed`. Es lo que decide si una copia se repite.
+   */
+  async hasExecutedByCorrelation(
+    accessPointId: number,
+    correlationKey: string,
+    excludeCommandId?: number
+  ): Promise<boolean> {
+    const query = DeviceCommand.query()
+      .where('access_point_id', accessPointId)
+      .where('device_command_correlation_key', correlationKey)
+      .where('device_command_status', DEVICE_COMMAND_STATUS.EXECUTED)
+    if (excludeCommandId !== undefined) query.whereNot('device_command_id', excludeCommandId)
+    const row = await query.first()
+    return row !== null
   }
 
   async findById(commandId: number): Promise<DeviceCommand | null> {
@@ -243,6 +265,7 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     commandId: number
     payload: string
     sentAt: DateTime
+    countersSnapshot?: DeviceCommandCountersSnapshot | null
   }): Promise<boolean> {
     return db.transaction(async (trx) => {
       const command = await DeviceCommand.query({ client: trx })
@@ -255,6 +278,9 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
       command.deviceCommandPayload = input.payload
       command.deviceCommandStatus = DEVICE_COMMAND_STATUS.SENT
       command.deviceCommandSentAt = input.sentAt
+      if (input.countersSnapshot !== undefined) {
+        command.deviceCommandCountersSnapshot = input.countersSnapshot
+      }
       await command.save()
       return true
     })

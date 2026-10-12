@@ -16,9 +16,9 @@ import type { HeldBiometricRepository } from './held_biometric.repository.js'
 import logger from '@adonisjs/core/services/logger'
 import ExecutionEvidenceService from '#modules/device-commands/evidence/execution_evidence.service'
 import ReplicationService from '#modules/biometric-vault/replication/replication.service'
-import AccessPointEmployee, {
-  ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
-} from '#models/access_point_employee'
+import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 
 /** Una captura biometrica ya normalizada, venga de donde venga. */
 export interface NormalizedBiometric {
@@ -72,7 +72,8 @@ export default class BiometricUploadService {
     private readonly incidents: IncidentService = new IncidentService(),
     private readonly evidence: ExecutionEvidenceService = new ExecutionEvidenceService(),
     private readonly replication: ReplicationService = new ReplicationService(),
-    private readonly roster: RosterReconciliationService = new RosterReconciliationService()
+    private readonly roster: RosterReconciliationService = new RosterReconciliationService(),
+    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql()
   ) {}
 
   /** `table=BIODATA`: la via canonica, con version explicita. */
@@ -289,13 +290,15 @@ export default class BiometricUploadService {
        * las demas hasta que alguien se acordara de copiarla: la boveda existe
        * justo para que ese segundo viaje al lector no ocurra.
        *
-       * Solo cuando el template es NUEVO. Un blob que ya estaba guardado llega
-       * aqui cuando el equipo lo vuelve a subir, y repetir el reparto en cada
-       * subida encolaria trabajo por un dato que no cambio.
+       * Solo cuando el template es NUEVO, y solo ESE template. Un blob que ya
+       * estaba guardado llega aqui cuando el equipo lo vuelve a subir, y
+       * repetir el reparto en cada subida encolaria trabajo por un dato que
+       * no cambio; repartir ademas los otros dedos y la foto por cada huella
+       * nueva hacia lo mismo con lo que ya estaba entregado.
        */
       if (result.created) {
         try {
-          await this.spreadToPeers(device, resolution.employeeId, requestedByUserId)
+          await this.spreadToPeers(device, resolution.employeeId, requestedByUserId, row)
         } catch (error) {
           logger.warn(
             { accessPointId: device.accessPointId, error: (error as Error).message.slice(0, 200) },
@@ -324,6 +327,10 @@ export default class BiometricUploadService {
    * proceso aparte porque el momento importa: la persona todavia esta frente al
    * lector, y si algo no se puede copiar es cuando conviene saberlo.
    *
+   * Viaja solo el biometrico que acaba de entrar (`only`): ni los demas dedos
+   * ni la foto, que ya tienen sus propios caminos. Lo que el equipo destino ya
+   * tiene ejecutado tampoco se repite.
+   *
    * La lectura de cada blob queda asentada a nombre de quien pidio la captura,
    * con la IP del aparato que la subio: es el humano que puso en marcha todo
    * esto, y la boveda no entrega un biometrico sin saber a nombre de quien.
@@ -331,7 +338,8 @@ export default class BiometricUploadService {
   private async spreadToPeers(
     device: ResolvedAdmsDevice,
     employeeId: number,
-    requestedByUserId: number | null
+    requestedByUserId: number | null,
+    row: NormalizedBiometric
   ): Promise<void> {
     /**
      * Sin nadie a quien asentar la lectura no se reparte.
@@ -343,10 +351,12 @@ export default class BiometricUploadService {
      */
     if (requestedByUserId === null) return
 
-    const peers = await AccessPointEmployee.query()
-      .where('employee_id', employeeId)
-      .whereNot('access_point_id', device.accessPointId)
-      .whereNot('access_point_employee_sync_status', ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+    const live = await this.pivots.listLiveByEmployee(employeeId)
+    const peers = live.filter(
+      (pivot) =>
+        pivot.accessPointId !== device.accessPointId &&
+        pivot.accessPointEmployeeSyncStatus !== ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
+    )
     if (peers.length === 0) return
 
     await this.replication.replicate({
@@ -355,6 +365,7 @@ export default class BiometricUploadService {
       sourceAccessPointId: device.accessPointId,
       targetAccessPointIds: peers.map((pivot) => pivot.accessPointId),
       modalities: [],
+      only: { bioType: row.bioType, bioNo: row.bioNo },
       actor: {
         userId: requestedByUserId,
         ip: device.ip,

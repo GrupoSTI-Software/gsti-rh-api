@@ -44,6 +44,28 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
   let businessUnitId: number
   let templateId: number
   let userId: number
+  /** Templates que crea alguna prueba: el teardown los retira aunque la prueba falle. */
+  const extraTemplateIds: number[] = []
+
+  /**
+   * Los asientos PII se filtran tambien por modelo: `record_id` solo coincide
+   * con registros de cualquier otra tabla, y uno ajeno con sujetos colgando
+   * tumbaba la limpieza por llave foranea.
+   */
+  async function deleteTemplate(id: number): Promise<void> {
+    await DeviceCommand.query().where('biometric_template_id', id).delete()
+    const logs = await db
+      .from('pii_access_logs')
+      .where('pii_access_log_model', 'BiometricTemplate')
+      .where('pii_access_log_record_id', id)
+      .select('pii_access_log_id')
+    const logIds = logs.map((row) => Number(row.pii_access_log_id))
+    if (logIds.length > 0) {
+      await db.from('pii_access_log_subjects').whereIn('pii_access_log_id', logIds).delete()
+      await db.from('pii_access_logs').whereIn('pii_access_log_id', logIds).delete()
+    }
+    await db.from('biometric_templates').where('biometric_template_id', id).delete()
+  }
 
   async function makeDevice(serial: string, pin: string, fpVersion: string): Promise<AccessPoint> {
     const ap = new AccessPoint()
@@ -85,7 +107,11 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
           .orderBy('employee_id', 'asc')
           .first()
         if (someone) {
-          elegido = { unitId: candidate.businessUnitId, userId: candidate.userId, employee: someone }
+          elegido = {
+            unitId: candidate.businessUnitId,
+            userId: candidate.userId,
+            employee: someone,
+          }
           break
         }
       }
@@ -120,12 +146,32 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     }, 'fixture de la replicacion')
   })
 
+  /**
+   * El alta por servicio deja eventos del vinculo, y la llave foranea impide
+   * borrar el vinculo mientras existan: sin esto la limpieza de ese equipo
+   * fallaba, el teardown no podia borrar el template y el fixture quedaba
+   * vivo para la siguiente corrida.
+   */
+  async function deleteEventsOf(accessPointId: number): Promise<void> {
+    const pivots = await AccessPointEmployee.query()
+      .withTrashed()
+      .where('access_point_id', accessPointId)
+      .select('access_point_employee_id')
+    const pivotIds = pivots.map((pivot) => pivot.accessPointEmployeeId)
+    if (pivotIds.length === 0) return
+    await db
+      .from('access_point_employee_events')
+      .whereIn('access_point_employee_id', pivotIds)
+      .delete()
+  }
+
   group.teardown(async () => {
     await TenantContext.runUnscoped(async () => {
       const ids = [source.accessPointId, compatible.accessPointId, incompatible.accessPointId]
-      await db.from('pii_access_logs').where('pii_access_log_record_id', templateId).delete()
-      await db.from('biometric_templates').where('biometric_template_id', templateId).delete()
+      /** Los comandos que apuntan a cada template van primero, esten donde esten. */
+      for (const id of [templateId, ...extraTemplateIds]) await deleteTemplate(id)
       await DeviceCommand.query().whereIn('access_point_id', ids).delete()
+      for (const id of ids) await deleteEventsOf(id)
       await db.from('access_point_employees').whereIn('access_point_id', ids).delete()
       await db.from('adms_incidents').whereIn('access_point_id', ids).delete()
       await AccessPointProfile.query().whereIn('access_point_id', ids).delete()
@@ -166,8 +212,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     assert.equal(destinoIncompatible?.items[0].reason, 'not_replicable_version')
 
     const commands = await TenantContext.runUnscoped(
-      () =>
-        DeviceCommand.query()
+      async () =>
+        await DeviceCommand.query()
           .whereIn('access_point_id', [compatible.accessPointId, incompatible.accessPointId])
           .count('* as total'),
       'conteo tras la vista previa'
@@ -180,8 +226,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
      * equipo sin que nadie haya intentado copiar nada.
      */
     const incidents = await TenantContext.runUnscoped(
-      () =>
-        AdmsIncident.query()
+      async () =>
+        await AdmsIncident.query()
           .where('access_point_id', incompatible.accessPointId)
           .where('adms_incident_kind', 'template_version_mismatch'),
       'incidentes tras la vista previa'
@@ -202,8 +248,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     await replicate(false)
 
     const commands = await TenantContext.runUnscoped(
-      () =>
-        DeviceCommand.query()
+      async () =>
+        await DeviceCommand.query()
           .whereIn('access_point_id', [compatible.accessPointId, incompatible.accessPointId])
           .where('device_command_kind', 'biodata_write')
           .where('biometric_template_id', templateId),
@@ -234,8 +280,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     await replicate(false, [ajeno.accessPointId])
 
     const incidents = await TenantContext.runUnscoped(
-      () =>
-        AdmsIncident.query()
+      async () =>
+        await AdmsIncident.query()
           .where('access_point_id', ajeno.accessPointId)
           .where('adms_incident_kind', 'template_version_mismatch'),
       'incidentes de version incompatible'
@@ -249,15 +295,15 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     assert.equal(incidents[0].admsIncidentContext?.modality, 'fingerprint')
 
     const commands = await TenantContext.runUnscoped(
-      () => DeviceCommand.query().where('access_point_id', ajeno.accessPointId),
+      async () => await DeviceCommand.query().where('access_point_id', ajeno.accessPointId),
       'comandos hacia el equipo ajeno'
     )
     assert.lengthOf(commands, 0)
 
     /** El equipo que si recibio la copia no tiene por que salir senalado. */
     const clean = await TenantContext.runUnscoped(
-      () =>
-        AdmsIncident.query()
+      async () =>
+        await AdmsIncident.query()
           .where('access_point_id', compatible.accessPointId)
           .where('adms_incident_kind', 'template_version_mismatch'),
       'incidentes del equipo compatible'
@@ -282,8 +328,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
    */
   test('en el V5L la huella viaja por FINGERTMP, con el PIN del destino', async ({ assert }) => {
     const command = await TenantContext.runUnscoped(
-      () =>
-        DeviceCommand.query()
+      async () =>
+        await DeviceCommand.query()
           .where('access_point_id', compatible.accessPointId)
           .where('device_command_kind', 'biodata_write')
           .firstOrFail(),
@@ -319,8 +365,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     await replicate(false, [zam70.accessPointId])
 
     const command = await TenantContext.runUnscoped(
-      () =>
-        DeviceCommand.query()
+      async () =>
+        await DeviceCommand.query()
           .where('access_point_id', zam70.accessPointId)
           .where('device_command_kind', 'biodata_write')
           .firstOrFail(),
@@ -358,8 +404,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     await replicate(false, [otra.accessPointId])
 
     const command = await TenantContext.runUnscoped(
-      () =>
-        DeviceCommand.query()
+      async () =>
+        await DeviceCommand.query()
           .where('access_point_id', otra.accessPointId)
           .where('device_command_kind', 'biodata_write')
           .firstOrFail(),
@@ -389,8 +435,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
    */
   test('cada lectura del blob queda asentada a nombre de quien la hizo', async ({ assert }) => {
     const logs = await TenantContext.runUnscoped(
-      () =>
-        db
+      async () =>
+        await db
           .from('pii_access_logs')
           .where('pii_access_log_record_id', templateId)
           .where('pii_access_log_model', 'BiometricTemplate')
@@ -410,8 +456,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
   test('repetir la copia no duplica el comando', async ({ assert }) => {
     await replicate(false)
     const commands = await TenantContext.runUnscoped(
-      () =>
-        DeviceCommand.query()
+      async () =>
+        await DeviceCommand.query()
           .where('access_point_id', compatible.accessPointId)
           .where('device_command_kind', 'biodata_write')
           .where('biometric_template_id', templateId),
@@ -453,8 +499,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     )
 
     const copias = await TenantContext.runUnscoped(
-      () =>
-        DeviceCommand.query()
+      async () =>
+        await DeviceCommand.query()
           .where('access_point_id', nuevo.accessPointId)
           .where('device_command_kind', 'biodata_write'),
       'copias hacia el equipo nuevo'
@@ -465,6 +511,7 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
 
     await TenantContext.runUnscoped(async () => {
       await DeviceCommand.query().where('access_point_id', nuevo.accessPointId).delete()
+      await deleteEventsOf(nuevo.accessPointId)
       await AccessPointEmployee.query().where('access_point_id', nuevo.accessPointId).delete()
       await AccessPointProfile.query().where('access_point_id', nuevo.accessPointId).delete()
       await AccessPoint.query().where('access_point_id', nuevo.accessPointId).delete()
@@ -483,8 +530,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     const dedoDelFixture = 3
 
     const copia = await TenantContext.runUnscoped(
-      () =>
-        DeviceCommand.query()
+      async () =>
+        await DeviceCommand.query()
           .where('access_point_id', compatible.accessPointId)
           .where('biometric_template_id', templateId)
           .firstOrFail(),
@@ -497,15 +544,12 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     const antes = await TenantContext.run([businessUnitId], () =>
       summaries.of(employee.employeeId, compatible.accessPointId)
     )
-    assert.equal(
-      antes.fingers.find((finger) => finger.fingerId === dedoDelFixture)?.state,
-      'sent'
-    )
+    assert.equal(antes.fingers.find((finger) => finger.fingerId === dedoDelFixture)?.state, 'sent')
 
     /** El equipo saluda despues del acuse y declara que no tiene ni una huella. */
     const profile = await TenantContext.runUnscoped(
-      () =>
-        AccessPointProfile.query()
+      async () =>
+        await AccessPointProfile.query()
           .where('access_point_id', compatible.accessPointId)
           .firstOrFail(),
       'perfil del equipo compatible'
@@ -535,7 +579,11 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
   test('el alta avisa cuando el equipo no puede recibir la huella', async ({ assert }) => {
     const ajeno = await makeDevice(`TEST-REPL-ALTA-${STAMP}`, '5153', '99')
     await TenantContext.runUnscoped(
-      () => db.from('access_point_employees').where('access_point_id', ajeno.accessPointId).delete(),
+      async () =>
+        await db
+          .from('access_point_employees')
+          .where('access_point_id', ajeno.accessPointId)
+          .delete(),
       'el alta la hace el servicio, no el fixture'
     )
 
@@ -551,7 +599,7 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
 
     /** El alta si viaja: lo que no puede ir es la huella. */
     const comandos = await TenantContext.runUnscoped(
-      () => DeviceCommand.query().where('access_point_id', ajeno.accessPointId),
+      async () => await DeviceCommand.query().where('access_point_id', ajeno.accessPointId),
       'comandos del alta ajena'
     )
     assert.isAtLeast(comandos.length, 1)
@@ -560,10 +608,144 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     await TenantContext.runUnscoped(async () => {
       await DeviceCommand.query().where('access_point_id', ajeno.accessPointId).delete()
       await db.from('adms_incidents').where('access_point_id', ajeno.accessPointId).delete()
+      await deleteEventsOf(ajeno.accessPointId)
       await AccessPointEmployee.query().where('access_point_id', ajeno.accessPointId).delete()
       await AccessPointProfile.query().where('access_point_id', ajeno.accessPointId).delete()
       await AccessPoint.query().where('access_point_id', ajeno.accessPointId).delete()
     }, 'limpieza del alta ajena')
   })
 
+  /**
+   * VLRH-H1791825638185. El reparto desde el canal lleva `only`: el dedo que
+   * acaba de entrar y nada mas. Lo que motivo la correccion: cada huella nueva
+   * volvia a mandar todos los dedos y la foto a cada equipo, y lo ya entregado
+   * acababa en un fallo "sin evidencia" porque reescribir un dedo no mueve el
+   * contador.
+   */
+  test('con `only` viaja un solo dedo, aunque la boveda tenga mas', async ({ assert }) => {
+    const otroDedo = new BiometricTemplate()
+    otroDedo.employeeId = employee.employeeId
+    otroDedo.businessUnitId = businessUnitId
+    otroDedo.biometricTemplateBioType = BIO_TYPE.FINGERPRINT
+    otroDedo.biometricTemplateBioNo = 5
+    otroDedo.biometricTemplateBioIndex = 0
+    otroDedo.biometricTemplateBioFormat = 0
+    otroDedo.biometricTemplateMajorVer = '13'
+    otroDedo.biometricTemplateValid = 1
+    otroDedo.biometricTemplateDuress = 0
+    otroDedo.biometricTemplateTemplate = TEMPLATE
+    otroDedo.biometricTemplateSize = TEMPLATE.length
+    otroDedo.sourceAccessPointId = source.accessPointId
+    otroDedo.biometricTemplateCapturedAt = DateTime.utc()
+    await TenantContext.runUnscoped(async () => {
+      /** Un residuo de una corrida rota con la misma llave tumbaria el alta. */
+      const residuo = await BiometricTemplate.query()
+        .where('employee_id', employee.employeeId)
+        .where('biometric_template_bio_type', BIO_TYPE.FINGERPRINT)
+        .where('biometric_template_bio_no', 5)
+        .where('biometric_template_major_ver', '13')
+        .first()
+      if (residuo) await deleteTemplate(residuo.biometricTemplateId)
+      await otroDedo.save()
+      extraTemplateIds.push(otroDedo.biometricTemplateId)
+    }, 'segundo dedo del fixture')
+
+    const antes = await TenantContext.runUnscoped(
+      async () =>
+        await DeviceCommand.query()
+          .where('access_point_id', compatible.accessPointId)
+          .where('device_command_kind', 'biodata_write')
+          .count('* as total'),
+      'copias antes del reparto'
+    )
+
+    const result = await TenantContext.run([businessUnitId], () =>
+      new ReplicationService().replicate({
+        employeeId: employee.employeeId,
+        businessUnitId,
+        sourceAccessPointId: source.accessPointId,
+        targetAccessPointIds: [compatible.accessPointId],
+        modalities: [],
+        only: { bioType: BIO_TYPE.FINGERPRINT, bioNo: 5 },
+        actor: { userId, ip: '10.0.0.9', userAgent: 'japa', requestId: `test-only-${STAMP}` },
+        dryRun: false,
+      })
+    )
+
+    const items = result.targets[0].items
+    assert.lengthOf(items, 1)
+    assert.equal(items[0].bioNo, 5)
+    assert.equal(items[0].status, 'queued')
+
+    const despues = await TenantContext.runUnscoped(
+      async () =>
+        await DeviceCommand.query()
+          .where('access_point_id', compatible.accessPointId)
+          .where('device_command_kind', 'biodata_write'),
+      'copias despues del reparto'
+    )
+    assert.equal(despues.length, Number(antes[0].$extras.total) + 1)
+    const nueva = despues.find(
+      (command) => command.biometricTemplateId === otroDedo.biometricTemplateId
+    )
+    assert.equal(nueva?.deviceCommandCorrelationKey, `biodata:${PIN_COMPAT}:1:5`)
+
+    await TenantContext.runUnscoped(
+      () => deleteTemplate(otroDedo.biometricTemplateId),
+      'limpieza del segundo dedo'
+    )
+  })
+
+  test('con `only`, lo que el equipo ya tiene ejecutado no se vuelve a encolar', async ({
+    assert,
+  }) => {
+    const copia = await TenantContext.runUnscoped(
+      async () =>
+        await DeviceCommand.query()
+          .where('access_point_id', compatible.accessPointId)
+          .where('biometric_template_id', templateId)
+          .orderBy('device_command_id', 'asc')
+          .firstOrFail(),
+      'la copia del fixture'
+    )
+    const estadoPrevio = copia.deviceCommandStatus
+    copia.deviceCommandStatus = 'executed'
+    copia.deviceCommandExecutedAt = DateTime.utc()
+    await TenantContext.runUnscoped(() => copia.save(), 'se da por entregada')
+
+    const only = { bioType: BIO_TYPE.FINGERPRINT, bioNo: 3 }
+    const actor = { userId, ip: '10.0.0.9', userAgent: 'japa', requestId: `test-deliv-${STAMP}` }
+    const base = {
+      employeeId: employee.employeeId,
+      businessUnitId,
+      sourceAccessPointId: source.accessPointId,
+      targetAccessPointIds: [compatible.accessPointId],
+      modalities: [] as never[],
+      actor,
+      dryRun: false,
+    }
+
+    const desdeCanal = await TenantContext.run([businessUnitId], () =>
+      new ReplicationService().replicate({ ...base, only })
+    )
+    assert.equal(desdeCanal.targets[0].items[0].status, 'skipped')
+    assert.equal(desdeCanal.targets[0].items[0].reason, 'already_delivered')
+
+    /** La ficha (sin `only`) si puede repetirla: un equipo reseteado la necesita. */
+    const desdeFicha = await TenantContext.run([businessUnitId], () =>
+      new ReplicationService().replicate({ ...base, modalities: ['fingerprint'] })
+    )
+    assert.equal(desdeFicha.targets[0].items[0].status, 'queued')
+
+    await TenantContext.runUnscoped(async () => {
+      await DeviceCommand.query()
+        .where('access_point_id', compatible.accessPointId)
+        .where('biometric_template_id', templateId)
+        .whereNot('device_command_id', copia.deviceCommandId)
+        .delete()
+      copia.deviceCommandStatus = estadoPrevio
+      copia.deviceCommandExecutedAt = null
+      await copia.save()
+    }, 'se deshace la entrega simulada')
+  })
 })

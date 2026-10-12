@@ -144,6 +144,43 @@ test.group('Evidencia de ejecucion: checada con huella', () => {
   })
 
   /**
+   * VLRH-H1791825638185, regla 3: la checada con huella acredita tambien las
+   * COPIAS de huella de ese PIN, igual que el rostro acredita las de rostro.
+   * La copia de rostro del mismo PIN se queda esperando su propia prueba.
+   */
+  test('una checada con huella cierra las copias de huella, no las de rostro', async ({
+    assert,
+  }) => {
+    const { service, saved } = makeService([
+      commandOf({
+        deviceCommandId: 20,
+        deviceCommandKind: DEVICE_COMMAND_KIND.BIODATA_WRITE,
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandCorrelationKey: 'biodata:1042:1:3',
+      }),
+      commandOf({
+        deviceCommandId: 21,
+        deviceCommandKind: DEVICE_COMMAND_KIND.BIODATA_WRITE,
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandBioNo: 9,
+        deviceCommandCorrelationKey: 'biodata:1042:9:9',
+      }),
+    ])
+    const marked = await service.fromPunch({
+      accessPointId: 12,
+      pin: '1042',
+      verify: 1,
+      now: NOW,
+    })
+    assert.equal(marked, 1)
+    assert.deepEqual(
+      saved.map((command) => command.deviceCommandId),
+      [20]
+    )
+    assert.equal(saved[0].deviceCommandExecutionEvidence, 'attlog_verify')
+  })
+
+  /**
    * Marcar con rostro o con contraseña no dice nada de la huella que se pidio.
    */
   test('una checada con otro metodo no cierra nada', async ({ assert }) => {
@@ -208,31 +245,43 @@ test.group('Evidencia de ejecucion: contadores del equipo', () => {
     assert.equal(saved[0].deviceCommandExecutionEvidence, 'counter_up')
   })
 
-  test('un alza que no alcanza para todas no cierra ninguna', async ({ assert }) => {
+  /**
+   * VLRH-H1791825638185, regla 4. Un dedo que ya estaba dentro se reescribe
+   * sin mover el contador: exigir que el alza cubriera a todas dejaba a todas
+   * sin acreditar y el barrido las daba por fallidas con el dato dentro. Entre
+   * copias se acreditan las mas antiguas hasta donde alcanza el alza.
+   */
+  test('un alza que no alcanza para todas acredita las copias mas antiguas', async ({
+    assert,
+  }) => {
     const snapshot = { fpCount: 1, faceCount: 0, userCount: 1 }
-    const { service } = makeService([
-      commandOf({
-        deviceCommandId: 525,
-        deviceCommandKind: 'biodata_write',
-        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
-        deviceCommandCountersSnapshot: snapshot,
-      }),
+    const { service, saved } = makeService([
       commandOf({
         deviceCommandId: 526,
         deviceCommandKind: 'biodata_write',
         deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandAckedAt: NOW.minus({ seconds: 5 }),
+        deviceCommandCountersSnapshot: snapshot,
+      }),
+      commandOf({
+        deviceCommandId: 525,
+        deviceCommandKind: 'biodata_write',
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandAckedAt: NOW.minus({ seconds: 30 }),
         deviceCommandCountersSnapshot: snapshot,
       }),
     ])
 
-    // Dos ordenes y el contador subio una: no se sabe cual entro.
+    // Dos ordenes y el contador subio una: entra la que se acuso primero.
     const marked = await service.fromCounters({
       accessPointId: 12,
       counters: { fpCount: 2, faceCount: 0, userCount: 1 },
       now: NOW,
     })
 
-    assert.equal(marked, 0)
+    assert.equal(marked, 1)
+    assert.equal(saved[0].deviceCommandId, 525)
+    assert.equal(saved[0].deviceCommandExecutionEvidence, 'counter_up')
   })
 
   /**

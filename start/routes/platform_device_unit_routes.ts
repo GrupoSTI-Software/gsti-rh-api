@@ -50,6 +50,16 @@ router
       )
       .where('platformDeviceId', router.matchers.number())
     /**
+     * Recrear el punto de acceso cuando la empresa lo borro: sin el la unidad
+     * queda entregada pero sin direccion ni estado.
+     */
+    router
+      .post(
+        '/:platformDeviceId/access-point',
+        '#modules/access-point/platform/access_point_recreate.controller.store'
+      )
+      .where('platformDeviceId', router.matchers.number())
+    /**
      * Estado de conexion de esta unidad. `/health` del tablero recorre el
      * parque entero; aqui se pregunta por el equipo que se esta viendo.
      */
