@@ -424,10 +424,14 @@ export default class ReplicationService {
   /**
    * Saca el blob de la boveda y lo encola hacia el destino.
    *
-   * La lectura y su asiento en la bitacora van en la MISMA transaccion que el
-   * encolado: si el asiento falla, el blob no sale de la boveda y el comando no
-   * se crea. Un biometrico que se lee sin que conste quien lo leyo no tiene
-   * custodia.
+   * La lectura y su asiento en la bitacora van en la MISMA transaccion: si el
+   * asiento falla, el blob no sale de la boveda. Un biometrico que se lee sin
+   * que conste quien lo leyo no tiene custodia.
+   *
+   * El encolado va DESPUES y fuera de esa transaccion: `enqueueIdempotent`
+   * abre la suya con la fila del punto de acceso bloqueada, y anidarla dentro
+   * de la lectura cruzaria dos candados. Si el encolado falla, el asiento de
+   * lectura queda --la lectura si ocurrio-- y no hay comando.
    */
   private async queueTemplate(args: {
     input: ReplicationInput
