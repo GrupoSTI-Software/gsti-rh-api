@@ -174,3 +174,85 @@ function baseQuery(connection: TransactionClientContract | typeof db, businessUn
     })
     .whereNotIn('r.role_slug', [...EXCLUDED_ROLE_SLUGS])
 }
+
+/** Empresas de un aviso. Se descartan repetidas y las que no son entero positivo. */
+export interface TenantHumanCapitalQuery {
+  businessUnitIds: readonly number[]
+}
+
+/**
+ * Usuario cuyo rol efectivo en una empresa está marcado como Recursos Humanos.
+ * Una fila por usuario y empresa. El correo puede venir vacío: quien avisa decide si lo descarta.
+ */
+export interface TenantHumanCapitalUser extends TenantUserByRoleSlug {
+  businessUnitId: number
+}
+
+interface HumanCapitalRow {
+  user_id?: number
+  userId?: number
+  email?: string | null
+  user_email?: string | null
+  role_id?: number
+  roleId?: number
+  role_slug?: string
+  roleSlug?: string
+}
+
+/**
+ * Usuarios vivos cuyo rol efectivo en cada empresa está marcado como Recursos Humanos.
+ *
+ * Sirve solo para avisos que no tienen un módulo con permisos. La marca no
+ * sustituye un permiso. Una fila por usuario y empresa. No descarta el correo
+ * por su cuenta: si llega vacío, sale con email null.
+ * Sin empresas válidas no consulta. Recorre las empresas en serie para poder
+ * usarse dentro de una transacción.
+ *
+ * @param query Empresas del aviso.
+ * @param trx Transacción opcional. Sin ella usa la conexión normal.
+ */
+export async function fetchTenantHumanCapitalUsers(
+  query: TenantHumanCapitalQuery,
+  trx?: TransactionClientContract
+): Promise<TenantHumanCapitalUser[]> {
+  const businessUnitIds = [...new Set(query.businessUnitIds)]
+    .filter((id) => Number.isInteger(id) && id > 0)
+    .sort((a, b) => a - b)
+  if (businessUnitIds.length === 0) return []
+
+  const client = trx ?? db
+  const recipients: TenantHumanCapitalUser[] = []
+
+  for (const businessUnitId of businessUnitIds) {
+    const rows = (await baseQuery(client, businessUnitId)
+      .where('r.role_human_capital', 1)
+      .select(
+        'u.user_id',
+        client.raw("NULLIF(TRIM(u.user_email), '') as email"),
+        'r.role_id',
+        'r.role_slug'
+      )
+      .distinct()
+      .orderBy('u.user_id', 'asc')) as HumanCapitalRow[]
+
+    for (const row of rows) {
+      recipients.push({
+        userId: Number(row.user_id ?? row.userId),
+        email: emptyEmailToNull(row),
+        roleId: Number(row.role_id ?? row.roleId),
+        roleSlug: String(row.role_slug ?? row.roleSlug),
+        businessUnitId,
+      })
+    }
+  }
+
+  return recipients
+}
+
+/** El alias `email` trae el correo recortado; vacío queda en null. */
+function emptyEmailToNull(row: HumanCapitalRow): string | null {
+  const value = row.email ?? row.user_email
+  if (value === null || value === undefined) return null
+  const trimmed = String(value).trim()
+  return trimmed === '' ? null : trimmed
+}

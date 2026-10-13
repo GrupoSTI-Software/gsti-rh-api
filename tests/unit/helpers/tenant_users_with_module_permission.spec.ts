@@ -5,6 +5,7 @@ import Person from '#models/person'
 import Role from '#models/role'
 import User from '#models/user'
 import {
+  fetchTenantHumanCapitalUsers,
   fetchTenantUsersByEffectiveRoleSlugs,
   fetchTenantUsersWithModulePermission,
 } from '#helpers/tenant_users_with_module_permission'
@@ -370,6 +371,236 @@ test.group('tenant_users_with_module_permission', (group) => {
   })
 })
 
+test.group('fetchTenantHumanCapitalUsers', () => {
+  test('CH1 el rol marcado entra y rh-manager sin marca no', async ({ assert }) => {
+    const company = await unit('talento')
+    const talento = await role('Talento', company.businessUnitId)
+    const manager = await role('rh-manager', company.businessUnitId)
+    await markHumanCapital(talento.roleId)
+    const marked = await user(talento.roleId, 'talento')
+    const unmarked = await user(manager.roleId, 'manager')
+    await pivot(company.businessUnitId, marked.user.userId, talento.roleId)
+    await pivot(company.businessUnitId, unmarked.user.userId, manager.roleId)
+
+    try {
+      const rows = await fetchTenantHumanCapitalUsers({ businessUnitIds: [company.businessUnitId] })
+      const ids = rows.map((row) => row.userId)
+      assert.include(ids, marked.user.userId)
+      assert.notInclude(ids, unmarked.user.userId)
+    } finally {
+      await cleanup([marked, unmarked], [talento, manager], [company])
+    }
+  })
+
+  test('CH2 un rol marcado de otra empresa no entra', async ({ assert }) => {
+    const companyA = await unit('marca-a')
+    const companyB = await unit('marca-b')
+    const roleB = await role('talento-b', companyB.businessUnitId)
+    await markHumanCapital(roleB.roleId)
+    const account = await user(roleB.roleId, 'solo-b')
+    await pivot(companyB.businessUnitId, account.user.userId, roleB.roleId)
+
+    try {
+      const rows = await fetchTenantHumanCapitalUsers({ businessUnitIds: [companyA.businessUnitId] })
+      assert.notInclude(
+        rows.map((row) => row.userId),
+        account.user.userId
+      )
+    } finally {
+      await cleanup([account], [roleB], [companyA, companyB])
+    }
+  })
+
+  test('CH3 con acceso a dos empresas sale una fila, la de la empresa cuyo rol está marcado', async ({
+    assert,
+  }) => {
+    const companyA = await unit('acceso-a')
+    const companyB = await unit('acceso-b')
+    const roleA = await role('operacion', companyA.businessUnitId)
+    const roleB = await role('talento', companyB.businessUnitId)
+    await markHumanCapital(roleB.roleId)
+    const account = await user(roleA.roleId, 'dos-empresas')
+    await pivot(companyA.businessUnitId, account.user.userId, roleA.roleId)
+    await pivot(companyB.businessUnitId, account.user.userId, roleB.roleId)
+
+    try {
+      const rows = await fetchTenantHumanCapitalUsers({
+        businessUnitIds: [companyA.businessUnitId, companyB.businessUnitId],
+      })
+      const own = rows.filter((row) => row.userId === account.user.userId)
+      assert.lengthOf(own, 1)
+      assert.equal(own[0]?.businessUnitId, companyB.businessUnitId)
+    } finally {
+      await cleanup([account], [roleA, roleB], [companyA, companyB])
+    }
+  })
+
+  test('CH4 el rol de la cuenta cuenta si es de la empresa, el común marcado cuenta y el borrado en la pivote no', async ({
+    assert,
+  }) => {
+    const companyA = await unit('efectivo-a')
+    const companyB = await unit('efectivo-b')
+    const roleA = await role('cuenta-a', companyA.businessUnitId)
+    const roleB = await role('cuenta-b', companyB.businessUnitId)
+    const deletedOnPivot = await role('pivote-borrada', companyA.businessUnitId)
+    const shared = await role(`comun-${stamp()}`, null)
+    await markHumanCapital(roleA.roleId)
+    await markHumanCapital(roleB.roleId)
+    await markHumanCapital(deletedOnPivot.roleId)
+    await markHumanCapital(shared.roleId)
+
+    const sameCompany = await user(roleA.roleId, 'cuenta-misma')
+    await pivot(companyA.businessUnitId, sameCompany.user.userId, null)
+
+    const otherCompany = await user(roleB.roleId, 'cuenta-ajena')
+    await pivot(companyA.businessUnitId, otherCompany.user.userId, null)
+
+    const brokenPivot = await user(roleA.roleId, 'pivote-rota')
+    await pivot(companyA.businessUnitId, brokenPivot.user.userId, deletedOnPivot.roleId)
+    await db.from('roles').where('role_id', deletedOnPivot.roleId).update({ role_deleted_at: new Date() })
+
+    const sharedAccount = await user(shared.roleId, 'comun')
+    await pivot(companyA.businessUnitId, sharedAccount.user.userId, null)
+
+    try {
+      const rows = await fetchTenantHumanCapitalUsers({ businessUnitIds: [companyA.businessUnitId] })
+      const ids = rows.map((row) => row.userId)
+      assert.include(ids, sameCompany.user.userId)
+      assert.include(ids, sharedAccount.user.userId)
+      assert.notInclude(ids, otherCompany.user.userId)
+      assert.notInclude(ids, brokenPivot.user.userId)
+    } finally {
+      await cleanup(
+        [sameCompany, otherCompany, brokenPivot, sharedAccount],
+        [roleA, roleB, deletedOnPivot, shared],
+        [companyA, companyB]
+      )
+    }
+  })
+
+  test('CH5 no salen los estados terminales, ni dueño, ni plataforma, ni la empresa inactiva', async ({
+    assert,
+  }) => {
+    const company = await unit('terminal')
+    const marked = await role('talento', company.businessUnitId)
+    await markHumanCapital(marked.roleId)
+    const ok = await user(marked.roleId, 'ok')
+    await pivot(company.businessUnitId, ok.user.userId, marked.roleId)
+
+    const removedPivot = await user(marked.roleId, 'pivote-baja')
+    const pivotId = await pivot(company.businessUnitId, removedPivot.user.userId, marked.roleId)
+    await db
+      .from('business_unit_users')
+      .where('business_unit_user_id', pivotId)
+      .update({ business_unit_user_deleted_at: new Date() })
+
+    const inactiveUser = await user(marked.roleId, 'inactivo')
+    await pivot(company.businessUnitId, inactiveUser.user.userId, marked.roleId)
+    await db.from('users').where('user_id', inactiveUser.user.userId).update({ user_active: 0 })
+
+    const deletedUser = await user(marked.roleId, 'borrado')
+    await pivot(company.businessUnitId, deletedUser.user.userId, marked.roleId)
+    await db.from('users').where('user_id', deletedUser.user.userId).update({ user_deleted_at: new Date() })
+
+    const inactiveRole = await role('rol-off', company.businessUnitId)
+    await markHumanCapital(inactiveRole.roleId)
+    const inactiveRoleUser = await user(inactiveRole.roleId, 'rol-off')
+    await pivot(company.businessUnitId, inactiveRoleUser.user.userId, inactiveRole.roleId)
+    await db.from('roles').where('role_id', inactiveRole.roleId).update({ role_active: 0 })
+
+    const goneRole = await role('rol-baja', company.businessUnitId)
+    await markHumanCapital(goneRole.roleId)
+    const goneRoleUser = await user(goneRole.roleId, 'rol-baja')
+    await pivot(company.businessUnitId, goneRoleUser.user.userId, goneRole.roleId)
+    await db.from('roles').where('role_id', goneRole.roleId).update({ role_deleted_at: new Date() })
+
+    const blankEmail = await user(marked.roleId, 'sin-correo')
+    await pivot(company.businessUnitId, blankEmail.user.userId, marked.roleId)
+    await db.from('users').where('user_id', blankEmail.user.userId).update({ user_email: '   ' })
+
+    const ownerRole = await role('owner', company.businessUnitId)
+    await markHumanCapital(ownerRole.roleId)
+    const owner = await user(ownerRole.roleId, 'owner')
+    await pivot(company.businessUnitId, owner.user.userId, ownerRole.roleId)
+
+    const rootRole = await role('root', company.businessUnitId)
+    await markHumanCapital(rootRole.roleId)
+    const root = await user(rootRole.roleId, 'root')
+    await pivot(company.businessUnitId, root.user.userId, rootRole.roleId)
+
+    const inactiveCompany = await unit('apagada')
+    const inactiveCompanyRole = await role('talento-off', inactiveCompany.businessUnitId)
+    await markHumanCapital(inactiveCompanyRole.roleId)
+    const inactiveCompanyUser = await user(inactiveCompanyRole.roleId, 'empresa-off')
+    await pivot(inactiveCompany.businessUnitId, inactiveCompanyUser.user.userId, inactiveCompanyRole.roleId)
+    await db
+      .from('business_units')
+      .where('business_unit_id', inactiveCompany.businessUnitId)
+      .update({ business_unit_active: 0 })
+
+    try {
+      const rows = await fetchTenantHumanCapitalUsers({
+        businessUnitIds: [company.businessUnitId, inactiveCompany.businessUnitId],
+      })
+      const ids = rows.map((row) => row.userId)
+      assert.include(ids, ok.user.userId)
+      for (const excluded of [
+        removedPivot,
+        inactiveUser,
+        deletedUser,
+        inactiveRoleUser,
+        goneRoleUser,
+        blankEmail,
+        owner,
+        root,
+        inactiveCompanyUser,
+      ]) {
+        assert.notInclude(ids, excluded.user.userId)
+      }
+    } finally {
+      await cleanup(
+        [ok, removedPivot, inactiveUser, deletedUser, inactiveRoleUser, goneRoleUser, blankEmail, owner, root, inactiveCompanyUser],
+        [marked, inactiveRole, goneRole, ownerRole, rootRole, inactiveCompanyRole],
+        [company, inactiveCompany]
+      )
+    }
+  })
+
+  test('CH6 empresas vacías o inválidas no consultan, y las repetidas no duplican filas', async ({
+    assert,
+  }) => {
+    const trx = {
+      from() {
+        throw new Error('no debía consultar')
+      },
+    } as unknown as TransactionClientContract
+
+    assert.deepEqual(await fetchTenantHumanCapitalUsers({ businessUnitIds: [] }, trx), [])
+    assert.deepEqual(await fetchTenantHumanCapitalUsers({ businessUnitIds: [0, -3, Number.NaN, 1.5] }, trx), [])
+
+    const company = await unit('repetida')
+    const talento = await role('talento', company.businessUnitId)
+    await markHumanCapital(talento.roleId)
+    const account = await user(talento.roleId, 'una-vez')
+    await pivot(company.businessUnitId, account.user.userId, talento.roleId)
+
+    try {
+      const rows = await fetchTenantHumanCapitalUsers({
+        businessUnitIds: [company.businessUnitId, company.businessUnitId, 0],
+      })
+      const own = rows.filter((row) => row.userId === account.user.userId)
+      assert.lengthOf(own, 1)
+      assert.equal(own[0]?.businessUnitId, company.businessUnitId)
+    } finally {
+      await cleanup([account], [talento], [company])
+    }
+  })
+})
+
+async function markHumanCapital(roleId: number): Promise<void> {
+  await db.from('roles').where('role_id', roleId).update({ role_human_capital: 1 })
+}
+
 async function unit(label: string): Promise<BusinessUnit> {
   const token = stamp()
   return BusinessUnit.create({
@@ -381,7 +612,7 @@ async function unit(label: string): Promise<BusinessUnit> {
   })
 }
 
-async function role(slug: string, businessUnitId: number): Promise<Role> {
+async function role(slug: string, businessUnitId: number | null): Promise<Role> {
   return Role.create({
     roleName: `Rol ${slug} ${stamp()}`,
     roleSlug: slug,
