@@ -34,22 +34,24 @@ Qué deja listo para esta prueba:
 
 - **QA Fundadora**: la empresa donde se hace todo el recorrido, con los tres módulos disponibles.
 - Los **tipos de activo** con su categoría de la norma: **Silla QA Listado** (categoría *Silla ergonómica*) y **Computo QA Listado** (categoría *Equipo de cómputo o impresión*).
-- Los **seis colaboradores** de la tabla de abajo (`QA-LST-01` a `QA-LST-05` y `QA-LST-B`), uno por estado que prueba un escenario.
-- La **empresa ajena** **QA Listado Empresa**, con su propio teletrabajador (`QA-LST-B`) y la membresía de la cuenta A en esa empresa, para el Escenario 4.7.
+- Los **seis colaboradores** de la tabla de abajo (los códigos **971** a **976** de la columna **Código** del listado), uno por estado que prueba un escenario.
+- La **empresa ajena** **QA Listado Empresa**, con su propio teletrabajador (código **976**) y la membresía de la cuenta A en esa empresa, para el Escenario 4.7.
 - Las **tres cuentas** de la §2.
 
-**Señal para reconocer lo nuestro:** los colaboradores de esta prueba tienen código de nómina `QA-LST-…`; los activos de esta prueba tienen folio `QA-LST-ACT-…`; los tipos terminan en `QA Listado`. El único colaborador de otro código que sí se mira en este manual es `QA-TEL-02` (Ulises Pardo Gil), que existe justamente para mostrar a alguien por debajo del 40% y **no** debe aparecer en el listado. El listado también trae otros colaboradores de otras historias (los demás de código `QA-TEL-…`): son de otra prueba, no se tocan, y sus chips no se marcan aquí.
+**Señal para reconocer lo nuestro:** en el listado, los colaboradores de esta prueba son los **seis** de la tabla de abajo: sus códigos en la columna **Código** van del **971** al **976** y sus activos llevan folio `QA-LST-ACT-…`; los tipos de activo terminan en **QA Listado**. El listado trae además colaboradores de otras pruebas —los códigos **951** a **958** y el **901**, que aparece al 40% con domicilio—: esos no se tocan y sus chips no se marcan aquí. El único ajeno que sí se mira en este manual es **Ulises Pardo Gil** (Híbrido al 20%), que **no** debe aparecer por no llegar al 40%.
 
 Estado de cada colaborador (lo que deja el sembrador):
 
-| Código | Nombre | Modalidad y % | Activos sembrados | Escenario |
+| Código (columna **Código**) | Nombre | Modalidad y % | Activos sembrados | Escenario |
 |---|---|---|---|---|
-| `QA-LST-01` | Ana Lira Soto | Home Office, 100% | Silla `QA-LST-ACT-SIL-01` y laptop `QA-LST-ACT-LAP-01` entregadas con resguardo firmado | 4.1 |
-| `QA-LST-02` | Luis Bravo Cano | Híbrido, 60% | Solo silla `QA-LST-ACT-SIL-02` entregada con resguardo firmado | 4.2 |
-| `QA-LST-03` | Marta Espino Gil | Home Office, 100% | Silla `QA-LST-ACT-SIL-03` entregada con resguardo firmado + laptop `QA-LST-ACT-LAP-02` en envío | 4.3 y 4.6 |
-| `QA-LST-04` | Pedro Nava Rios | Home Office, 100% | Silla `QA-LST-ACT-SIL-04` entregada **sin** resguardo firmado + laptop `QA-LST-ACT-LAP-03` entregada con resguardo firmado | 4.4 |
-| `QA-LST-05` | Sofia Ortega Luna | Híbrido, 40% | Ninguno | 4.5 |
-| `QA-LST-B` | Bruno Ajeno Rios | Home Office, 100% (empresa **QA Listado Empresa**) | Ninguno | 4.7 |
+| `971` | Ana Lira Soto | Home Office, 100% | Silla `QA-LST-ACT-SIL-01` y laptop `QA-LST-ACT-LAP-01` entregadas con resguardo firmado | 4.1 |
+| `972` | Luis Bravo Cano | Híbrido, 60% | Solo silla `QA-LST-ACT-SIL-02` entregada con resguardo firmado | 4.2 |
+| `973` | Marta Espino Gil | Home Office, 100% | Silla `QA-LST-ACT-SIL-03` entregada con resguardo firmado + laptop `QA-LST-ACT-LAP-02` en envío | 4.3 y 4.6 |
+| `974` | Pedro Nava Rios | Home Office, 100% | Silla `QA-LST-ACT-SIL-04` entregada **sin** resguardo firmado + laptop `QA-LST-ACT-LAP-03` entregada con resguardo firmado | 4.4 |
+| `975` | Sofia Ortega Luna | Híbrido, 40% | Ninguno | 4.5 |
+| `976` | Bruno Ajeno Rios | Home Office, 100% (empresa **QA Listado Empresa**) | Ninguno | 4.7 |
+
+Los códigos de arriba son los que muestra la columna **Código** del listado de teletrabajadores. La ficha del colaborador, a la que se entra desde **Empleados**, muestra el otro código del sembrador (`QA-LST-01`, `QA-LST-02`, …): es el mismo colaborador.
 
 Orden del recorrido: los escenarios se recorren **en orden**. El listado es de solo consulta, así que recorrerlo no cambia nada; el único que mueve la sesión es el **Escenario 4.7**, que cambia la empresa activa y hay que devolverla a **QA Fundadora** al terminar.
 
@@ -94,7 +96,7 @@ Entra con el Usuario A (`qa-employee-assets-full@gsti-tests.local`) y elige la e
 Objetivo: comprobar que un teletrabajador con la silla y el equipo de cómputo entregados y sus resguardos firmados aparece en el listado con el chip **Completo**, y que la categoría de **Aditamento** —que sigue sin entregarse— no le suma ningún pendiente.
 
 1. Con el Usuario A, abre **Empresa → Teletrabajadores**.
-2. Busca en el buscador **Buscar** (placeholder **Nombre del empleado o puesto**) a **Ana Lira Soto** (código de nómina `QA-LST-01`; su aditamento sigue **Sin entregar**).
+2. Busca en el buscador **Buscar** (placeholder **Nombre del empleado o puesto**) a **Ana Lira Soto** (código **971**; su aditamento sigue **Sin entregar**).
 3. En su fila, mira la columna **Insumos**.
 4. **Negativo a comprobar a propósito:** en su celda **no** aparece ningún chip de **sin cubrir**, **en envío** ni **resguardo sin firmar**.
 
@@ -113,7 +115,7 @@ Objetivo: comprobar que un teletrabajador con la silla y el equipo de cómputo e
 
 Objetivo: comprobar que a un teletrabajador al que se le entregó la silla pero le falta el equipo de cómputo, la columna **Insumos** dice cuántas categorías obligatorias quedan sin cubrir.
 
-1. Con el Usuario A, busca a **Luis Bravo Cano** (código de nómina `QA-LST-02`, Híbrido al 60%) y mira su columna **Insumos**.
+1. Con el Usuario A, busca a **Luis Bravo Cano** (código **972**, Híbrido al 60%) y mira su columna **Insumos**.
 2. **Negativo a comprobar a propósito:** su celda **no** dice **Completo** y tampoco trae un chip de **en envío** (no hay nada en camino).
 
 **Qué debe verse:** la celda **Insumos** de **Luis Bravo Cano** trae un solo chip **1 sin cubrir**. No dice **Completo** ni **en envío**.
@@ -124,7 +126,7 @@ Objetivo: comprobar que a un teletrabajador al que se le entregó la silla pero 
 
 Objetivo: comprobar que un activo que va en camino no cuenta como entregado —se resume en el chip **N en envío**— y que mientras haya algo en camino la columna **nunca** dice **Completo**.
 
-1. Con el Usuario A, busca a **Marta Espino Gil** (código de nómina `QA-LST-03`, Home Office al 100%; su laptop va en camino) y mira su columna **Insumos**.
+1. Con el Usuario A, busca a **Marta Espino Gil** (código **973**, Home Office al 100%; su laptop va en camino) y mira su columna **Insumos**.
 2. **Negativo a comprobar a propósito:** su celda **no** dice **Completo**; y como la silla ya está entregada, tampoco dice **sin cubrir**.
 
 **Qué debe verse:** la celda **Insumos** de **Marta Espino Gil** trae un solo chip **1 en envío**. No aparece **Completo** ni **sin cubrir**.
@@ -137,7 +139,7 @@ Objetivo: comprobar que un activo que va en camino no cuenta como entregado —s
 
 Objetivo: comprobar que un activo **ya entregado** cuyo resguardo todavía no se firma agrega el chip **1 resguardo sin firmar**, y que ese chip se muestra **junto a** **Completo** sin reemplazarlo.
 
-1. Con el Usuario A, busca a **Pedro Nava Rios** (código de nómina `QA-LST-04`, Home Office al 100%; su silla está entregada sin el vale firmado) y mira su columna **Insumos**.
+1. Con el Usuario A, busca a **Pedro Nava Rios** (código **974**, Home Office al 100%; su silla está entregada sin el vale firmado) y mira su columna **Insumos**.
 
 **Qué debe verse:** la celda **Insumos** de **Pedro Nava Rios** trae **dos** chips, uno junto al otro: **Completo** y **1 resguardo sin firmar**. El de resguardo **no** reemplaza a **Completo**: aparecen los dos.
 
@@ -149,9 +151,9 @@ Objetivo: comprobar que un activo **ya entregado** cuyo resguardo todavía no se
 
 Objetivo: comprobar que un colaborador híbrido justo en el **40%** —la frontera que lo mete al listado obligatorio— aparece en el listado con su estado de insumos.
 
-1. Con el Usuario A, busca a **Sofia Ortega Luna** (código de nómina `QA-LST-05`, Híbrido al 40%, sin insumos) y mírala en la tabla.
+1. Con el Usuario A, busca a **Sofia Ortega Luna** (código **975**, Híbrido al 40%, sin insumos) y mírala en la tabla.
 2. Revisa su **Modalidad**, su **% de teletrabajo** y su columna **Insumos**.
-3. **Negativo a comprobar a propósito:** **Ulises Pardo Gil** (código de nómina `QA-TEL-02`, Híbrido al 20%) **no** aparece en el listado, porque no llega al 40%.
+3. **Negativo a comprobar a propósito:** **Ulises Pardo Gil** (Híbrido al 20%) **no** aparece en el listado, porque no llega al 40%.
 
 **Qué debe verse:** **Sofia Ortega Luna** aparece en la tabla con **Modalidad** *Híbrido*, **% de teletrabajo** `40` y, en **Insumos**, el chip **2 sin cubrir** (no tiene ni silla ni equipo de cómputo entregados; el aditamento no cuenta). **Ulises Pardo Gil** (20%) no está en la lista.
 
@@ -163,7 +165,7 @@ Objetivo: comprobar que un colaborador híbrido justo en el **40%** —la fronte
 
 Objetivo: comprobar que el nombre del colaborador es un enlace que lleva a la sección **Activos** de su ficha, y que los estados que se ven ahí coinciden con el chip que mostraba la columna **Insumos** del listado.
 
-1. Con el Usuario A, en el listado, localiza a **Marta Espino Gil** (código de nómina `QA-LST-03`) y anota su chip: **1 en envío**.
+1. Con el Usuario A, en el listado, localiza a **Marta Espino Gil** (código **973**) y anota su chip: **1 en envío**.
 2. Pulsa su **nombre**.
 3. La aplicación abre la sección **Activos** de su ficha. La dirección cambia a la de esa sección: empieza con `/employees/`, sigue el identificador del colaborador y termina en `/assets` (no lleva `/es`).
 4. Arriba de la lista de activos está la tarjeta **Insumos de teletrabajo**, con sus tres categorías y sus chips de resumen.
@@ -188,12 +190,12 @@ Objetivo: comprobar que el nombre del colaborador es un enlace que lleva a la se
 
 Objetivo: comprobar que el listado y sus estados corresponden **solo** a la empresa activa y no mezclan colaboradores ni insumos de otra empresa.
 
-1. Con el Usuario A, en **QA Fundadora**, abre **Empresa → Teletrabajadores** y anota los colaboradores que llevan código `QA-LST-…` y sus chips.
+1. Con el Usuario A, en **QA Fundadora**, abre **Empresa → Teletrabajadores** y anota los seis colaboradores de esta prueba (códigos **971** a **976**) y sus chips.
 2. Arriba a la derecha abre **Mi cuenta** (el avatar) y en el campo **Empresa** elige **QA Listado Empresa**.
 3. Vuelve a entrar a **Empresa → Teletrabajadores**.
 4. Al terminar, elige otra vez **QA Fundadora** en el campo **Empresa**.
 
-**Qué debe verse:** con **QA Listado Empresa** activa, el listado trae **solo** colaboradores de esa empresa —el único es **Bruno Ajeno Rios** (código `QA-LST-B`), con el chip **2 sin cubrir**— y **ninguno** de **QA Fundadora** (no aparece Ana Lira Soto ni ningún `QA-LST-01`…`QA-LST-05`). Al volver a **QA Fundadora**, el listado y sus chips vuelven a ser los de esa empresa.
+**Qué debe verse:** con **QA Listado Empresa** activa, el listado trae **solo** colaboradores de esa empresa —el único es **Bruno Ajeno Rios** (código **976**), con el chip **2 sin cubrir**— y **ninguno** de **QA Fundadora** (no aparecen los códigos **971** a **975**). Al volver a **QA Fundadora**, el listado y sus chips vuelven a ser los de esa empresa.
 
 **Qué significa lo nuevo aquí:**
 
@@ -256,13 +258,13 @@ Se declara no revisable desde el navegador y queda cubierto por las pruebas auto
 
 Cada casilla se marca **contra el objetivo de su escenario**, no contra "se hicieron los pasos":
 
-- [ ] 4.1 En `QA-LST-01` la columna **Insumos** trae solo el chip **Completo**, aunque su aditamento siga **Sin entregar** (no suma pendientes)
-- [ ] 4.2 En `QA-LST-02` la columna dice **1 sin cubrir** y no **Completo** ni **en envío**
-- [ ] 4.3 En `QA-LST-03` la columna dice **1 en envío** y **no** dice **Completo**
-- [ ] 4.4 En `QA-LST-04` la columna trae **Completo** **y** **1 resguardo sin firmar**, ambos chips
-- [ ] 4.5 `QA-LST-05` (Híbrido 40%) aparece en el listado con **% de teletrabajo** `40` y el chip **2 sin cubrir**; el 20% no aparece
-- [ ] 4.6 Pulsar el nombre de `QA-LST-03` abre la sección **Activos** de su ficha y sus estados coinciden con el chip **1 en envío** del listado
-- [ ] 4.7 Con **QA Listado Empresa** activa solo aparece `QA-LST-B`, y al volver a **QA Fundadora** reaparecen sus colaboradores
+- [ ] 4.1 En Ana Lira Soto (`971`) la columna **Insumos** trae solo el chip **Completo**, aunque su aditamento siga **Sin entregar** (no suma pendientes)
+- [ ] 4.2 En Luis Bravo Cano (`972`) la columna dice **1 sin cubrir** y no **Completo** ni **en envío**
+- [ ] 4.3 En Marta Espino Gil (`973`) la columna dice **1 en envío** y **no** dice **Completo**
+- [ ] 4.4 En Pedro Nava Rios (`974`) la columna trae **Completo** **y** **1 resguardo sin firmar**, ambos chips
+- [ ] 4.5 Sofia Ortega Luna (`975`, Híbrido 40%) aparece en el listado con **% de teletrabajo** `40` y el chip **2 sin cubrir**; el 20% no aparece
+- [ ] 4.6 Pulsar el nombre de Marta Espino Gil (`973`) abre la sección **Activos** de su ficha y sus estados coinciden con el chip **1 en envío** del listado
+- [ ] 4.7 Con **QA Listado Empresa** activa solo aparece Bruno Ajeno Rios (`976`), y al volver a **QA Fundadora** reaparecen sus colaboradores
 - [ ] 5.1 Con el Usuario B la columna **Insumos** se ve, pero el nombre no es enlace ni navega
 - [ ] 5.2 Con el Usuario C no hay columna **Insumos** ni enlace, y la respuesta del listado no trae el resumen de insumos
 - [ ] 6 A 360 px y a unos 850 px no hay desplazamiento horizontal y los chips no se salen; a unos 1024 px se ven todas las columnas
