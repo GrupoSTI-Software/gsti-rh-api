@@ -239,6 +239,9 @@ test.group('ADMS endpoints de operacion (rebanada 11)', (group) => {
       fingerprints: number
       faces: number
       palms: number
+      fingerprintsInside: number
+      facesInside: number
+      declared: { users: number | null; fingerprints: number | null; faces: number | null }
     }
 
     assert.equal(enrollment.confirmedEmployees, 1)
@@ -249,6 +252,12 @@ test.group('ADMS endpoints de operacion (rebanada 11)', (group) => {
     assert.equal(enrollment.fingerprints, 0)
     assert.equal(enrollment.faces, 0)
     assert.equal(enrollment.palms, 0)
+    // Sin capturas ni copias, tampoco se cree nada dentro...
+    assert.equal(enrollment.fingerprintsInside, 0)
+    assert.equal(enrollment.facesInside, 0)
+    // ...y lo que el equipo declara va aparte, sin mezclarse con lo que Valanserh sabe.
+    assert.equal(enrollment.declared.users, 40)
+    assert.equal(enrollment.declared.fingerprints, 80)
   })
 
   test('el aviso informativo no se cuenta junto al que pide atencion', async ({

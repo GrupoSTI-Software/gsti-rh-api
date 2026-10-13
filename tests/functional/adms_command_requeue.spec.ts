@@ -1,23 +1,22 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import AccessPoint from '#models/access_point'
+import BusinessUnit from '#models/business_unit'
 import DeviceCommand from '#models/device_command'
-import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
 import {
+  DEVICE_COMMAND_FAILURE,
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
 } from '#modules/device-commands/device_command.constants'
+import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
+import CommandSweepService from '#modules/device-commands/sweep/command_sweep.service'
 import { TenantContext } from '#utils/tenant_context'
-import AccessPoint from '#models/access_point'
-import BusinessUnit from '#models/business_unit'
 
 /**
- * Rescate de los comandos que salieron y nadie acuso.
- *
- * Solo se despacha uno a la vez, asi que uno en vuelo que jamas se acusa
- * taponaba la cola entera de ese equipo. Basta un corte de luz entre recibir
- * la orden y acusarla: el checador sigue sondeando, el servidor sigue
- * contestando OK, y ninguna alta vuelve a salir.
+ * VLRH-H1791825638812: una sola politica para lo que salio y nadie acuso, la
+ * del barrido. Aqui se prueba el adaptador que la ejecuta, condicionado al
+ * estado y bajo candado de fila.
  */
 const STAMP = `${Date.now()}`
 
@@ -53,83 +52,84 @@ test.group('Comandos en vuelo sin acuse', (group) => {
     }, 'limpieza del rescate de comandos')
   })
 
-  /** Comando ya despachado, con el `sent_at` que se le indique. */
-  async function enVuelo(sentAt: DateTime, attempts = 0, maxAttempts: number | null = 3) {
+  /** Comando ya despachado, con el `sent_at`, los intentos y el tipo que se indiquen. */
+  async function enVuelo(
+    attempts = 0,
+    maxAttempts: number | null = 3,
+    kind: string = DEVICE_COMMAND_KIND.INFO
+  ) {
     return TenantContext.runUnscoped(async () => {
       const command = await DeviceCommand.create({
         accessPointId,
         businessUnitId,
         deviceCommandWireId: Number(`${Date.now()}`.slice(-9)) + commandIds.length,
-        deviceCommandKind: DEVICE_COMMAND_KIND.INFO,
+        deviceCommandKind: kind as typeof DEVICE_COMMAND_KIND.INFO,
         deviceCommandPayload: 'INFO',
         deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT,
-        deviceCommandSentAt: sentAt,
+        deviceCommandSentAt: DateTime.utc().minus({ minutes: 10 }),
         deviceCommandAttempts: attempts,
         deviceCommandMaxAttempts: maxAttempts,
         deviceCommandPriority: 100,
+        deviceCommandCountersSnapshot: { userCount: 1, fpCount: 2, faceCount: 1 },
       })
       commandIds.push(command.deviceCommandId)
       return command
     }, 'alta de comando en vuelo')
   }
 
-  test('un comando sin acusar vuelve a la cola y suma un intento', async ({ assert }) => {
-    const command = await enVuelo(DateTime.utc().minus({ minutes: 10 }))
-    const repository = new DeviceCommandRepositoryMysql()
-
-    const result = await repository.requeueStaleInFlight({
-      accessPointId,
-      sentBefore: DateTime.utc().minus({ minutes: 5 }),
-      now: DateTime.utc(),
-    })
-
-    assert.equal(result.requeued, 1)
-    const fresco = await TenantContext.runUnscoped(
-      () => DeviceCommand.findOrFail(command.deviceCommandId),
-      'verificacion'
+  /** El adaptador corre dentro del bypass, igual que lo invoca el barrido. */
+  async function vencer(commandId: number, expected: string = DEVICE_COMMAND_STATUS.SENT) {
+    return TenantContext.runUnscoped(
+      () =>
+        new DeviceCommandRepositoryMysql().requeueOrFailIfStill({
+          commandId,
+          expectedStatus: expected as typeof DEVICE_COMMAND_STATUS.SENT,
+          now: DateTime.utc(),
+          error: DEVICE_COMMAND_FAILURE.INFLIGHT_TIMEOUT,
+        }),
+      'vencimiento'
     )
-    assert.equal(fresco.deviceCommandStatus, DEVICE_COMMAND_STATUS.PENDING)
-    assert.equal(fresco.deviceCommandAttempts, 1)
-    assert.isNull(fresco.deviceCommandSentAt, 'vuelve a la cola limpio, como si no hubiera salido')
+  }
+
+  async function fresco(commandId: number) {
+    return TenantContext.runUnscoped(() => DeviceCommand.findOrFail(commandId), 'verificacion')
+  }
+
+  test('un comando sin acusar vuelve a la cola y suma un intento', async ({ assert }) => {
+    const command = await enVuelo()
+
+    assert.equal(await vencer(command.deviceCommandId), 'requeued')
+
+    const actual = await fresco(command.deviceCommandId)
+    assert.equal(actual.deviceCommandStatus, DEVICE_COMMAND_STATUS.PENDING)
+    assert.equal(actual.deviceCommandAttempts, 1)
+    assert.isNull(actual.deviceCommandSentAt, 'vuelve a la cola limpio, como si no hubiera salido')
+    // La linea base de contadores se conserva: se tomo antes de que el equipo viera la orden.
+    assert.deepEqual(actual.deviceCommandCountersSnapshot, { userCount: 1, fpCount: 2, faceCount: 1 })
   })
 
-  /** El que acaba de salir todavia puede estar acusandose: no se le toca. */
-  test('uno recien enviado no se rescata', async ({ assert }) => {
-    const command = await enVuelo(DateTime.utc().minus({ seconds: 30 }))
-    const repository = new DeviceCommandRepositoryMysql()
+  /** El que ya no esta en el estado leido no se toca: el acuse entro en medio. */
+  test('si el estado cambio entre la lectura y la escritura, no se toca', async ({ assert }) => {
+    const command = await enVuelo()
 
-    await repository.requeueStaleInFlight({
-      accessPointId,
-      sentBefore: DateTime.utc().minus({ minutes: 5 }),
-      now: DateTime.utc(),
-    })
+    assert.equal(await vencer(command.deviceCommandId, DEVICE_COMMAND_STATUS.ACKED), 'untouched')
 
-    const fresco = await TenantContext.runUnscoped(
-      () => DeviceCommand.findOrFail(command.deviceCommandId),
-      'verificacion'
-    )
-    assert.equal(fresco.deviceCommandStatus, DEVICE_COMMAND_STATUS.SENT)
+    const actual = await fresco(command.deviceCommandId)
+    assert.equal(actual.deviceCommandStatus, DEVICE_COMMAND_STATUS.SENT)
+    assert.equal(actual.deviceCommandAttempts, 0)
   })
 
   /** Una orden que el equipo no puede ejecutar no se reintenta para siempre. */
   test('al agotar los intentos queda fallido, no reencolado', async ({ assert }) => {
-    const command = await enVuelo(DateTime.utc().minus({ minutes: 10 }), 2, 3)
-    const repository = new DeviceCommandRepositoryMysql()
+    const command = await enVuelo(2, 3)
 
-    const result = await repository.requeueStaleInFlight({
-      accessPointId,
-      sentBefore: DateTime.utc().minus({ minutes: 5 }),
-      now: DateTime.utc(),
-    })
+    assert.equal(await vencer(command.deviceCommandId), 'failed')
 
-    assert.equal(result.failed, 1)
-    assert.equal(result.requeued, 0)
-    const fresco = await TenantContext.runUnscoped(
-      () => DeviceCommand.findOrFail(command.deviceCommandId),
-      'verificacion'
-    )
-    assert.equal(fresco.deviceCommandStatus, DEVICE_COMMAND_STATUS.FAILED)
-    assert.isNotNull(fresco.deviceCommandLastError)
+    const actual = await fresco(command.deviceCommandId)
+    assert.equal(actual.deviceCommandStatus, DEVICE_COMMAND_STATUS.FAILED)
+    assert.equal(actual.deviceCommandAttempts, 3)
+    assert.equal(actual.deviceCommandLastError, DEVICE_COMMAND_FAILURE.INFLIGHT_TIMEOUT)
+    assert.isNotNull(actual.deviceCommandFailedAt)
   })
 
   /**
@@ -137,20 +137,43 @@ test.group('Comandos en vuelo sin acuse', (group) => {
    * rendirse deja a alguien con acceso que ya no le toca.
    */
   test('sin tope de intentos se reencola por muchas veces que lleve', async ({ assert }) => {
-    const command = await enVuelo(DateTime.utc().minus({ minutes: 10 }), 99, null)
-    const repository = new DeviceCommandRepositoryMysql()
+    const command = await enVuelo(99, null, DEVICE_COMMAND_KIND.USER_DELETE)
 
-    await repository.requeueStaleInFlight({
-      accessPointId,
-      sentBefore: DateTime.utc().minus({ minutes: 5 }),
-      now: DateTime.utc(),
-    })
+    assert.equal(await vencer(command.deviceCommandId), 'requeued')
 
-    const fresco = await TenantContext.runUnscoped(
-      () => DeviceCommand.findOrFail(command.deviceCommandId),
-      'verificacion'
-    )
-    assert.equal(fresco.deviceCommandStatus, DEVICE_COMMAND_STATUS.PENDING)
-    assert.equal(fresco.deviceCommandAttempts, 100)
+    const actual = await fresco(command.deviceCommandId)
+    assert.equal(actual.deviceCommandStatus, DEVICE_COMMAND_STATUS.PENDING)
+    assert.equal(actual.deviceCommandAttempts, 100)
+  })
+
+  /**
+   * El barrido completo, como lo lanza el scheduler: desde la consola, sin
+   * peticion ni empresa. Las escrituras por comando corrian sin bypass y el
+   * mixin las bloqueaba en silencio, asi que el adaptador probado arriba nunca
+   * llegaba a ejecutarse. Medido el 2026-10-12 con un alta en vuelo que siguio
+   * `sent` tras tres barridos.
+   */
+  test('el barrido real reencola lo que salio sin acuse', async ({ assert }) => {
+    const command = await enVuelo()
+
+    const result = await new CommandSweepService().run()
+
+    assert.isAtLeast(result.requeued, 1)
+    const actual = await fresco(command.deviceCommandId)
+    assert.equal(actual.deviceCommandStatus, DEVICE_COMMAND_STATUS.PENDING)
+    assert.equal(actual.deviceCommandAttempts, 1)
+  })
+
+  /** Reabrir la captura sin la persona enfrente no sirve: se falla a la primera. */
+  test('el enrolamiento presencial vencido queda fallido aunque le queden intentos', async ({
+    assert,
+  }) => {
+    const command = await enVuelo(0, 3, DEVICE_COMMAND_KIND.ENROLL_FP)
+
+    assert.equal(await vencer(command.deviceCommandId), 'failed')
+
+    const actual = await fresco(command.deviceCommandId)
+    assert.equal(actual.deviceCommandStatus, DEVICE_COMMAND_STATUS.FAILED)
+    assert.equal(actual.deviceCommandAttempts, 1)
   })
 })

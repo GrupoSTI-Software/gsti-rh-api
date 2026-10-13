@@ -13,6 +13,7 @@ import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constant
 import {
   EMPLOYEE_OFFBOARDING_ITEM_STATUS,
   EMPLOYEE_OFFBOARDING_STATUS,
+  isOffboardingCaseWritable,
 } from '../offboardings/offboardings.constants.js'
 import {
   buildUserNamesMap,
@@ -239,7 +240,12 @@ export default class ItemsService {
       throw this.itemNotFoundError()
     }
 
-    if (offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CLOSED) {
+    // Lista de permisión (regla 3 de VLRH-H1790812613830): solo `open` escribe;
+    // el cancelado tiene su propio error y cualquier otro estado cae en cerrado
+    if (offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CANCELLED) {
+      throw this.caseCancelledError()
+    }
+    if (!isOffboardingCaseWritable(offboarding.employeeOffboardingStatus)) {
       throw this.caseClosedError()
     }
 
@@ -434,7 +440,7 @@ export default class ItemsService {
       evidenceCountsByItemId,
       // R3 de USRH1786568279596: un cerrado no reporta vencidos; las
       // escrituras de este slice solo alcanzan expedientes abiertos (guarda)
-      caseIsOpen: offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.OPEN,
+      caseIsOpen: isOffboardingCaseWritable(offboarding.employeeOffboardingStatus),
     })
 
     const diagnostics = operation
@@ -504,6 +510,16 @@ export default class ItemsService {
       httpStatus: 409,
       title: this.t('employee_offboarding_case_closed_read_only_title'),
       detail: this.t('employee_offboarding_case_closed_read_only_message'),
+    })
+  }
+
+  private caseCancelledError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'expediente-cancelado',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_CANCELLED_READ_ONLY,
+      httpStatus: 409,
+      title: this.t('employee_offboarding_case_cancelled_read_only_title'),
+      detail: this.t('employee_offboarding_case_cancelled_read_only_message'),
     })
   }
 }

@@ -74,8 +74,8 @@ function makeService(options: Options = {}) {
     async findNextPending() {
       return null
     },
-    async requeueStaleInFlight() {
-      return { requeued: 0, failed: 0 }
+    async requeueOrFailIfStill() {
+      return 'untouched' as const
     },
     async hasInFlight() {
       return false
@@ -103,6 +103,12 @@ function makeService(options: Options = {}) {
     },
     async markFailedIfStill() {
       return true
+    },
+    async countFacesBelievedInside() {
+      return 0
+    },
+    async countFingerprintsBelievedInside() {
+      return 0
     },
     async save(command) {
       saved.push(command)

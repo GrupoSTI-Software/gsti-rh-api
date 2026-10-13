@@ -120,6 +120,8 @@ export default class TemplateService {
       {
         businessUnitId: reader.businessUnitId,
         accessorUserId: reader.userId,
+        /** De quien es el dato que se leyo: sin el, el filtro por colaborador no lo encuentra. */
+        subjectEmployeeId: row.employeeId,
         model: 'BiometricTemplate',
         modelColumn: 'biometricTemplateTemplate',
         recordId: row.biometricTemplateId,

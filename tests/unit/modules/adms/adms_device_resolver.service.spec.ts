@@ -11,6 +11,7 @@ import type QuarantineService from '#modules/access-point/quarantine/quarantine.
 import type IncidentService from '#modules/adms/raw/incident.service'
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
 import type AccessPointProfile from '#models/access_point_profile'
+import { TenantContext } from '#utils/tenant_context'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
 
@@ -44,9 +45,12 @@ function makeDeps(
       return badAddressThreshold ? 'threshold_reached' : 'ok'
     },
   }
+  /** Si cada aviso se grabo con el bypass de empresa puesto, por tipo. */
+  const bypassedAtRecord = new Map<string, boolean>()
   const incidentService = {
     async record(input: IncidentInput): Promise<IncidentOutcome> {
       incidents.push(input)
+      bypassedAtRecord.set(input.kind, TenantContext.isBypassed())
       return 'created'
     },
   } as unknown as IncidentService
@@ -85,7 +89,7 @@ function makeDeps(
     quarantine,
     profile
   )
-  return { service, incidents, hits, claims, touches, sightings }
+  return { service, incidents, hits, claims, touches, sightings, bypassedAtRecord }
 }
 
 const ROW: AccessPointLookupRow = {
@@ -328,6 +332,37 @@ test.group('ADMS device resolver', () => {
     })
 
     assert.isTrue(incidents.some((incident) => incident.kind === 'channel_host_probe'))
+  })
+
+  /**
+   * VLRH-H1791825638812, regla 6. El aviso no tiene equipo ni empresa y se
+   * grababa sin el bypass: la busqueda del anterior corria con alcance vacio,
+   * nunca lo encontraba y salia uno por sondeo (323 en una tarde). Tambien
+   * prometia un bloqueo que el canal no aplica.
+   */
+  test('el aviso de sondeo de direcciones se graba fuera del alcance y sin prometer bloqueo', async ({
+    assert,
+  }) => {
+    const { service, incidents, bypassedAtRecord } = makeDeps(
+      rowWithSecret('abcdefghjkmnpq'),
+      false,
+      false,
+      true
+    )
+
+    await service.resolve({
+      serial: ROW.serial,
+      ip: '203.0.113.9',
+      now: NOW,
+      hints: null,
+      host: `zzzzzzzzzzzzzz.${BASE_DOMAIN}`,
+      baseDomain: BASE_DOMAIN,
+    })
+
+    const probe = incidents.find((incident) => incident.kind === 'channel_host_probe')
+    assert.isDefined(probe)
+    assert.isTrue(bypassedAtRecord.get('channel_host_probe'))
+    assert.notInclude(probe?.detail ?? '', 'bloqueada')
   })
 
   /**

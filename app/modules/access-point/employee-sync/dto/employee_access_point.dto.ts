@@ -35,6 +35,12 @@ export interface EmployeeAccessPointBiometricsDto {
    * se anuncia igual que uno donde nunca se registro nada.
    */
   incompatible: { fingerprints: number; faces: number }
+  /**
+   * Guardados, compatibles y todavia fuera de ese aparato: se resuelven con
+   * "Copiar al checador" en la ficha de biometricos. Van aparte de `onTheWay`
+   * (ya salieron) y de `incompatible` (no van a llegar).
+   */
+  copyable: { fingerprints: number; faces: number }
 }
 
 /** Equipo sin nada: ni dentro, ni en camino, ni incompatible. */
@@ -43,6 +49,7 @@ export const EMPTY_DEVICE_BIOMETRICS: EmployeeAccessPointBiometricsDto = {
   faces: 0,
   onTheWay: { fingerprints: 0, faces: 0 },
   incompatible: { fingerprints: 0, faces: 0 },
+  copyable: { fingerprints: 0, faces: 0 },
 }
 
 /**

@@ -30,7 +30,28 @@ export const REPLICATION_SKIP = {
   SAME_DEVICE: 'same_device',
   /** El equipo declaro no tener rostro: no se le manda la foto. */
   NO_FACE_SUPPORT: 'no_face_support',
+  /**
+   * "Usar tambien para reconocimiento facial en checadores" esta apagado: el
+   * rostro no viaja por ninguna via, ni foto ni template. Decision de
+   * Wilvardo 2026-10-12: el interruptor manda sobre todo lo que sea rostro.
+   */
+  FACE_USE_OFF: 'face_use_off',
+  /**
+   * Ese equipo ya tiene una copia ejecutada de este mismo dato.
+   *
+   * Solo en el reparto desde el canal: repetir lo entregado por cada huella
+   * nueva encolaba trabajo por un dato que no cambio, leia el blob de la
+   * boveda otra vez y acababa en un fallo "sin evidencia" porque reescribir
+   * un dedo no mueve el contador del aparato.
+   */
+  ALREADY_DELIVERED: 'already_delivered',
 } as const
+
+/** Un biometrico concreto: modalidad y numero dentro de ella. */
+export interface ReplicationSlotRef {
+  bioType: number
+  bioNo: number
+}
 
 export type ReplicationSkip = (typeof REPLICATION_SKIP)[keyof typeof REPLICATION_SKIP]
 

@@ -4,6 +4,8 @@ import { test } from '@japa/runner'
 import {
   ADMS_COMMAND_RETENTION_DEFAULT_DAYS,
   ADMS_COMMAND_RETENTION_MIN_DAYS,
+  ADMS_INCIDENT_ORPHAN_RETENTION_DEFAULT_DAYS,
+  ADMS_INCIDENT_ORPHAN_RETENTION_MIN_DAYS,
   ADMS_PHOTO_PUBLICATION_RETENTION_DEFAULT_DAYS,
   ADMS_PHOTO_PUBLICATION_RETENTION_MIN_DAYS,
   ADMS_QUARANTINE_RETENTION_DEFAULT_DAYS,
@@ -12,6 +14,7 @@ import {
   ADMS_RAW_RETENTION_DEFAULT_DAYS,
   ADMS_RAW_RETENTION_MIN_DAYS,
   admsCommandRetentionDays,
+  admsIncidentOrphanRetentionDays,
   admsRawFailedRetentionDays,
   admsRawRetentionDays,
   admsRetentionSummary,
@@ -23,7 +26,7 @@ import {
  *
  * AISLAMIENTO: estos plazos salen del entorno, así que el caso solo dice la
  * verdad si el entorno es el de la suite y no el de la máquina. `.env.test`
- * —versionado, sin secretos— fija las cinco variables a los valores por
+ * —versionado, sin secretos— fija las seis variables a los valores por
  * defecto del código justamente para eso: el `.env` de desarrollo de Willy
  * tiene `ADMS_PHOTO_PUBLICATION_RETENTION_DAYS=1`, y sin ese anclaje este
  * archivo afirmaba "los plazos son los del spec" mientras leía un 1. El primer
@@ -33,7 +36,7 @@ import {
  */
 
 /**
- * Los cinco plazos del spec, con su default y su mínimo tomados del CÓDIGO.
+ * Los seis plazos del spec, con su default y su mínimo tomados del CÓDIGO.
  *
  * `porDefecto` sale de la constante exportada y no de un literal repetido aquí:
  * con el valor escrito dentro de cada función, `.env.test` fijaba las cinco
@@ -72,6 +75,12 @@ const PLAZOS = [
     porDefecto: ADMS_QUARANTINE_RETENTION_DEFAULT_DAYS,
     minimo: ADMS_QUARANTINE_RETENTION_MIN_DAYS,
   },
+  {
+    variable: 'ADMS_INCIDENT_ORPHAN_RETENTION_DAYS',
+    resumen: 'incidentOrphanDays',
+    porDefecto: ADMS_INCIDENT_ORPHAN_RETENTION_DEFAULT_DAYS,
+    minimo: ADMS_INCIDENT_ORPHAN_RETENTION_MIN_DAYS,
+  },
 ] as const
 
 /**
@@ -95,7 +104,7 @@ function comentarioDe(envExample: string, variable: string): string {
 }
 
 test.group('Plazos de retencion del canal', () => {
-  test('la suite fija las cinco variables: no hereda el .env de la maquina', ({ assert }) => {
+  test('la suite fija las seis variables: no hereda el .env de la maquina', ({ assert }) => {
     for (const plazo of PLAZOS) {
       assert.isDefined(
         process.env[plazo.variable],
@@ -141,6 +150,7 @@ test.group('Plazos de retencion del canal', () => {
     assert.isAtLeast(admsRawRetentionDays(), ADMS_RAW_RETENTION_MIN_DAYS)
     assert.isAtLeast(admsRawFailedRetentionDays(), ADMS_RAW_RETENTION_MIN_DAYS)
     assert.isAtLeast(admsCommandRetentionDays(), ADMS_COMMAND_RETENTION_MIN_DAYS)
+    assert.isAtLeast(admsIncidentOrphanRetentionDays(), ADMS_INCIDENT_ORPHAN_RETENTION_MIN_DAYS)
   })
 
   test('todos los plazos son enteros de dias', ({ assert }) => {

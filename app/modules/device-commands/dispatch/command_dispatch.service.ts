@@ -2,7 +2,6 @@ import type { DateTime } from 'luxon'
 import { ADMS_OK } from '#modules/adms/adms.constants'
 import DeviceCommandRepositoryMysql from '../device_command.repository.mysql.js'
 import {
-  DEVICE_COMMAND_IN_FLIGHT_TIMEOUT_MINUTES,
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
   type DeviceCommandKind,
@@ -16,6 +15,9 @@ import { toZkDateTime } from '../wire/zk_datetime.js'
 import type { DeviceCommandRepository } from '../device_command.repository.js'
 import PhotoDispatchService from '#modules/biometric-vault/photo/photo_dispatch.service'
 import type { PhotoDispatchPort } from '#modules/biometric-vault/photo/photo_dispatch.port'
+import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/device_profile.repository.mysql'
+import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
+import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 
 export interface DispatchInput {
   accessPointId: number
@@ -47,6 +49,13 @@ const SENSITIVE_KINDS: readonly DeviceCommandKind[] = [
   DEVICE_COMMAND_KIND.BIOPHOTO_WRITE,
 ]
 
+/** Tipos cuya ejecucion se puede acreditar con el alza de un contador del equipo. */
+const COUNTED_KINDS: readonly DeviceCommandKind[] = [
+  DEVICE_COMMAND_KIND.ENROLL_FP,
+  DEVICE_COMMAND_KIND.BIODATA_WRITE,
+  DEVICE_COMMAND_KIND.BIOPHOTO_WRITE,
+]
+
 /**
  * Entrega un comando por sondeo (spec ADMS 6.3).
  *
@@ -57,24 +66,17 @@ export default class CommandDispatchService {
   constructor(
     private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
     private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
-    private readonly photos: PhotoDispatchPort = new PhotoDispatchService()
+    private readonly photos: PhotoDispatchPort = new PhotoDispatchService(),
+    private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql()
   ) {}
 
   async next(input: DispatchInput): Promise<string> {
     /**
-     * Primero, rescatar lo que salio y nadie acuso.
-     *
-     * Solo se despacha un comando a la vez, asi que uno en vuelo que jamas se
-     * acusa taponaba la cola de ese equipo para siempre: bastaba un corte de
-     * luz entre recibir la orden y acusarla. El equipo seguia sondeando, el
-     * servidor seguia contestando `OK`, y ninguna alta volvia a salir.
+     * Lo que salio y nadie acuso lo rescata el barrido (spec 6.2), no el
+     * despacho: corre cada minuto aunque el equipo no vuelva a sondear, y
+     * tener aqui un segundo plazo solo producia dos politicas que se
+     * contradecian.
      */
-    await this.repository.requeueStaleInFlight({
-      accessPointId: input.accessPointId,
-      sentBefore: input.now.minus({ minutes: DEVICE_COMMAND_IN_FLIGHT_TIMEOUT_MINUTES }),
-      now: input.now,
-    })
-
     if (await this.repository.hasInFlight(input.accessPointId)) return ADMS_OK
 
     const excluded = input.ipAnomalyOpen || !input.hotSession ? [...SENSITIVE_KINDS] : []
@@ -138,16 +140,42 @@ export default class CommandDispatchService {
      * la escritura decide quien lo entrega; el que pierde se va con OK y el
      * equipo lo recoge en el siguiente sondeo.
      */
+    /**
+     * La linea base de los contadores se toma AQUI, antes de que el equipo
+     * reciba la orden (spec 6.6). Tomarla al acusar fallaba con el SpeedFace:
+     * sube `options` dos segundos antes de acusar, asi que la foto del acuse
+     * ya traia la huella nueva y el alza que debia acreditarla no existia.
+     */
+    const countersSnapshot = COUNTED_KINDS.includes(command.deviceCommandKind)
+      ? await this.readCounters(input.accessPointId)
+      : undefined
+
     const taken = await this.repository.markSent({
       commandId: command.deviceCommandId,
       payload,
       sentAt: input.now,
+      countersSnapshot,
     })
     if (!taken) return ADMS_OK
 
     await this.syncPivot(command, 'dispatched')
 
     return formatWireLine(command.deviceCommandWireId, payload)
+  }
+
+  /**
+   * Contadores del perfil tal como los declaro el equipo la ultima vez que
+   * subio `options`. Sin perfil no hay linea base, y sin linea base ningun
+   * aumento se puede acreditar: se guarda `null` y lo dice.
+   */
+  private async readCounters(accessPointId: number): Promise<DeviceCommandCountersSnapshot | null> {
+    const profile = await this.profiles.findByAccessPoint(accessPointId)
+    if (!profile) return null
+    return {
+      userCount: profile.accessPointProfileUserCount,
+      fpCount: profile.accessPointProfileFpCount,
+      faceCount: profile.accessPointProfileFaceCount,
+    }
   }
 
   /**

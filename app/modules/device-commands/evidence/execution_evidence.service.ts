@@ -12,6 +12,8 @@ import {
 import type { DeviceCommandRepository } from '../device_command.repository.js'
 import type DeviceCommand from '#models/device_command'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
+import SpreadNoticeAdapter from '#modules/adms/raw/spread_notice.adapter'
+import type { SpreadNoticePort } from './spread_notice.port.js'
 
 /** Contadores que el equipo declara en `options`, para comparar con el snapshot. */
 export interface DeviceCounters {
@@ -40,7 +42,8 @@ export interface BiometricUploadEvidence {
 
 export default class ExecutionEvidenceService {
   constructor(
-    private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql()
+    private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
+    private readonly notices: SpreadNoticePort = new SpreadNoticeAdapter()
   ) {}
 
   /**
@@ -110,6 +113,12 @@ export default class ExecutionEvidenceService {
    * Aqui no hay dedo: la checada no dice con cual se marco, asi que cierra
    * cualquier enrolamiento vivo de ese PIN. Es correcto: si la persona marco
    * con huella, el aparato tiene al menos una suya, que es lo que se pedia.
+   *
+   * Cierra tambien las COPIAS de huella de ese PIN, igual que una checada con
+   * rostro cierra las de rostro. Antes solo cerraba enrolamientos, y una copia
+   * acusada se quedaba esperando un contador que no siempre llega: a los
+   * treinta minutos el barrido la daba por fallida con la persona marcando con
+   * ese mismo dedo.
    */
   async fromPunch(input: {
     accessPointId: number
@@ -124,10 +133,11 @@ export default class ExecutionEvidenceService {
     if (input.verify !== ATTLOG_VERIFY_FINGERPRINT) return 0
     const commands = await this.repository.findAwaitingEvidence({
       accessPointId: input.accessPointId,
-      kinds: [DEVICE_COMMAND_KIND.ENROLL_FP],
+      kinds: [DEVICE_COMMAND_KIND.ENROLL_FP, DEVICE_COMMAND_KIND.BIODATA_WRITE],
       pin: input.pin,
     })
-    return this.markAll(commands, DEVICE_COMMAND_EVIDENCE.ATTLOG_VERIFY, input.now)
+    const fingerprints = commands.filter((command) => !isFaceCommand(command))
+    return this.markAll(fingerprints, DEVICE_COMMAND_EVIDENCE.ATTLOG_VERIFY, input.now)
   }
 
   /**
@@ -159,6 +169,11 @@ export default class ExecutionEvidenceService {
       counters: input.counters,
       now: input.now,
     })
+    const matched = await this.closeCopiesByMatch({
+      accessPointId: input.accessPointId,
+      fpCount: input.counters.fpCount,
+      now: input.now,
+    })
     /**
      * El rostro se mide con su propio contador. Una foto que reemplaza a otra
      * no lo mueve --el PIN ya tenia cara-- y por eso la prueba principal de la
@@ -172,7 +187,51 @@ export default class ExecutionEvidenceService {
       counters: input.counters,
       now: input.now,
     })
-    return fingerprints + faces
+    return fingerprints + matched + faces
+  }
+
+  /**
+   * Copias de huella acusadas cuyo contador no subio porque el equipo YA tenia
+   * el dedo sin que la base lo supiera (equipo recreado, huellas de antes del
+   * sistema, recopia tras un reset).
+   *
+   * Se acreditan cuando el contador del aparato es EXACTAMENTE lo que el
+   * sistema cree dentro, estas copias incluidas. El aparato rechaza con
+   * `Return` distinto de cero un template que no puede escribir (la bateria
+   * midio `-30` por version), asi que una copia acusada sin prueba es casi
+   * siempre un dedo reescrito; el contador es la comprobacion de que nada
+   * falta. Con el contador corto, alguna no entro y no se puede decir cual; con
+   * el contador largo, el aparato tiene huellas que el sistema no conoce y ya
+   * no prueba nada sobre estas: en los dos casos se dejan abiertas
+   * (pre-revision de VLRH-H1791836612205, W2).
+   *
+   * Solo copias, nunca enrolamientos: un dedo nuevo si tiene que mover el
+   * contador, y su prueba fuerte es la subida del biometrico. Y esta evidencia
+   * no cierra avisos: es la mas debil de todas.
+   */
+  private async closeCopiesByMatch(args: {
+    accessPointId: number
+    fpCount: number | null
+    now: DateTime
+  }): Promise<number> {
+    if (args.fpCount === null) return 0
+    const awaiting = await this.repository.findAwaitingEvidence({
+      accessPointId: args.accessPointId,
+      kinds: [DEVICE_COMMAND_KIND.BIODATA_WRITE],
+    })
+    const copies = awaiting.filter(
+      (command) =>
+        command.deviceCommandKind === DEVICE_COMMAND_KIND.BIODATA_WRITE &&
+        !isFaceCommand(command) &&
+        command.deviceCommandStatus === DEVICE_COMMAND_STATUS.ACKED
+    )
+    if (copies.length === 0) return 0
+
+    const believedInside = await this.repository.countFingerprintsBelievedInside(
+      args.accessPointId
+    )
+    if (believedInside === 0 || args.fpCount !== believedInside) return 0
+    return this.markAll(copies, DEVICE_COMMAND_EVIDENCE.COUNTER_MATCHES, args.now)
   }
 
   /** Cierra lo que el alza de UN contador alcanza a explicar. */
@@ -208,9 +267,24 @@ export default class ExecutionEvidenceService {
         (command) => current - (command.deviceCommandCountersSnapshot?.[args.counter] ?? 0)
       )
     )
-    if (rise < acked.length) return 0
+    if (rise >= acked.length) {
+      return this.markAll(acked, DEVICE_COMMAND_EVIDENCE.COUNTER_UP, args.now)
+    }
 
-    return this.markAll(acked, DEVICE_COMMAND_EVIDENCE.COUNTER_UP, args.now)
+    /**
+     * El alza no cubre todo. Entre COPIAS se acreditan las mas antiguas hasta
+     * donde alcanza: un dedo que ya estaba dentro se reescribe sin mover el
+     * contador, asi que exigir que el alza las cubra a todas dejaba todas sin
+     * acreditar y el barrido las daba por fallidas con el dato dentro.
+     *
+     * Los enrolamientos quedan fuera del reparto parcial: ahi el contador no
+     * dice de quien es la huella nueva y acreditarle el alza a uno seria
+     * adivinar. Su prueba fuerte es la subida del biometrico.
+     */
+    const copies = acked
+      .filter((command) => command.deviceCommandKind === DEVICE_COMMAND_KIND.BIODATA_WRITE)
+      .sort(byAckedAt)
+    return this.markAll(copies.slice(0, rise), DEVICE_COMMAND_EVIDENCE.COUNTER_UP, args.now)
   }
 
   /** Fotos y copias de rostro esperando prueba para ese PIN en ese equipo. */
@@ -235,9 +309,28 @@ export default class ExecutionEvidenceService {
       command.deviceCommandExecutionEvidence = evidence
       await this.repository.save(command)
       marked += 1
+      /** La cobertura del contador no prueba QUE dedo entro: no cierra avisos. */
+      if (evidence !== DEVICE_COMMAND_EVIDENCE.COUNTER_MATCHES) {
+        await this.noticeCopyExecuted(command, now)
+      }
     }
     return marked
   }
+
+  /** Una copia de huella que ya llego cierra el aviso del equipo que la capturo. */
+  private async noticeCopyExecuted(command: DeviceCommand, now: DateTime): Promise<void> {
+    if (command.deviceCommandKind !== DEVICE_COMMAND_KIND.BIODATA_WRITE) return
+    if (isFaceCommand(command)) return
+    if (typeof command.biometricTemplateId !== 'number') return
+    await this.notices.copyExecuted(command.biometricTemplateId, now)
+  }
+}
+
+/** Del acuse mas viejo al mas nuevo; sin fecha de acuse, al final. */
+function byAckedAt(a: DeviceCommand, b: DeviceCommand): number {
+  const left = a.deviceCommandAckedAt?.toMillis() ?? Number.MAX_SAFE_INTEGER
+  const right = b.deviceCommandAckedAt?.toMillis() ?? Number.MAX_SAFE_INTEGER
+  return left - right || a.deviceCommandId - b.deviceCommandId
 }
 
 /**
