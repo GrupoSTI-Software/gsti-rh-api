@@ -5,6 +5,7 @@ import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
+import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import {
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
@@ -360,6 +361,93 @@ export default class DeviceCommandRepositoryMysql
     if (input.pin !== undefined) query.where('device_command_pin', input.pin)
     if (input.bioNo !== undefined) query.where('device_command_bio_no', input.bioNo)
     return query.orderBy('device_command_id', 'asc')
+  }
+
+  async countFingerprintsBelievedInside(accessPointId: number): Promise<number> {
+    /**
+     * Consulta cruda a proposito: une dos tablas y la corte por empresa ya la
+     * hizo quien resolvio el equipo. Una copia de rostro se distingue por su
+     * llave de correlacion (`biodata:<pin>:9:<no>`), igual que en `isFaceCommand`.
+     *
+     * Solo cuentan colaboradores con vinculo vivo en ese equipo: la baja se
+     * lleva sus huellas del aparato y el contador baja con ella; seguir
+     * contandolas dejaba el "creido dentro" inflado para siempre y la
+     * acreditacion por contador muerta desde la primera baja.
+     */
+    const result = await db.rawQuery(
+      `SELECT COUNT(*) AS total FROM (
+         SELECT t.employee_id, t.biometric_template_bio_no AS bio_no
+           FROM biometric_templates t
+           JOIN access_point_employees ape
+             ON ape.access_point_id = t.source_access_point_id
+            AND ape.employee_id = t.employee_id
+            AND ape.access_point_employee_sync_status <> ?
+          WHERE t.source_access_point_id = ? AND t.biometric_template_bio_type = ?
+         UNION
+         SELECT c.employee_id, c.device_command_bio_no
+           FROM device_commands c
+           JOIN access_point_employees ape
+             ON ape.access_point_id = c.access_point_id
+            AND ape.employee_id = c.employee_id
+            AND ape.access_point_employee_sync_status <> ?
+          WHERE c.access_point_id = ? AND c.device_command_kind = ?
+            AND c.device_command_status IN (?, ?)
+            AND c.employee_id IS NOT NULL AND c.device_command_bio_no IS NOT NULL
+            AND (c.device_command_correlation_key IS NULL OR c.device_command_correlation_key NOT LIKE ?)
+       ) AS inside`,
+      [
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+        accessPointId,
+        BIO_TYPE.FINGERPRINT,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+        accessPointId,
+        DEVICE_COMMAND_KIND.BIODATA_WRITE,
+        DEVICE_COMMAND_STATUS.EXECUTED,
+        DEVICE_COMMAND_STATUS.ACKED,
+        `biodata:%:${BIO_TYPE.FACE}:%`,
+      ]
+    )
+    const rows = result[0] as Array<{ total: number | string }>
+    return Number(rows[0]?.total ?? 0)
+  }
+
+  async countFacesBelievedInside(accessPointId: number): Promise<number> {
+    const result = await db.rawQuery(
+      `SELECT COUNT(*) AS total FROM (
+         SELECT t.employee_id
+           FROM biometric_templates t
+           JOIN access_point_employees ape
+             ON ape.access_point_id = t.source_access_point_id
+            AND ape.employee_id = t.employee_id
+            AND ape.access_point_employee_sync_status <> ?
+          WHERE t.source_access_point_id = ? AND t.biometric_template_bio_type = ?
+         UNION
+         SELECT c.employee_id
+           FROM device_commands c
+           JOIN access_point_employees ape
+             ON ape.access_point_id = c.access_point_id
+            AND ape.employee_id = c.employee_id
+            AND ape.access_point_employee_sync_status <> ?
+          WHERE c.access_point_id = ? AND c.device_command_status IN (?, ?)
+            AND c.employee_id IS NOT NULL
+            AND (c.device_command_kind = ?
+                 OR (c.device_command_kind = ? AND c.device_command_correlation_key LIKE ?))
+       ) AS inside`,
+      [
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+        accessPointId,
+        BIO_TYPE.FACE,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+        accessPointId,
+        DEVICE_COMMAND_STATUS.EXECUTED,
+        DEVICE_COMMAND_STATUS.ACKED,
+        DEVICE_COMMAND_KIND.BIOPHOTO_WRITE,
+        DEVICE_COMMAND_KIND.BIODATA_WRITE,
+        `biodata:%:${BIO_TYPE.FACE}:%`,
+      ]
+    )
+    const rows = result[0] as Array<{ total: number | string }>
+    return Number(rows[0]?.total ?? 0)
   }
 
   async save(command: DeviceCommand): Promise<void> {

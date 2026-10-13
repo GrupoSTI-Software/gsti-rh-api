@@ -55,6 +55,8 @@ export interface BiometricUploadResult {
 
 const INVALID_TEMPLATE_DEDUPE_MINUTES = 60
 const OPLOG_DEDUPE_MINUTES = 24 * 60
+/** El mismo dedo de la misma persona suele subir varias veces seguidas: un aviso por hora basta. Otro dedo u otra persona es otro aviso. */
+const NOT_SPREAD_DEDUPE_MINUTES = 60
 
 /**
  * Recibe los biometricos que el equipo empuja (spec ADMS 7.1 y 4.5).
@@ -341,16 +343,6 @@ export default class BiometricUploadService {
     requestedByUserId: number | null,
     row: NormalizedBiometric
   ): Promise<void> {
-    /**
-     * Sin nadie a quien asentar la lectura no se reparte.
-     *
-     * La boveda no entrega un biometrico sin saber a nombre de quien --toda
-     * lectura queda asentada-- y una huella capturada a mano en el aparato, sin
-     * orden del sistema, no tiene ese responsable. Se prefiere no copiarla a
-     * inventar un actor.
-     */
-    if (requestedByUserId === null) return
-
     const live = await this.pivots.listLiveByEmployee(employeeId)
     const peers = live.filter(
       (pivot) =>
@@ -358,6 +350,37 @@ export default class BiometricUploadService {
         pivot.accessPointEmployeeSyncStatus !== ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
     )
     if (peers.length === 0) return
+
+    /**
+     * Sin nadie a quien asentar la lectura no se reparte.
+     *
+     * La boveda no entrega un biometrico sin saber a nombre de quien --toda
+     * lectura queda asentada-- y una huella capturada a mano en el aparato, sin
+     * orden del sistema, no tiene ese responsable. Se prefiere no copiarla a
+     * inventar un actor. Lo que no se puede hacer es callarlo: queda un aviso
+     * en el equipo que la capturo, para que el operador la copie desde la ficha
+     * (decision de Wilvardo 2026-10-12, VLRH-H1791836612205).
+     */
+    if (requestedByUserId === null) {
+      await this.incidents.record(
+        {
+          kind: ADMS_INCIDENT_KIND.FINGERPRINT_NOT_SPREAD,
+          severity: 'info',
+          code: ADMS_ERROR_CODES.BIO_NOT_SPREAD,
+          title: 'Huella capturada en el equipo sin orden del sistema',
+          detail:
+            'El equipo subio una huella que nadie pidio desde la ficha. Se guardo en la boveda pero no se copio a los demas equipos del colaborador: copiala desde su ficha de biometricos.',
+          key: 'huella-sin-repartir',
+          serial: device.serial,
+          accessPointId: device.accessPointId,
+          businessUnitId: device.businessUnitId,
+          context: { pin: row.pin, bioNo: row.bioNo },
+          now: device.receivedAt,
+        },
+        { dedupeMinutes: NOT_SPREAD_DEDUPE_MINUTES, dedupeBy: ['pin', 'bioNo'] }
+      )
+      return
+    }
 
     await this.replication.replicate({
       employeeId,

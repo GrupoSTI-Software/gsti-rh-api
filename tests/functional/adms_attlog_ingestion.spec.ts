@@ -156,7 +156,8 @@ test.group('ADMS ingesta de checadas (rebanada 3)', (group) => {
         AssistCalendarRecalcJob.query()
           .where('business_unit_id', businessUnitId)
           .where('employee_id', employee.employeeId)
-          .where('assist_calendar_recalc_job_status', 'pending'),
+          .where('assist_calendar_recalc_job_status', 'pending')
+          .exec(),
       'lectura de la cola de recalculo'
     )
     assert.isAtLeast(jobs.length, 1)
@@ -182,13 +183,13 @@ test.group('ADMS ingesta de checadas (rebanada 3)', (group) => {
     const code = String(employee.employeeCode)
     const local = localTimeFor(0, zone)
     const before = await TenantContext.runUnscoped(
-      () => Assist.query().where('assist_terminal_sn', SERIAL),
+      () => Assist.query().where('assist_terminal_sn', SERIAL).exec(),
       'conteo previo'
     )
     const response = await postAttlog(`${code}\t${local}\t0\t15\t0\t0\t0\t255\t0\t0\t\n`)
     assert.equal(await response.text(), 'OK: 1')
     const after = await TenantContext.runUnscoped(
-      () => Assist.query().where('assist_terminal_sn', SERIAL),
+      () => Assist.query().where('assist_terminal_sn', SERIAL).exec(),
       'conteo posterior'
     )
     assert.equal(after.length, before.length)
@@ -225,7 +226,11 @@ test.group('ADMS ingesta de checadas (rebanada 3)', (group) => {
 
     // Y no se creo ninguna checada para ese PIN.
     const assists = await TenantContext.runUnscoped(
-      () => Assist.query().where('assist_terminal_sn', SERIAL).where('assist_emp_code', UNKNOWN_PIN),
+      () =>
+        Assist.query()
+          .where('assist_terminal_sn', SERIAL)
+          .where('assist_emp_code', UNKNOWN_PIN)
+          .exec(),
       'checadas del PIN desconocido'
     )
     assert.lengthOf(assists, 0)
@@ -238,7 +243,8 @@ test.group('ADMS ingesta de checadas (rebanada 3)', (group) => {
       () =>
         AdmsHeldPunch.query()
           .where('access_point_id', accessPoint.accessPointId)
-          .where('adms_held_punch_pin', UNKNOWN_PIN),
+          .where('adms_held_punch_pin', UNKNOWN_PIN)
+          .exec(),
       'conteo de retenidas'
     )
     assert.lengthOf(held, 1)

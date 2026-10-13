@@ -23,6 +23,8 @@ import { canTransition, wasDispatchedBefore } from '../device_command.state.js'
 import PhotoDispatchService from '#modules/biometric-vault/photo/photo_dispatch.service'
 import type { PhotoDispatchPort } from '#modules/biometric-vault/photo/photo_dispatch.port'
 import type { DeviceCommandEvidence } from '../device_command.constants.js'
+import SpreadNoticeAdapter from '#modules/adms/raw/spread_notice.adapter'
+import type { SpreadNoticePort } from '../evidence/spread_notice.port.js'
 
 export type AckOutcome =
   | {
@@ -75,7 +77,8 @@ export default class CommandAckService {
     private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
     private readonly commands: DeviceCommandService = new DeviceCommandService(),
     private readonly photos: PhotoDispatchPort = new PhotoDispatchService(),
-    private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql()
+    private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql(),
+    private readonly notices: SpreadNoticePort = new SpreadNoticeAdapter()
   ) {}
 
   async apply(input: AckInput): Promise<AckOutcome> {
@@ -101,7 +104,7 @@ export default class CommandAckService {
      * haber viajado nunca.
      */
     const evidence =
-      parsed.returnCode === 0 ? await this.evidenceAtAck(command) : null
+      parsed.returnCode === 0 ? await this.evidenceAtAck(command, parsed.dump ?? null) : null
     const executed = evidence !== null
     const target =
       parsed.returnCode !== 0
@@ -170,6 +173,15 @@ export default class CommandAckService {
     if (evidence === DEVICE_COMMAND_EVIDENCE.PHOTO_DOWNLOADED) {
       await this.photos.closeAfterDelivery(command, input.now)
     }
+    /** Una copia de huella ejecutada aqui mismo cierra el aviso del equipo que la capturo. */
+    if (
+      executed &&
+      command.deviceCommandKind === DEVICE_COMMAND_KIND.BIODATA_WRITE &&
+      !isFaceCommand(command) &&
+      typeof command.biometricTemplateId === 'number'
+    ) {
+      await this.notices.copyExecuted(command.biometricTemplateId, input.now)
+    }
 
     return {
       kind: 'applied',
@@ -213,11 +225,22 @@ export default class CommandAckService {
    *   `options` antes de acusar, y esperar un alza posterior era esperar una
    *   que ya habia ocurrido.
    */
-  private async evidenceAtAck(command: DeviceCommand): Promise<DeviceCommandEvidence | null> {
+  private async evidenceAtAck(
+    command: DeviceCommand,
+    dump: string | null
+  ): Promise<DeviceCommandEvidence | null> {
     switch (command.deviceCommandKind) {
       case DEVICE_COMMAND_KIND.USER_UPSERT:
       case DEVICE_COMMAND_KIND.BIOPHOTO_DELETE:
         return DEVICE_COMMAND_EVIDENCE.ACK
+      /**
+       * El `INFO` trae su respuesta en el propio acuse: el volcado de opciones
+       * que alimenta el perfil. Sin volcado el equipo solo dijo "recibido" y
+       * sigue esperando; con el, ya contesto. Antes quedaba `acked` siempre y
+       * el barrido lo daba por fallido con la ficha recien actualizada.
+       */
+      case DEVICE_COMMAND_KIND.INFO:
+        return dump !== null && dump.length > 0 ? DEVICE_COMMAND_EVIDENCE.ACK : null
       case DEVICE_COMMAND_KIND.BIOPHOTO_WRITE:
         if (await this.photos.wasDownloaded(command)) {
           return DEVICE_COMMAND_EVIDENCE.PHOTO_DOWNLOADED

@@ -4,7 +4,9 @@ import AccessPointEmployee, {
 } from '#models/access_point_employee'
 import AccessPointProfile from '#models/access_point_profile'
 import AdmsIncident from '#models/adms_incident'
-import { ADMS_COPY_BLOCKING_KINDS } from '#modules/adms/adms.constants'
+import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
+import { ADMS_COPY_BLOCKING_KINDS, ADMS_PROFILE_UNSCOPED_REASON } from '#modules/adms/adms.constants'
+import { TenantContext } from '#utils/tenant_context'
 import DeviceCommand from '#models/device_command'
 import EmployeeBiometric from '#models/employee_biometric'
 import { parseBiometricData } from '#helpers/biometric_data_parser'
@@ -112,6 +114,7 @@ export default class EmployeeBiometricSummaryService {
     const record = await EmployeeBiometric.query()
       .whereNull('employee_biometric_deleted_at')
       .where('employee_id', employeeId)
+      .orderBy('employee_biometric_id', 'desc')
       .first()
     if (!record) return { fingers: [], face: false }
     return parseBiometricData(record.employeeBiometricData)
@@ -165,6 +168,13 @@ export default class EmployeeBiometricSummaryService {
       .where('employee_id', employeeId)
       .whereNot('access_point_employee_sync_status', ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
     const assigned = pivots.map((pivot) => pivot.accessPointId)
+    /**
+     * Sin ningun equipo asignado no hay contra que medir: alguien recien dado
+     * de alta tendria TODOS sus dedos "sin donde usarse" y la ficha ofreceria
+     * borrarselos. Huerfano es lo que ningun equipo asignado puede usar, no lo
+     * que todavia no tiene equipo.
+     */
+    if (assigned.length === 0) return []
 
     const usable = new Set<number>()
     for (const accessPointId of assigned) {
@@ -198,9 +208,16 @@ export default class EmployeeBiometricSummaryService {
     employeeId: number,
     withPhoto: boolean = true
   ): Promise<EmployeeBiometricSummary> {
-    const profile = await AccessPointProfile.query()
-      .where('access_point_id', accessPointId)
-      .first()
+    /**
+     * El perfil se lee sin corte de empresa, como hace `DeviceProfileRepository`:
+     * si el equipo cambio de empresa la fila puede traer la anterior, y con el
+     * corte saldria `null`, todas las versiones en nulo y cada dedo `unknown`
+     * sin motivo visible. El acotamiento ya lo hizo quien resolvio el equipo.
+     */
+    const profile = await TenantContext.runUnscoped(
+      () => AccessPointProfile.query().where('access_point_id', accessPointId).first(),
+      ADMS_PROFILE_UNSCOPED_REASON
+    )
     const replicated = await this.replicatedTemplateIds(slots, accessPointId)
     const acknowledged = await this.replicatedTemplateIds(
       slots,
@@ -272,6 +289,16 @@ export default class EmployeeBiometricSummaryService {
       face = betterState(face, BIOMETRIC_SLOT_STATE.SENT)
     }
 
+    /**
+     * Con "usar tambien para reconocimiento facial en checadores" apagado, el
+     * rostro no se ofrece: ni copiable ni incompatible, porque no va a viajar
+     * por ninguna via. Lo que ya este dentro o en camino se sigue diciendo,
+     * que es la verdad del aparato hasta que la baja lo retire.
+     */
+    if (withPhoto && face !== null && !(await this.faceUseOf(employeeId))) {
+      if (face !== BIOMETRIC_SLOT_STATE.HERE && face !== BIOMETRIC_SLOT_STATE.SENT) face = null
+    }
+
     return {
       fingers: [...fingers.entries()]
         .sort(([a], [b]) => a - b)
@@ -282,6 +309,16 @@ export default class EmployeeBiometricSummaryService {
       withheldBy: await this.withholdingIncident(accessPointId),
       facePhoto,
     }
+  }
+
+  /** El interruptor de la foto: manda sobre todo lo que sea rostro hacia checadores. */
+  private async faceUseOf(employeeId: number): Promise<boolean> {
+    const faceId = await EmployeeBiometricFaceId.query()
+      .where('employee_id', employeeId)
+      .whereNull('employee_biometric_face_id_deleted_at')
+      .select('employee_biometric_face_id_device_use')
+      .first()
+    return faceId?.employeeBiometricFaceIdDeviceUse === true
   }
 
   /**
@@ -329,13 +366,20 @@ export default class EmployeeBiometricSummaryService {
       .where('device_command_status', status)
       .whereIn('biometric_template_id', templateIds)
 
+    /**
+     * Con mas de un comando por template (reenvio tras un reset) manda el MAS
+     * RECIENTE: es el unico que puede estar despues de la lectura del contador
+     * que desmiente al anterior. Sin orden, `set` se quedaba con el que saliera
+     * ultimo de la consulta.
+     */
     const byTemplate = new Map<number, DateTime | null>()
     for (const row of rows) {
       if (typeof row.biometricTemplateId !== 'number') continue
-      byTemplate.set(
-        row.biometricTemplateId,
-        row.deviceCommandExecutedAt ?? row.deviceCommandAckedAt ?? null
-      )
+      const at = row.deviceCommandExecutedAt ?? row.deviceCommandAckedAt ?? null
+      const previous = byTemplate.get(row.biometricTemplateId)
+      if (previous === undefined || previous === null || (at !== null && at > previous)) {
+        byTemplate.set(row.biometricTemplateId, at)
+      }
     }
     return byTemplate
   }
