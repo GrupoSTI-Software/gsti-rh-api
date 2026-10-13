@@ -69,6 +69,15 @@ export default class Role extends compose(BaseModel, SoftDeletes) {
   @column()
   declare roleManagementDays: number | null
 
+  /**
+   * El rol cumple la función de Recursos Humanos de su empresa.
+   * No concede permisos: solo declara la función.
+   */
+  @column({
+    consume: (value: number | boolean) => Boolean(value),
+  })
+  declare roleHumanCapital: boolean
+
   @column.dateTime({ autoCreate: true })
   declare roleCreatedAt: DateTime
 

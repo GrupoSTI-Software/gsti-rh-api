@@ -85,6 +85,23 @@ export async function isOwnRoleLockedForUser(
 const UNMANAGED_TENANT_ROLE_SLUGS: readonly TenantRoleSlug[] = ['owner', 'empleado']
 
 /**
+ * Roles que nunca son Recursos Humanos: la marca no se les muestra y el
+ * sistema la ignora si llega. El dueño y la plataforma ya ven toda la
+ * plantilla; el colaborador no administra el backoffice.
+ */
+export const HUMAN_CAPITAL_INELIGIBLE_ROLE_SLUGS = ['root', 'owner', 'empleado'] as const
+
+/**
+ * Determina si un rol no puede llevar la marca de Recursos Humanos.
+ *
+ * @param role - Rol por su nombre interno.
+ * @returns `true` cuando el slug es dueño, plataforma o colaborador.
+ */
+export function isHumanCapitalIneligibleRole(role: Pick<Role, 'roleSlug'>): boolean {
+  return (HUMAN_CAPITAL_INELIGIBLE_ROLE_SLUGS as readonly string[]).includes(role.roleSlug)
+}
+
+/**
  * Rol sembrado cuyos permisos sí se ajustan, pero cuya identidad no: el runtime
  * decide por su slug y el slug se deriva del nombre, así que renombrarlo o
  * borrarlo deja huérfana a la empresa.
