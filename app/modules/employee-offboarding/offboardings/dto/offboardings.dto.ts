@@ -48,6 +48,17 @@ export interface EmployeeOffboardingItemDto {
   supplyRetirementReason: string | null
 }
 
+/**
+ * Baja deshecha tal como se guardó al reactivar (VLRH-H1790812613829); se
+ * muestra solo en la ficha de salida (VLRH-H1791055795208, regla 4). Un dato
+ * no registrado viaja `null`; sin ninguno, el bloque completo es `null`.
+ */
+export interface EmployeeOffboardingTerminationSnapshotDto {
+  date: string | null
+  modality: string | null
+  type: string | null
+}
+
 /** Expediente de salida con sus pendientes y la marca de vencido (spec §10). */
 export interface EmployeeOffboardingDto {
   employeeOffboardingId: number
@@ -67,6 +78,8 @@ export interface EmployeeOffboardingDto {
   employeeOffboardingCancelledByUserId: number | null
   /** Nombre de quien reactivó (misma regla que la autoría de pendientes); `null` sin usuario o ya borrado. */
   employeeOffboardingCancelledByUserName: string | null
+  /** Baja deshecha (VLRH-H1791055795208): `null` si no quedó ningún dato. */
+  terminationSnapshot: EmployeeOffboardingTerminationSnapshotDto | null
   /**
    * Bloque de avance (USRH1786568279596, §6.2): derivado de los MISMOS
    * pendientes de esta respuesta — no puede divergir de los `isOverdue`
@@ -128,6 +141,7 @@ function toIsoDateTime(value: unknown): string | null {
 export function toListRowDto(row: Record<string, unknown>): EmployeeOffboardingListRowDto {
   const plannedDate = toCalendarIsoDate(row.plannedDate)
   const terminatedDate = toCalendarIsoDate(row.terminatedDate)
+  const status = String(row.status ?? EMPLOYEE_OFFBOARDING_STATUS.OPEN)
   return {
     employeeOffboardingId: Number(row.employeeOffboardingId),
     employeeId: Number(row.employeeId),
@@ -140,13 +154,18 @@ export function toListRowDto(row: Record<string, unknown>): EmployeeOffboardingL
       : String(row.employeePayrollCode),
     departmentName: typeof row.departmentName === 'string' ? row.departmentName : null,
     positionName: typeof row.positionName === 'string' ? row.positionName : null,
-    status: String(row.status ?? EMPLOYEE_OFFBOARDING_STATUS.OPEN),
+    status,
     origin: String(row.origin ?? ''),
     plannedDate,
     terminatedDate,
-    // R2: la fecha real de baja manda; la tentativa es el respaldo
+    // R2: la fecha real de baja manda (con el snapshot primero, ya resuelto en
+    // el agregado); la tentativa es el respaldo
     referenceDate: terminatedDate ?? plannedDate,
-    terminationExecuted: row.employeeDeletedAt !== null && row.employeeDeletedAt !== undefined,
+    // Regla 5 de VLRH-H1791055795208: la salida cancelada no es baja ejecutada
+    terminationExecuted:
+      status !== EMPLOYEE_OFFBOARDING_STATUS.CANCELLED &&
+      row.employeeDeletedAt !== null &&
+      row.employeeDeletedAt !== undefined,
     itemsTotal: Number(row.itemsTotal ?? 0),
     itemsCompleted: Number(row.itemsCompleted ?? 0),
     itemsOpen: Number(row.itemsOpen ?? 0),
@@ -294,6 +313,31 @@ export function toItemDto(
  * Construye el DTO del expediente. Regla 9: la fecha de referencia es
  * `employeeTerminatedDate` si no es nula; si no, la fecha tentativa.
  */
+/** Cadena no vacía del snapshot, o `null`. */
+function snapshotText(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
+/**
+ * Baja deshecha guardada en el expediente (VLRH-H1791055795208, regla 4):
+ * `null` cuando las tres columnas vienen vacías, para que la ficha omita la
+ * línea en lugar de pintarla vacía.
+ */
+export function toTerminationSnapshotDto(
+  offboarding: Pick<
+    EmployeeOffboarding,
+    | 'employeeOffboardingTerminationDate'
+    | 'employeeOffboardingTerminationModality'
+    | 'employeeOffboardingTerminationType'
+  >
+): EmployeeOffboardingTerminationSnapshotDto | null {
+  const date = toCalendarIsoDate(offboarding.employeeOffboardingTerminationDate)
+  const modality = snapshotText(offboarding.employeeOffboardingTerminationModality)
+  const type = snapshotText(offboarding.employeeOffboardingTerminationType)
+  if (date === null && modality === null && type === null) return null
+  return { date, modality, type }
+}
+
 export function toOffboardingDto(
   offboarding: EmployeeOffboarding,
   params: {
@@ -306,7 +350,10 @@ export function toOffboardingDto(
   }
 ): EmployeeOffboardingDto {
   const plannedDate = toCalendarIsoDate(offboarding.employeeOffboardingPlannedDate)
-  const terminatedDate = toCalendarIsoDate(params.employeeTerminatedDate)
+  const terminationSnapshot = toTerminationSnapshotDto(offboarding)
+  // Regla 2 de VLRH-H1791055795208: la baja deshecha manda; luego la baja en vivo; luego la tentativa
+  const terminatedDate =
+    terminationSnapshot?.date ?? toCalendarIsoDate(params.employeeTerminatedDate)
   const referenceDate = terminatedDate ?? plannedDate ?? null
 
   const orderedItems = sortItems(offboarding.items ?? [])
@@ -343,6 +390,7 @@ export function toOffboardingDto(
       offboarding.employeeOffboardingCancelledByUserId !== undefined
         ? (params.userNamesById.get(offboarding.employeeOffboardingCancelledByUserId) ?? null)
         : null,
+    terminationSnapshot,
     itemsTotal: items.length,
     itemsCompleted,
     itemsOpen: items.length - itemsCompleted,

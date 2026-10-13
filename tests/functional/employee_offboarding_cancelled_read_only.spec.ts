@@ -13,8 +13,11 @@ import EmployeeOffboardingItemEvidence from '#models/employee_offboarding_item_e
 import Person from '#models/person'
 import Position from '#models/position'
 import Role from '#models/role'
+import RoleSystemPermission from '#models/role_system_permission'
+import SystemPermission from '#models/system_permission'
 import User from '#models/user'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '#modules/employee-offboarding/concepts/concepts.constants'
 import { EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE } from '#modules/employee-offboarding/documents/documents.constants'
 import {
   EMPLOYEE_OFFBOARDING_ITEM_STATUS,
@@ -28,6 +31,11 @@ import { TenantContext } from '#utils/tenant_context'
  * lectura (CA-6, CA-7), el cerrado conserva lo que hoy permite (CA-8) y la
  * ficha y el listado lo pintan con su rastro y sin atrasados (CA-9). Fixtures
  * propias por inserción directa; las escrituras se rechazan antes de tocar S3.
+ *
+ * VLRH-H1791055795208 (segundo grupo) — lectura del cancelado: la fecha de
+ * salida es la de la baja deshecha (snapshot primero, también en el orden),
+ * filtro `status=cancelled`, `terminationSnapshot` en la ficha y la salida
+ * cancelada nunca cuenta como baja ejecutada ni como faltante de constancia.
  */
 
 const TEST_PASSWORD = 'ExpedienteCancelado123!'
@@ -117,11 +125,15 @@ async function createPosition(unit: BusinessUnit): Promise<Position> {
   return position
 }
 
-/** Colaborador con la baja EJECUTADA (borrado lógico) y datos suficientes para emitir la constancia. */
+/**
+ * Colaborador con datos suficientes para emitir la constancia. Con fecha, la
+ * baja queda EJECUTADA (borrado lógico); con `null` el colaborador está activo.
+ */
 async function createTerminatedEmployee(
   unit: BusinessUnit,
   position: Position,
-  label: string
+  label: string,
+  terminatedDate: string | null = PAST_DATE
 ): Promise<{ employee: Employee; person: Person }> {
   const s = stamp()
   const person = await Person.create({
@@ -144,12 +156,14 @@ async function createTerminatedEmployee(
   employee.businessUnitId = unit.businessUnitId
   employee.payrollBusinessUnitId = unit.businessUnitId
   employee.employeeHireDate = DateTime.fromISO('2022-01-10')
-  employee.employeeTerminatedDate = PAST_DATE
+  employee.employeeTerminatedDate = terminatedDate
   await employee.save()
-  await db
-    .from(Employee.table)
-    .where('employee_id', employee.employeeId)
-    .update({ employee_deleted_at: DateTime.utc().toSQL({ includeOffset: false }) })
+  if (terminatedDate !== null) {
+    await db
+      .from(Employee.table)
+      .where('employee_id', employee.employeeId)
+      .update({ employee_deleted_at: DateTime.utc().toSQL({ includeOffset: false }) })
+  }
   return { employee, person }
 }
 
@@ -501,5 +515,446 @@ test.group('Expediente cancelado: solo lectura (VLRH-H1790812613830)', (group) =
     assert.exists(row, 'el listado sin filtro trae el cancelado')
     assert.equal(row!.status, EMPLOYEE_OFFBOARDING_STATUS.CANCELLED)
     assert.equal(Number(row!.itemsOverdue), 0)
+  })
+})
+
+/** Prefijo único de los slugs del grupo de lectura. */
+const READ_FIXTURE_PREFIX = 'cancelada-lectura-'
+
+interface SnapshotSeed {
+  date: string | null
+  modality: string | null
+  type: string | null
+}
+
+/** Expediente insertado directo con estado, fecha tentativa y, si aplica, la baja deshecha. */
+async function createCaseRow(
+  unit: BusinessUnit,
+  employee: Employee,
+  params: { status: string; origin: string; plannedDate: string; snapshot?: SnapshotSeed }
+): Promise<EmployeeOffboarding> {
+  const isCancelled = params.status === EMPLOYEE_OFFBOARDING_STATUS.CANCELLED
+  return await EmployeeOffboarding.create({
+    employeeId: employee.employeeId,
+    businessUnitId: unit.businessUnitId,
+    employeeOffboardingPlannedDate: params.plannedDate,
+    employeeOffboardingStatus: params.status,
+    employeeOffboardingOrigin: params.origin,
+    employeeOffboardingNotes: null,
+    employeeOffboardingOpenedByUserId: null,
+    employeeOffboardingClosedAt: null,
+    employeeOffboardingClosedByUserId: null,
+    employeeOffboardingCancelledAt: isCancelled ? DateTime.utc() : null,
+    employeeOffboardingCancelledByUserId: null,
+    employeeOffboardingTerminationDate: params.snapshot?.date ?? null,
+    employeeOffboardingTerminationModality: params.snapshot?.modality ?? null,
+    employeeOffboardingTerminationType: params.snapshot?.type ?? null,
+  })
+}
+
+/** Rol de la empresa con, o sin, `read` sobre `employee-offboardings`. */
+async function createReaderRole(unit: BusinessUnit, withRead: boolean): Promise<Role> {
+  const s = stamp()
+  const role = await Role.create({
+    roleName: `Lectura cancelada ${s}`,
+    roleSlug: `${READ_FIXTURE_PREFIX}${s}`,
+    roleDescription: 'Rol temporal del spec de lectura de salidas canceladas',
+    roleActive: 1,
+    roleManagementDays: 10,
+    businessUnitId: unit.businessUnitId,
+  })
+  if (withRead) {
+    const permission = await SystemPermission.query()
+      .whereNull('system_permission_deleted_at')
+      .where('system_permission_slug', 'read')
+      .whereHas('systemModule', (query) =>
+        query
+          .whereNull('system_module_deleted_at')
+          .where('system_module_slug', EMPLOYEE_OFFBOARDINGS_MODULE_SLUG)
+      )
+      .firstOrFail()
+    await RoleSystemPermission.create({
+      roleId: role.roleId,
+      systemPermissionId: permission.systemPermissionId,
+    })
+  }
+  return role
+}
+
+async function createRoleUser(unit: BusinessUnit, role: Role): Promise<Actor> {
+  const s = stamp()
+  const email = `${READ_FIXTURE_PREFIX}${s}@gsti-tests.local`
+  const person = await Person.create({
+    personFirstname: 'Lectura',
+    personLastname: 'Cancelada',
+    personSecondLastname: '',
+    personEmail: email,
+    businessUnitId: unit.businessUnitId,
+  })
+  const user = await User.create({
+    userEmail: email,
+    userPassword: TEST_PASSWORD,
+    userActive: 1,
+    roleId: role.roleId,
+    personId: person.personId,
+    userEmailType: 'institutional',
+  })
+  await user.related('businessUnits').attach([unit.businessUnitId])
+  return { user, person }
+}
+
+/** Destruye en orden inverso de FK todo lo que cuelga de las empresas y roles dados. */
+async function destroyReadFixtures(
+  units: BusinessUnit[],
+  roles: Role[],
+  actors: Actor[],
+  positions: Position[]
+): Promise<void> {
+  const unitIds = units.map((unit) => unit.businessUnitId)
+  const caseIds = db
+    .from(EmployeeOffboarding.table)
+    .whereIn('business_unit_id', unitIds)
+    .select('employee_offboarding_id')
+  await db.from(EmployeeOffboardingItem.table).whereIn('employee_offboarding_id', caseIds).delete()
+  await db
+    .from(EmployeeOffboardingDocument.table)
+    .whereIn('employee_offboarding_id', caseIds)
+    .delete()
+  await db.from(EmployeeOffboarding.table).whereIn('business_unit_id', unitIds).delete()
+  const employees = await db
+    .from(Employee.table)
+    .whereIn('business_unit_id', unitIds)
+    .select('employee_id', 'person_id')
+  await db
+    .from(Employee.table)
+    .whereIn(
+      'employee_id',
+      employees.map((row) => Number(row.employee_id))
+    )
+    .delete()
+  await db
+    .from(Person.table)
+    .whereIn(
+      'person_id',
+      employees.map((row) => Number(row.person_id))
+    )
+    .delete()
+  for (const actor of actors) {
+    await BusinessUnitUser.query().where('user_id', actor.user.userId).delete()
+    await db.from('api_tokens').where('tokenable_id', actor.user.userId).delete()
+    await User.query().where('user_id', actor.user.userId).delete()
+    await db.from(Person.table).where('person_id', actor.person.personId).delete()
+  }
+  for (const role of roles) {
+    await RoleSystemPermission.query().where('role_id', role.roleId).delete()
+    await db.from(Role.table).where('role_id', role.roleId).delete()
+  }
+  for (const position of positions) {
+    await db.from(Position.table).where('position_id', position.positionId).delete()
+  }
+  for (const unit of units) {
+    await BusinessUnit.query().where('business_unit_id', unit.businessUnitId).delete()
+  }
+}
+
+test.group('Salidas canceladas: fecha, filtro y baja registrada (VLRH-H1791055795208)', (group) => {
+  let unitA: BusinessUnit
+  let unitB: BusinessUnit
+  let positionA: Position
+  let positionB: Position
+  let readerRole: Role
+  let noReadRole: Role
+  let reader: Actor
+  let noReader: Actor
+  /** E1: baja del 08-10 deshecha (cancelado con snapshot) y baja nueva del 09-20 (abierto). */
+  let e1Cancelled: EmployeeOffboarding
+  let e1Open: EmployeeOffboarding
+  /** E2: dado de baja el 09-01, abierto. */
+  let e2Open: EmployeeOffboarding
+  /** E3: activo, programado para el 07-15. */
+  let e3Open: EmployeeOffboarding
+  /** E4: reactivado sin expediente posterior; cancelado con snapshot completo (06-01). */
+  let e4Employee: Employee
+  let e4Cancelled: EmployeeOffboarding
+  /** E5: cancelado sin ningún dato de la baja deshecha. */
+  let e5Employee: Employee
+  let e5Cancelled: EmployeeOffboarding
+  /** E6: cancelado con solo la fecha (05-05). */
+  let e6Employee: Employee
+  let e6Cancelled: EmployeeOffboarding
+  /** Empresa B: cancelado con snapshot, invisible desde A. */
+  let e7Employee: Employee
+  let e7Cancelled: EmployeeOffboarding
+
+  const E1_SNAPSHOT: SnapshotSeed = {
+    date: '2026-08-10',
+    modality: 'Renuncia',
+    type: 'Cambio de Residencia',
+  }
+
+  const asActor = (request: ReturnType<ApiClient['get']>, actor: Actor, unit: BusinessUnit) =>
+    request
+      .loginAs(actor.user)
+      .header('X-Business-Unit-Id', unit.businessUnitPublicId)
+      .setup((req) => {
+        req.request.ok(() => true)
+      })
+
+  const list = (query: Record<string, string | number | boolean>, actor: Actor = reader) =>
+    asActor(
+      client()
+        .get(BASE_PATH)
+        .qs({ page: 1, limit: 50, ...query }),
+      actor,
+      unitA
+    )
+
+  let client: () => ApiClient
+
+  const rowsOf = (response: ApiResponse): Array<Record<string, unknown>> =>
+    response.body().data.employeeOffboardings.data
+
+  const idsOf = (rows: Array<Record<string, unknown>>) =>
+    rows.map((row) => Number(row.employeeOffboardingId))
+
+  group.setup(async () => {
+    await asFixture(async () => {
+      unitA = await createUnit()
+      unitB = await createUnit()
+      positionA = await createPosition(unitA)
+      positionB = await createPosition(unitB)
+      readerRole = await createReaderRole(unitA, true)
+      noReadRole = await createReaderRole(unitA, false)
+      reader = await createRoleUser(unitA, readerRole)
+      noReader = await createRoleUser(unitA, noReadRole)
+
+      const e1 = await createTerminatedEmployee(unitA, positionA, 'E1', '2026-09-20')
+      e1Cancelled = await createCaseRow(unitA, e1.employee, {
+        status: EMPLOYEE_OFFBOARDING_STATUS.CANCELLED,
+        origin: EMPLOYEE_OFFBOARDING_ORIGIN.TERMINATION,
+        plannedDate: '2026-08-10',
+        snapshot: E1_SNAPSHOT,
+      })
+      e1Open = await createCaseRow(unitA, e1.employee, {
+        status: EMPLOYEE_OFFBOARDING_STATUS.OPEN,
+        origin: EMPLOYEE_OFFBOARDING_ORIGIN.TERMINATION,
+        plannedDate: '2026-09-20',
+      })
+      const e2 = await createTerminatedEmployee(unitA, positionA, 'E2', '2026-09-01')
+      e2Open = await createCaseRow(unitA, e2.employee, {
+        status: EMPLOYEE_OFFBOARDING_STATUS.OPEN,
+        origin: EMPLOYEE_OFFBOARDING_ORIGIN.TERMINATION,
+        plannedDate: '2026-09-01',
+      })
+      const e3 = await createTerminatedEmployee(unitA, positionA, 'E3', null)
+      e3Open = await createCaseRow(unitA, e3.employee, {
+        status: EMPLOYEE_OFFBOARDING_STATUS.OPEN,
+        origin: EMPLOYEE_OFFBOARDING_ORIGIN.SCHEDULED,
+        plannedDate: '2026-07-15',
+      })
+      const e4 = await createTerminatedEmployee(unitA, positionA, 'E4', null)
+      e4Employee = e4.employee
+      e4Cancelled = await createCaseRow(unitA, e4.employee, {
+        status: EMPLOYEE_OFFBOARDING_STATUS.CANCELLED,
+        origin: EMPLOYEE_OFFBOARDING_ORIGIN.TERMINATION,
+        plannedDate: '2026-06-01',
+        snapshot: { date: '2026-06-01', modality: 'Renuncia', type: 'Cambio de Residencia' },
+      })
+      const e5 = await createTerminatedEmployee(unitA, positionA, 'E5', null)
+      e5Employee = e5.employee
+      e5Cancelled = await createCaseRow(unitA, e5.employee, {
+        status: EMPLOYEE_OFFBOARDING_STATUS.CANCELLED,
+        origin: EMPLOYEE_OFFBOARDING_ORIGIN.SCHEDULED,
+        plannedDate: '2026-04-01',
+      })
+      const e6 = await createTerminatedEmployee(unitA, positionA, 'E6', null)
+      e6Employee = e6.employee
+      e6Cancelled = await createCaseRow(unitA, e6.employee, {
+        status: EMPLOYEE_OFFBOARDING_STATUS.CANCELLED,
+        origin: EMPLOYEE_OFFBOARDING_ORIGIN.TERMINATION,
+        plannedDate: '2026-03-01',
+        snapshot: { date: '2026-05-05', modality: null, type: null },
+      })
+      const e7 = await createTerminatedEmployee(unitB, positionB, 'E7', '2026-08-20')
+      e7Employee = e7.employee
+      e7Cancelled = await createCaseRow(unitB, e7.employee, {
+        status: EMPLOYEE_OFFBOARDING_STATUS.CANCELLED,
+        origin: EMPLOYEE_OFFBOARDING_ORIGIN.TERMINATION,
+        plannedDate: '2026-08-20',
+        snapshot: { date: '2026-08-20', modality: 'Renuncia', type: 'Cambio de Residencia' },
+      })
+    })
+  })
+
+  group.each.setup(({ context }) => {
+    client = () => context.client
+  })
+
+  group.teardown(() =>
+    asFixture(() =>
+      destroyReadFixtures(
+        [unitA, unitB],
+        [readerRole, noReadRole],
+        [reader, noReader],
+        [positionA, positionB]
+      )
+    )
+  )
+
+  test('CA-1: ?status=cancelled trae solo cancelados, y el de E1 con la fecha de la baja deshecha', async ({
+    assert,
+  }) => {
+    const response = await list({ status: EMPLOYEE_OFFBOARDING_STATUS.CANCELLED })
+    response.assertStatus(200)
+    const rows = rowsOf(response)
+    assert.sameMembers(idsOf(rows), [
+      e1Cancelled.employeeOffboardingId,
+      e4Cancelled.employeeOffboardingId,
+      e5Cancelled.employeeOffboardingId,
+      e6Cancelled.employeeOffboardingId,
+    ])
+    for (const row of rows) assert.equal(row.status, EMPLOYEE_OFFBOARDING_STATUS.CANCELLED)
+    const e1Row = rows.find(
+      (row) => Number(row.employeeOffboardingId) === e1Cancelled.employeeOffboardingId
+    )!
+    // Sin el snapshot sería 2026-09-20, la baja nueva
+    assert.equal(e1Row.terminatedDate, '2026-08-10')
+    assert.equal(e1Row.referenceDate, '2026-08-10')
+    // Confidencialidad: modalidad y tipo no viajan en el renglón
+    assert.notInclude(JSON.stringify(e1Row), 'Renuncia')
+    assert.notProperty(e1Row, 'terminationSnapshot')
+  })
+
+  test('CA-2: el listado ordena por la fecha de salida con el snapshot primero', async ({
+    assert,
+  }) => {
+    const response = await list({})
+    response.assertStatus(200)
+    assert.deepEqual(idsOf(rowsOf(response)), [
+      e1Open.employeeOffboardingId, // 2026-09-20
+      e2Open.employeeOffboardingId, // 2026-09-01
+      e1Cancelled.employeeOffboardingId, // 2026-08-10 (snapshot, no 09-20)
+      e3Open.employeeOffboardingId, // 2026-07-15 tentativa
+      e4Cancelled.employeeOffboardingId, // 2026-06-01 snapshot
+      e6Cancelled.employeeOffboardingId, // 2026-05-05 snapshot solo fecha
+      e5Cancelled.employeeOffboardingId, // 2026-04-01 tentativa, sin snapshot
+    ])
+  })
+
+  test('CA-3: open y closed excluyen los cancelados; sin filtro aparecen con su etiqueta', async ({
+    assert,
+  }) => {
+    const open = await list({ status: EMPLOYEE_OFFBOARDING_STATUS.OPEN })
+    open.assertStatus(200)
+    assert.sameMembers(idsOf(rowsOf(open)), [
+      e1Open.employeeOffboardingId,
+      e2Open.employeeOffboardingId,
+      e3Open.employeeOffboardingId,
+    ])
+    const closed = await list({ status: EMPLOYEE_OFFBOARDING_STATUS.CLOSED })
+    closed.assertStatus(200)
+    assert.lengthOf(rowsOf(closed), 0)
+
+    const all = await list({})
+    const cancelledRow = rowsOf(all).find(
+      (row) => Number(row.employeeOffboardingId) === e1Cancelled.employeeOffboardingId
+    )
+    assert.exists(cancelledRow)
+    assert.equal(cancelledRow!.status, EMPLOYEE_OFFBOARDING_STATUS.CANCELLED)
+  })
+
+  test('CA-4: la salida cancelada no es baja ejecutada ni faltante de constancia', async ({
+    assert,
+  }) => {
+    const without = await list({ withoutSeparationLetter: true })
+    without.assertStatus(200)
+    assert.sameMembers(idsOf(rowsOf(without)), [
+      e1Open.employeeOffboardingId,
+      e2Open.employeeOffboardingId,
+    ])
+
+    const all = rowsOf(await list({}))
+    const byId = new Map(all.map((row) => [Number(row.employeeOffboardingId), row]))
+    assert.equal(byId.get(e1Cancelled.employeeOffboardingId)!.terminationExecuted, false)
+    assert.equal(byId.get(e1Open.employeeOffboardingId)!.terminationExecuted, true)
+  })
+
+  test('CA-5: la ficha del reactivado trae el snapshot completo y la fecha de la baja deshecha', async ({
+    assert,
+  }) => {
+    const response = await asActor(
+      client().get(`${BASE_PATH}/by-employee/${e4Employee.employeeId}`),
+      reader,
+      unitA
+    )
+    response.assertStatus(200)
+    const dto = response.body().data.employeeOffboarding
+    assert.equal(dto.employeeOffboardingId, e4Cancelled.employeeOffboardingId)
+    assert.equal(dto.employeeOffboardingStatus, EMPLOYEE_OFFBOARDING_STATUS.CANCELLED)
+    assert.deepEqual(dto.terminationSnapshot, {
+      date: '2026-06-01',
+      modality: 'Renuncia',
+      type: 'Cambio de Residencia',
+    })
+    assert.equal(dto.referenceDate, '2026-06-01')
+  })
+
+  test('CA-6: sin datos de la baja deshecha el snapshot es null; con solo la fecha, los demás van null', async ({
+    assert,
+  }) => {
+    const empty = await asActor(
+      client().get(`${BASE_PATH}/by-employee/${e5Employee.employeeId}`),
+      reader,
+      unitA
+    )
+    empty.assertStatus(200)
+    assert.isNull(empty.body().data.employeeOffboarding.terminationSnapshot)
+    // Sin snapshot ni baja en vivo, la fecha de referencia cae a la tentativa
+    assert.equal(empty.body().data.employeeOffboarding.referenceDate, '2026-04-01')
+
+    const dateOnly = await asActor(
+      client().get(`${BASE_PATH}/by-employee/${e6Employee.employeeId}`),
+      reader,
+      unitA
+    )
+    dateOnly.assertStatus(200)
+    assert.deepEqual(dateOnly.body().data.employeeOffboarding.terminationSnapshot, {
+      date: '2026-05-05',
+      modality: null,
+      type: null,
+    })
+  })
+
+  test('CA-7: el cancelado de otra empresa no aparece ni se consulta por colaborador', async ({
+    assert,
+  }) => {
+    const response = await list({ status: EMPLOYEE_OFFBOARDING_STATUS.CANCELLED })
+    response.assertStatus(200)
+    assert.notInclude(idsOf(rowsOf(response)), e7Cancelled.employeeOffboardingId)
+
+    const byEmployee = await asActor(
+      client().get(`${BASE_PATH}/by-employee/${e7Employee.employeeId}`),
+      reader,
+      unitA
+    )
+    byEmployee.assertStatus(404)
+    assert.equal(byEmployee.body().key, 'colaborador-no-encontrado')
+    assert.equal(byEmployee.body().code, 'OFFB.CASE.EMPLOYEE_NOT_FOUND')
+  })
+
+  test('CA-8: sin read sobre Bajas de personal el filtro responde 403', async ({ assert }) => {
+    const response = await list({ status: EMPLOYEE_OFFBOARDING_STATUS.CANCELLED }, noReader)
+    response.assertStatus(403)
+    assert.equal(response.body().key, 'sin-permiso')
+    assert.equal(response.body().code, 'OFFB.CASE.FORBIDDEN')
+    assert.isNotEmpty(response.body().title)
+    assert.isNotEmpty(response.body().detail ?? response.body().message)
+  })
+
+  test('CA-9: un estado fuera del enum responde 400 datos-invalidos', async ({ assert }) => {
+    const response = await list({ status: 'canceled' })
+    response.assertStatus(400)
+    assert.equal(response.body().key, 'datos-invalidos')
+    assert.equal(response.body().code, 'OFFB.CASE.VAL_INPUT')
   })
 })
