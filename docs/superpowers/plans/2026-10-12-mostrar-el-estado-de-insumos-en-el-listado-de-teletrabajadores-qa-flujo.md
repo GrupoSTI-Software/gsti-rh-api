@@ -315,7 +315,15 @@ Defectos que **no son de esta historia**, aparecidos en cualquier momento del tr
 - **Qué se esperaba:** el listado de la empresa elegida, con sus propios colaboradores.
 - **Qué pasó:** la aplicación recarga y muestra la pantalla **403 — «No tienes permiso para ver esto.»**; el recorrido se detiene ahí y la sesión queda en la empresa nueva. La aplicación pregunta por el permiso de un rol que no es el de la empresa elegida: la petición termina en `/api/roles/has-access/9/telework-workers/read` —ese `9` es el rol que la cuenta tiene en **QA Fundadora**, no el que tiene en **QA Listado Empresa**— y responde **403**, aunque la cuenta sí tiene esa lectura en la empresa elegida.
 - **Dónde se vio:** en el listado de teletrabajadores, al cambiar la empresa activa desde **Mi cuenta** (el recorrido no puede continuar desde ahí).
-- **Auditoría: confirmado.** Se reprodujo en el navegador el 13 de octubre de 2026, con el registro de red que sobrevive a la recarga: la petición del permiso responde **403**. Se descartaron las falsas alarmas: la cuenta **sí** tiene la lectura en **QA Listado Empresa** (está en el sembrador y en la tabla de permisos), el paso es el que indica el escenario, y el API **sí** atiende bien esa empresa cuando la petición la lleva —consultada directamente, responde **200**—. La causa queda del lado de la sesión: el backoffice pregunta por el permiso del rol que la cuenta tiene en **QA Fundadora**, no en la empresa elegida.
+- **Auditoría: confirmado, y no es un defecto del sembrador.** Se reprodujo en el navegador el 13 de octubre de 2026, con el registro de red que sobrevive a la recarga. La comprobación que lo decide, hecha contra el API en ambas empresas:
+
+  | Petición del permiso | Empresa activa | Respuesta |
+  |---|---|---|
+  | rol de la cuenta (**9**) | QA Fundadora | **200 — sí tiene la lectura** |
+  | rol de la cuenta (**9**) | QA Listado Empresa | **403** |
+  | rol de esa empresa (**104**) | QA Listado Empresa | **200 — sí tiene la lectura** |
+
+  La cuenta **sí** tiene el rol y la lectura en la empresa elegida: el sembrador deja ahí un rol de lector con esa lectura, y su fila de permisos lo confirma. Lo que falla es que la aplicación pregunta por el permiso con el **rol de la cuenta** —el mismo en las dos empresas— mientras el servidor evalúa con el **rol de la empresa elegida**: si no coinciden, responde 403 antes de contestar. Y no coinciden justo en el caso que el sistema quiere soportar: una persona puede ser administradora en una empresa y lectora en otra. La negativa del servidor a contestar por un rol ajeno es correcta (evita revelar permisos de otro rol); el hueco es que a la pantalla nadie le entrega el rol de la empresa elegida. **Se corrige en la aplicación, no en la siembra**: al leer la sesión, el servidor debe responder con el rol de la empresa activa —la pantalla ya sabe cuál eligió; es el servidor quien la ignora— y la negativa se conserva.
 
 Por este defecto, el aislamiento entre empresas no se recorre a mano: está declarado en el apartado 7 y lo cubre la prueba automática del API.
 
