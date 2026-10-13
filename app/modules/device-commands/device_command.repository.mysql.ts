@@ -1,9 +1,11 @@
 import type { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import DeviceCommand from '#models/device_command'
+import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
+import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import {
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
@@ -14,6 +16,7 @@ import type {
   CommandInsert,
   DeviceCommandRepository,
   EnqueueIdempotentResult,
+  ExecutedCopyLookup,
 } from './device_command.repository.js'
 
 /** Verdadero si el choque es contra la UNIQUE del identificador de cable. */
@@ -28,7 +31,9 @@ const LIVE_STATUSES: readonly DeviceCommandStatus[] = [
 ]
 
 /** Adaptador Lucid de la cola de comandos. */
-export default class DeviceCommandRepositoryMysql implements DeviceCommandRepository {
+export default class DeviceCommandRepositoryMysql
+  implements DeviceCommandRepository, ExecutedCopyLookup
+{
   /**
    * Bloquea la fila del punto de acceso, busca por llave de correlacion e
    * inserta, todo en la MISMA transaccion.
@@ -123,6 +128,24 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
       .whereIn('device_command_status', [...LIVE_STATUSES])
       .orderBy('device_command_id', 'asc')
       .first()
+  }
+
+  /**
+   * Espejo de `findLiveByCorrelation` para lo ya entregado: misma llave, mismo
+   * equipo, pero en `executed`. Es lo que decide si una copia se repite.
+   */
+  async hasExecutedByCorrelation(
+    accessPointId: number,
+    correlationKey: string,
+    excludeCommandId?: number
+  ): Promise<boolean> {
+    const query = DeviceCommand.query()
+      .where('access_point_id', accessPointId)
+      .where('device_command_correlation_key', correlationKey)
+      .where('device_command_status', DEVICE_COMMAND_STATUS.EXECUTED)
+    if (excludeCommandId !== undefined) query.whereNot('device_command_id', excludeCommandId)
+    const row = await query.first()
+    return row !== null
   }
 
   async findById(commandId: number): Promise<DeviceCommand | null> {
@@ -243,6 +266,7 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     commandId: number
     payload: string
     sentAt: DateTime
+    countersSnapshot?: DeviceCommandCountersSnapshot | null
   }): Promise<boolean> {
     return db.transaction(async (trx) => {
       const command = await DeviceCommand.query({ client: trx })
@@ -255,50 +279,47 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
       command.deviceCommandPayload = input.payload
       command.deviceCommandStatus = DEVICE_COMMAND_STATUS.SENT
       command.deviceCommandSentAt = input.sentAt
+      if (input.countersSnapshot !== undefined) {
+        command.deviceCommandCountersSnapshot = input.countersSnapshot
+      }
       await command.save()
       return true
     })
   }
 
-  async requeueStaleInFlight(input: {
-    accessPointId: number
-    sentBefore: DateTime
+  async requeueOrFailIfStill(input: {
+    commandId: number
+    expectedStatus: DeviceCommandStatus
     now: DateTime
-  }): Promise<{ requeued: number; failed: number }> {
+    error: string
+  }): Promise<'requeued' | 'failed' | 'untouched'> {
     return db.transaction(async (trx) => {
-      const stale = await DeviceCommand.query({ client: trx })
-        .where('access_point_id', input.accessPointId)
-        .where('device_command_status', DEVICE_COMMAND_STATUS.SENT)
-        .where('device_command_sent_at', '<', input.sentBefore.toFormat('yyyy-MM-dd HH:mm:ss'))
+      const command = await DeviceCommand.query({ client: trx })
+        .where('device_command_id', input.commandId)
+        .where('device_command_status', input.expectedStatus)
         .forUpdate()
+        .first()
+      if (!command) return 'untouched'
+      command.useTransaction(trx)
 
-      let requeued = 0
-      let failed = 0
+      const attempts = command.deviceCommandAttempts + 1
+      const max = command.deviceCommandMaxAttempts
+      const exhausted = max !== null && attempts >= max
+      const presencial = command.deviceCommandKind === DEVICE_COMMAND_KIND.ENROLL_FP
 
-      for (const command of stale) {
-        command.useTransaction(trx)
-        command.deviceCommandAttempts += 1
-
-        /**
-         * `null` en el maximo es "insiste siempre": lo usa la baja de usuario,
-         * donde rendirse deja a alguien con acceso que ya no le toca.
-         */
-        const max = command.deviceCommandMaxAttempts
-        if (max !== null && command.deviceCommandAttempts >= max) {
-          command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
-          command.deviceCommandFailedAt = input.now
-          command.deviceCommandLastError = 'sin acuse tras varios intentos'
-          failed += 1
-        } else {
-          command.deviceCommandStatus = DEVICE_COMMAND_STATUS.PENDING
-          command.deviceCommandSentAt = null
-          requeued += 1
-        }
-
+      command.deviceCommandAttempts = attempts
+      if (exhausted || presencial) {
+        command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
+        command.deviceCommandFailedAt = input.now
+        command.deviceCommandLastError = input.error
         await command.save()
+        return 'failed'
       }
 
-      return { requeued, failed }
+      command.deviceCommandStatus = DEVICE_COMMAND_STATUS.PENDING
+      command.deviceCommandSentAt = null
+      await command.save()
+      return 'requeued'
     })
   }
 
@@ -340,6 +361,93 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     if (input.pin !== undefined) query.where('device_command_pin', input.pin)
     if (input.bioNo !== undefined) query.where('device_command_bio_no', input.bioNo)
     return query.orderBy('device_command_id', 'asc')
+  }
+
+  async countFingerprintsBelievedInside(accessPointId: number): Promise<number> {
+    /**
+     * Consulta cruda a proposito: une dos tablas y la corte por empresa ya la
+     * hizo quien resolvio el equipo. Una copia de rostro se distingue por su
+     * llave de correlacion (`biodata:<pin>:9:<no>`), igual que en `isFaceCommand`.
+     *
+     * Solo cuentan colaboradores con vinculo vivo en ese equipo: la baja se
+     * lleva sus huellas del aparato y el contador baja con ella; seguir
+     * contandolas dejaba el "creido dentro" inflado para siempre y la
+     * acreditacion por contador muerta desde la primera baja.
+     */
+    const result = await db.rawQuery(
+      `SELECT COUNT(*) AS total FROM (
+         SELECT t.employee_id, t.biometric_template_bio_no AS bio_no
+           FROM biometric_templates t
+           JOIN access_point_employees ape
+             ON ape.access_point_id = t.source_access_point_id
+            AND ape.employee_id = t.employee_id
+            AND ape.access_point_employee_sync_status <> ?
+          WHERE t.source_access_point_id = ? AND t.biometric_template_bio_type = ?
+         UNION
+         SELECT c.employee_id, c.device_command_bio_no
+           FROM device_commands c
+           JOIN access_point_employees ape
+             ON ape.access_point_id = c.access_point_id
+            AND ape.employee_id = c.employee_id
+            AND ape.access_point_employee_sync_status <> ?
+          WHERE c.access_point_id = ? AND c.device_command_kind = ?
+            AND c.device_command_status IN (?, ?)
+            AND c.employee_id IS NOT NULL AND c.device_command_bio_no IS NOT NULL
+            AND (c.device_command_correlation_key IS NULL OR c.device_command_correlation_key NOT LIKE ?)
+       ) AS inside`,
+      [
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+        accessPointId,
+        BIO_TYPE.FINGERPRINT,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+        accessPointId,
+        DEVICE_COMMAND_KIND.BIODATA_WRITE,
+        DEVICE_COMMAND_STATUS.EXECUTED,
+        DEVICE_COMMAND_STATUS.ACKED,
+        `biodata:%:${BIO_TYPE.FACE}:%`,
+      ]
+    )
+    const rows = result[0] as Array<{ total: number | string }>
+    return Number(rows[0]?.total ?? 0)
+  }
+
+  async countFacesBelievedInside(accessPointId: number): Promise<number> {
+    const result = await db.rawQuery(
+      `SELECT COUNT(*) AS total FROM (
+         SELECT t.employee_id
+           FROM biometric_templates t
+           JOIN access_point_employees ape
+             ON ape.access_point_id = t.source_access_point_id
+            AND ape.employee_id = t.employee_id
+            AND ape.access_point_employee_sync_status <> ?
+          WHERE t.source_access_point_id = ? AND t.biometric_template_bio_type = ?
+         UNION
+         SELECT c.employee_id
+           FROM device_commands c
+           JOIN access_point_employees ape
+             ON ape.access_point_id = c.access_point_id
+            AND ape.employee_id = c.employee_id
+            AND ape.access_point_employee_sync_status <> ?
+          WHERE c.access_point_id = ? AND c.device_command_status IN (?, ?)
+            AND c.employee_id IS NOT NULL
+            AND (c.device_command_kind = ?
+                 OR (c.device_command_kind = ? AND c.device_command_correlation_key LIKE ?))
+       ) AS inside`,
+      [
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+        accessPointId,
+        BIO_TYPE.FACE,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+        accessPointId,
+        DEVICE_COMMAND_STATUS.EXECUTED,
+        DEVICE_COMMAND_STATUS.ACKED,
+        DEVICE_COMMAND_KIND.BIOPHOTO_WRITE,
+        DEVICE_COMMAND_KIND.BIODATA_WRITE,
+        `biodata:%:${BIO_TYPE.FACE}:%`,
+      ]
+    )
+    const rows = result[0] as Array<{ total: number | string }>
+    return Number(rows[0]?.total ?? 0)
   }
 
   async save(command: DeviceCommand): Promise<void> {

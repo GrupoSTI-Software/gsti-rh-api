@@ -3467,6 +3467,8 @@
   "asset_employee_assets_successfully": "Employee assets retrieved successfully",
   "asset_employee_not_found_title": "Employee not found",
   "asset_employee_not_found_detail": "The employee does not exist or does not belong to the company.",
+  "asset_employee_telework_supplies_title": "Employee telework supplies",
+  "asset_employee_telework_supplies_successfully": "Employee telework supplies retrieved successfully",
   "vacation_period_not_started_title": "The period has not started",
   "vacation_period_not_started_message": "The company does not allow vacation in advance. This period starts on {startsAt}; register the days in the current period.",
   "org_structure_department_not_found_title": "Department not found",

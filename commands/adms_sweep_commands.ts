@@ -25,7 +25,7 @@ export default class AdmsSweepCommands extends BaseCommand {
         return
       }
       this.logger.info(
-        `Barrido de comandos: ${result.taken} revisado(s), ${result.timedOut} sin acuse, ${result.withoutEvidence} sin evidencia, ${result.rosterRequested} padron(es) pedido(s), ${result.revocationsClosed} baja(s) cerrada(s)`
+        `Barrido de comandos: ${result.taken} revisado(s), ${result.requeued} reencolado(s), ${result.timedOut} sin acuse, ${result.withoutEvidence} sin evidencia, ${result.rosterRequested} padron(es) pedido(s), ${result.revocationsClosed} baja(s) cerrada(s)`
       )
     } catch (error) {
       this.logger.error(

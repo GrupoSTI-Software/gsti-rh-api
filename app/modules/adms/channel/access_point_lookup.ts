@@ -143,6 +143,10 @@ export interface UnknownSerialThrottle {
    *
    * Llave propia: probar direcciones y probar series son dos ataques distintos
    * y mezclarlos en un contador haria que uno tapara al otro.
+   *
+   * Solo cuenta, no bloquea: un checador sano detras de la misma IP que uno
+   * mal configurado no puede quedarse sin canal por eso. El umbral dispara el
+   * aviso y cada direccion ajena se sigue rechazando con 404 una por una.
    */
   countBadAddress(ip: string): Promise<'ok' | 'threshold_reached'>
 }
@@ -174,11 +178,7 @@ export class UnknownSerialThrottleMemory implements UnknownSerialThrottle {
   }
 
   async countBadAddress(ip: string): Promise<'ok' | 'threshold_reached'> {
-    const counter = this.counter()
-    const key = this.badAddressKey(ip)
-    const state = await counter.increment(key)
-    if (state.remaining > 0) return 'ok'
-    await counter.block(key, `${ADMS_RATE.unknownSerialBlockMinutes} minutes`)
-    return 'threshold_reached'
+    const state = await this.counter().increment(this.badAddressKey(ip))
+    return state.remaining > 0 ? 'ok' : 'threshold_reached'
   }
 }

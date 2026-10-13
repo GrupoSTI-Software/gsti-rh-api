@@ -3470,6 +3470,8 @@
   "asset_employee_assets_successfully": "Activos del colaborador obtenidos correctamente",
   "asset_employee_not_found_title": "Colaborador no encontrado",
   "asset_employee_not_found_detail": "El colaborador no existe o no pertenece a la empresa.",
+  "asset_employee_telework_supplies_title": "Insumos de teletrabajo del colaborador",
+  "asset_employee_telework_supplies_successfully": "Insumos de teletrabajo obtenidos correctamente",
   "vacation_period_not_started_title": "El período aún no inicia",
   "vacation_period_not_started_message": "La empresa no permite adelantar vacaciones. Este período inicia el {startsAt}; registra los días en el período vigente.",
   "org_structure_department_not_found_title": "Departamento no encontrado",

@@ -220,22 +220,32 @@ export default class AdmsDeviceResolverService {
        * reescribieron la direccion.
        */
       if ((await this.throttle.countBadAddress(input.ip)) === 'threshold_reached') {
-        await this.incidents.record(
-          {
-            kind: ADMS_INCIDENT_KIND.CHANNEL_HOST_PROBE,
-            severity: 'warning',
-            code: ADMS_ERROR_CODES.DEV_CHANNEL_HOST_UNKNOWN,
-            title: 'Alguien esta probando direcciones del canal',
-            detail:
-              'Una misma IP presento varias direcciones que no corresponden a ningun checador. No se atendio ninguna y queda bloqueada un rato.',
-            key: 'sondeo-de-direcciones',
-            serial: null,
-            accessPointId: null,
-            businessUnitId: null,
-            context: { ip: input.ip },
-            now: input.now,
-          },
-          { dedupeMinutes: CHANNEL_SECRET_DEDUPE_MINUTES }
+        /**
+         * Sin equipo ni empresa, como el sondeo de series: el bypass tiene que
+         * ser explicito. Sin el, la busqueda del incidente anterior corria con
+         * alcance vacio, nunca lo encontraba y se grababa uno por sondeo (323
+         * en una tarde, medido el 2026-10-12).
+         */
+        await TenantContext.runUnscoped(
+          () =>
+            this.incidents.record(
+              {
+                kind: ADMS_INCIDENT_KIND.CHANNEL_HOST_PROBE,
+                severity: 'warning',
+                code: ADMS_ERROR_CODES.DEV_CHANNEL_HOST_UNKNOWN,
+                title: 'Alguien esta probando direcciones del canal',
+                detail:
+                  'Una misma IP presento varias direcciones que no corresponden a ningun checador. No se atendio ninguna.',
+                key: 'sondeo-de-direcciones',
+                serial: null,
+                accessPointId: null,
+                businessUnitId: null,
+                context: { ip: input.ip },
+                now: input.now,
+              },
+              { dedupeMinutes: CHANNEL_SECRET_DEDUPE_MINUTES }
+            ),
+          ADMS_UNKNOWN_SERIAL_UNSCOPED_REASON
         )
       }
 

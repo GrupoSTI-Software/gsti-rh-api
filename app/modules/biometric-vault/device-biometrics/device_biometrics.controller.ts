@@ -38,7 +38,12 @@ const enableFaceValidator = vine.compile(
 const replicationValidator = vine.compile(
   vine.object({
     params: vine.object({ employeeId: vine.number().positive() }),
-    sourceAccessPointId: vine.number().positive(),
+    /**
+     * Sin origen, el dato sale de la boveda: es lo que hace la asignacion a un
+     * equipo nuevo, y lo que necesita la ficha para copiar una huella que se
+     * enrolo en el teclado de otro checador sin orden del sistema.
+     */
+    sourceAccessPointId: vine.number().positive().nullable().optional(),
     targetAccessPointIds: vine.array(vine.number().positive()).minLength(1),
     modalities: vine.array(vine.enum(['fingerprint', 'face'] as const)).optional(),
   })
@@ -204,7 +209,10 @@ export default class DeviceBiometricsController {
 
       const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
       /** Origen y destinos, todos resueltos dentro del alcance antes de tocar nada. */
-      const source = await resolveScopedAccessPoint(ctx, payload.sourceAccessPointId)
+      const source =
+        payload.sourceAccessPointId === null || payload.sourceAccessPointId === undefined
+          ? null
+          : await resolveScopedAccessPoint(ctx, payload.sourceAccessPointId)
       const targetAccessPointIds: number[] = []
       for (const accessPointId of payload.targetAccessPointIds) {
         const target = await resolveScopedAccessPoint(ctx, accessPointId)
@@ -215,7 +223,7 @@ export default class DeviceBiometricsController {
       const result = await service.replicate({
         employeeId: employee.employeeId,
         businessUnitId: employee.businessUnitId as number,
-        sourceAccessPointId: source.accessPointId,
+        sourceAccessPointId: source?.accessPointId ?? null,
         targetAccessPointIds,
         modalities: payload.modalities ?? [],
         actor: {

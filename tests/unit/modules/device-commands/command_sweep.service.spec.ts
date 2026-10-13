@@ -18,8 +18,16 @@ function commandOf(overrides: Partial<DeviceCommand> = {}): DeviceCommand {
     businessUnitId: 1,
     deviceCommandKind: DEVICE_COMMAND_KIND.CHECK,
     deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT,
+    deviceCommandAttempts: 0,
+    deviceCommandMaxAttempts: 3,
+    deviceCommandSentAt: NOW.minus({ minutes: 5 }),
     ...overrides,
   } as DeviceCommand
+}
+
+/** Un comando que ya agoto sus intentos: el siguiente vencimiento lo falla. */
+function exhausted(overrides: Partial<DeviceCommand> = {}): DeviceCommand {
+  return commandOf({ deviceCommandAttempts: 2, deviceCommandMaxAttempts: 3, ...overrides })
 }
 
 function makeService(
@@ -47,6 +55,30 @@ function makeService(
       command.deviceCommandLastError = input.error
       saved.push(command)
       return true
+    },
+    /** Espejo de la politica del adaptador: reencola mientras queden intentos. */
+    async requeueOrFailIfStill(
+      input: Parameters<DeviceCommandRepository['requeueOrFailIfStill']>[0]
+    ) {
+      const command = stuck.find((row) => row.deviceCommandId === input.commandId)
+      if (!command) return 'untouched' as const
+      if (statusChangedUnderfoot || command.deviceCommandStatus !== input.expectedStatus) {
+        return 'untouched' as const
+      }
+      const attempts = command.deviceCommandAttempts + 1
+      const max = command.deviceCommandMaxAttempts
+      command.deviceCommandAttempts = attempts
+      if ((max !== null && attempts >= max) || command.deviceCommandKind === 'enroll_fp') {
+        command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
+        command.deviceCommandFailedAt = input.now
+        command.deviceCommandLastError = input.error
+        saved.push(command)
+        return 'failed' as const
+      }
+      command.deviceCommandStatus = DEVICE_COMMAND_STATUS.PENDING
+      command.deviceCommandSentAt = null
+      saved.push(command)
+      return 'requeued' as const
     },
     async save(command: DeviceCommand) {
       saved.push(command)
@@ -88,13 +120,69 @@ function makeService(
 }
 
 test.group('Barrido de comandos colgados', () => {
-  test('un comando en vuelo sin acuse pasa a fallido con su motivo', async ({ assert }) => {
-    const { service, saved } = makeService([commandOf()])
+  /**
+   * VLRH-H1791825638812, reglas 1 a 3. Antes el barrido fallaba la orden al
+   * primer vencimiento y soltaba el vinculo; el reencolado vivia en el despacho
+   * a cinco minutos y nunca llegaba a correr. Una sola politica, aqui.
+   */
+  test('un comando en vuelo sin acuse vuelve a la cola con un intento mas', async ({
+    assert,
+  }) => {
+    const { service, saved, released } = makeService([
+      commandOf({
+        deviceCommandKind: DEVICE_COMMAND_KIND.USER_UPSERT,
+        accessPointEmployeeId: 5,
+      }),
+    ])
+    const result = await service.run()
+
+    assert.equal(result.requeued, 1)
+    assert.equal(result.timedOut, 0)
+    assert.equal(saved[0].deviceCommandStatus, 'pending')
+    assert.equal(saved[0].deviceCommandAttempts, 1)
+    assert.isNull(saved[0].deviceCommandSentAt)
+    // Mientras se reintenta, el vinculo sigue su camino: no se suelta.
+    assert.lengthOf(released, 0)
+  })
+
+  test('al agotar los intentos pasa a fallido con su motivo', async ({ assert }) => {
+    const { service, saved } = makeService([exhausted()])
     const result = await service.run()
     assert.equal(result.timedOut, 1)
+    assert.equal(result.requeued, 0)
     assert.equal(saved[0].deviceCommandStatus, 'failed')
+    assert.equal(saved[0].deviceCommandAttempts, 3)
     assert.equal(saved[0].deviceCommandLastError, 'inflight_timeout')
     assert.equal(saved[0].deviceCommandFailedAt, NOW)
+  })
+
+  /** `null` en el tope es "insiste siempre": dejar a un ex-colaborador dentro es un riesgo. */
+  test('la baja de usuario vuelve a la cola por muchos intentos que lleve', async ({ assert }) => {
+    const { service, saved, released } = makeService([
+      commandOf({
+        deviceCommandKind: DEVICE_COMMAND_KIND.USER_DELETE,
+        accessPointEmployeeId: 5,
+        deviceCommandAttempts: 40,
+        deviceCommandMaxAttempts: null,
+      }),
+    ])
+    const result = await service.run()
+
+    assert.equal(result.requeued, 1)
+    assert.equal(saved[0].deviceCommandStatus, 'pending')
+    assert.equal(saved[0].deviceCommandAttempts, 41)
+    assert.lengthOf(released, 0)
+  })
+
+  /** Reabrir la captura sin la persona enfrente no sirve: se falla a la primera. */
+  test('el enrolamiento presencial vencido no se reintenta solo', async ({ assert }) => {
+    const { service, saved } = makeService([
+      commandOf({ deviceCommandKind: DEVICE_COMMAND_KIND.ENROLL_FP }),
+    ])
+    const result = await service.run()
+    assert.equal(result.timedOut, 1)
+    assert.equal(result.requeued, 0)
+    assert.equal(saved[0].deviceCommandStatus, 'failed')
   })
 
   /**
@@ -104,9 +192,9 @@ test.group('Barrido de comandos colgados', () => {
    * forma de revocar, reenviar ni retirar. La persona quedaba dentro del
    * checador sin una sola via para sacarla.
    */
-  test('el alta en vuelo que nadie acusa suelta tambien el vinculo', async ({ assert }) => {
+  test('el alta que agota sus intentos suelta tambien el vinculo', async ({ assert }) => {
     const { service, released } = makeService([
-      commandOf({
+      exhausted({
         deviceCommandKind: DEVICE_COMMAND_KIND.USER_UPSERT,
         accessPointEmployeeId: 5,
       }),
@@ -117,11 +205,15 @@ test.group('Barrido de comandos colgados', () => {
     assert.deepEqual(released, [{ pivotId: 5, status: 'failed' }])
   })
 
-  test('si lo que se perdio era la baja, el vinculo queda en revoke_failed', async ({ assert }) => {
+  test('si lo que se perdio era la baja y ya no hay intentos, el vinculo queda en revoke_failed', async ({
+    assert,
+  }) => {
     const { service, released } = makeService([
-      commandOf({
+      exhausted({
         deviceCommandKind: DEVICE_COMMAND_KIND.USER_DELETE,
         accessPointEmployeeId: 5,
+        // Una baja con tope explicito: la de produccion no lo tiene.
+        deviceCommandMaxAttempts: 3,
       }),
     ])
 
@@ -131,20 +223,18 @@ test.group('Barrido de comandos colgados', () => {
   })
 
   test('un comando suelto no le cambia el estado a nadie', async ({ assert }) => {
-    const { service, released } = makeService([commandOf()])
+    const { service, released } = makeService([exhausted()])
     await service.run()
     assert.lengthOf(released, 0)
   })
 
-  test('si el acuse llego entre la lectura y la escritura, no se marca fallido', async ({
-    assert,
-  }) => {
-    // El barrido lee una tanda y la procesa en fila. Poner "fallo" sobre una
-    // orden que el equipo si ejecuto hace que el operador la reintente y el
-    // aparato la repita.
+  test('si el acuse llego entre la lectura y la escritura, no se toca', async ({ assert }) => {
+    // El barrido lee una tanda y la procesa en fila. Mover una orden que el
+    // equipo si ejecuto hace que el operador la reintente y el aparato la repita.
     const { service, saved } = makeService([commandOf()], true)
     const result = await service.run()
     assert.equal(result.timedOut, 0)
+    assert.equal(result.requeued, 0)
     assert.lengthOf(saved, 0)
   })
 
@@ -203,6 +293,7 @@ test.group('Barrido de comandos colgados', () => {
     const result = await service.run()
     assert.deepEqual(result, {
       taken: 0,
+      requeued: 0,
       timedOut: 0,
       withoutEvidence: 0,
       rosterRequested: 0,

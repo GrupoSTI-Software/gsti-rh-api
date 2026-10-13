@@ -31,3 +31,25 @@ export function canTransition(from: DeviceCommandStatus, to: DeviceCommandStatus
 export function allowedTransitions(from: DeviceCommandStatus): readonly DeviceCommandStatus[] {
   return TRANSITIONS[from]
 }
+
+/**
+ * Un `pending` que ya viajo: el barrido lo devolvio a la cola con un intento
+ * mas y el despacho todavia no lo reenvia. Su acuse puede llegar en ese hueco
+ * --el equipo se apago con la orden dentro y la acusa al volver-- y se aplica
+ * como si siguiera en vuelo. Un `pending` con cero intentos nunca salio: su
+ * acuse sigue siendo `stale`.
+ *
+ * No se agrega `pending -> acked` a la maquina: la transicion vale solo con
+ * esta prueba de que la orden viajo, no para cualquier pendiente.
+ */
+export function wasDispatchedBefore(command: {
+  deviceCommandStatus: DeviceCommandStatus
+  deviceCommandAttempts: number
+  deviceCommandSentAt: unknown
+}): boolean {
+  return (
+    command.deviceCommandStatus === DEVICE_COMMAND_STATUS.PENDING &&
+    command.deviceCommandAttempts > 0 &&
+    command.deviceCommandSentAt === null
+  )
+}

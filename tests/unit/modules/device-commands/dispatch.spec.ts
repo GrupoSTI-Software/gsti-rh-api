@@ -47,8 +47,8 @@ interface Options {
 function makeRepository(options: Options = {}) {
   const saved: DeviceCommand[] = []
   const excludedSeen: string[][] = []
-  /** Cuantas veces se intento rescatar lo que salio sin acuse. */
-  let requeueCalls = 0
+  /** Lo que el despacho le pidio guardar al marcar enviado, con su linea base. */
+  const sentWith: Array<{ commandId: number; countersSnapshot?: unknown }> = []
   const repository: DeviceCommandRepository = {
     async enqueueIdempotent() {
       return { command: commandOf(), created: true }
@@ -72,9 +72,8 @@ function makeRepository(options: Options = {}) {
     async hasInFlight() {
       return options.inFlight === true
     },
-    async requeueStaleInFlight() {
-      requeueCalls += 1
-      return { requeued: 0, failed: 0 }
+    async requeueOrFailIfStill() {
+      return 'untouched' as const
     },
     async listByDevice() {
       return []
@@ -95,6 +94,7 @@ function makeRepository(options: Options = {}) {
       return []
     },
     async markSent(input) {
+      sentWith.push({ commandId: input.commandId, countersSnapshot: input.countersSnapshot })
       const command = options.pending
       if (options.lostRace === true || !command) return false
       if (command.deviceCommandId !== input.commandId) return false
@@ -114,12 +114,29 @@ function makeRepository(options: Options = {}) {
       saved.push(command)
       return true
     },
+    async countFacesBelievedInside() {
+      return 0
+    },
+    async countFingerprintsBelievedInside() {
+      return 0
+    },
     async save(command) {
       saved.push(command)
     },
   }
-  return { repository, saved, excludedSeen, requeueCount: () => requeueCalls }
+  return { repository, saved, excludedSeen, sentWith }
 }
+
+/** Equipo que ya declaro sus contadores en `options`. */
+const PROFILE_WITH_COUNTS = {
+  async findByAccessPoint() {
+    return {
+      accessPointProfileUserCount: 5,
+      accessPointProfileFpCount: 10,
+      accessPointProfileFaceCount: 2,
+    }
+  },
+} as unknown as DeviceProfileRepository
 
 test.group('Despacho de comandos', () => {
   test('entrega el pendiente con el identificador de cable y lo marca enviado', async ({
@@ -136,18 +153,46 @@ test.group('Despacho de comandos', () => {
   })
 
   /**
-   * El caso real del 2026-09-11: una peticion de prueba se llevo un comando y
-   * nunca lo acuso. Como solo se despacha uno a la vez, la cola de ese equipo
-   * quedo taponada casi dos horas -- el checador sondeando, el servidor
-   * contestando OK, y ninguna alta saliendo.
+   * La linea base de contadores se toma al despachar, no al acusar: el
+   * SpeedFace sube `options` dos segundos antes de acusar, y una foto tomada
+   * al acusar ya traia la huella nueva dentro, asi que el alza que debia
+   * acreditarla no existia (medido el 2026-10-12).
    */
-  test('antes de mirar la cola rescata lo que salio y nadie acuso', async ({ assert }) => {
-    const { repository, requeueCount } = makeRepository({ pending: commandOf() })
-    const service = new CommandDispatchService(repository)
+  test('un comando con biometrico sale con la linea base de contadores del equipo', async ({
+    assert,
+  }) => {
+    const pending = commandOf({
+      deviceCommandKind: DEVICE_COMMAND_KIND.BIODATA_WRITE,
+      deviceCommandPayload: 'DATA UPDATE FINGERTMP PIN=1',
+    })
+    const { repository, sentWith } = makeRepository({ pending })
+    const service = new CommandDispatchService(repository, undefined, undefined, PROFILE_WITH_COUNTS)
 
     await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
 
-    assert.equal(requeueCount(), 1, 'sin esto, un acuse perdido deja al equipo mudo para siempre')
+    assert.deepEqual(sentWith[0].countersSnapshot, { userCount: 5, fpCount: 10, faceCount: 2 })
+  })
+
+  test('un comando sin biometrico no carga linea base', async ({ assert }) => {
+    const { repository, sentWith } = makeRepository({ pending: commandOf() })
+    const service = new CommandDispatchService(repository, undefined, undefined, PROFILE_WITH_COUNTS)
+
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
+
+    assert.isUndefined(sentWith[0].countersSnapshot)
+  })
+
+  test('sin perfil del equipo la linea base queda en null, y lo dice', async ({ assert }) => {
+    const pending = commandOf({
+      deviceCommandKind: DEVICE_COMMAND_KIND.ENROLL_FP,
+      deviceCommandPayload: 'ENROLL_FP PIN=1\tFID=3',
+    })
+    const { repository, sentWith } = makeRepository({ pending })
+    const service = new CommandDispatchService(repository, undefined, undefined, NO_PROFILE)
+
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
+
+    assert.isNull(sentWith[0].countersSnapshot)
   })
 
   test('con uno en vuelo no entrega otro: el equipo perderia el primero', async ({ assert }) => {

@@ -15,6 +15,12 @@ import type { HeldPunchRepository } from '#modules/adms/ingestion/held_punch.rep
 import type IncidentService from '#modules/adms/raw/incident.service'
 import type { IncidentInput, IncidentOutcome } from '#modules/adms/raw/incident.service'
 import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resolver.service'
+import type ExecutionEvidenceService from '#modules/device-commands/evidence/execution_evidence.service'
+import type ReplicationService from '#modules/biometric-vault/replication/replication.service'
+import type { ReplicationInput } from '#modules/biometric-vault/replication/replication.service'
+import type RosterReconciliationService from '#modules/access-point/employee-sync/roster_reconciliation.service'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
+import type AccessPointEmployee from '#models/access_point_employee'
 
 const NOW = DateTime.fromISO('2026-08-13T17:05:30Z')
 
@@ -51,22 +57,65 @@ const EMPLOYEE: PinResolution = {
   pinInferred: false,
 }
 
-function makeService(
-  resolution: PinResolution = EMPLOYEE,
-  options: { storeFails?: string } = {}
-) {
+interface Options {
+  storeFails?: string
+  /** Quien pidio la captura; `null` es una huella enrolada a mano en el aparato. */
+  requestedByUserId?: number | null
+  /** Vinculos vivos del colaborador: de aqui salen los equipos destino. */
+  pivots?: Array<{ accessPointId: number; status?: string }>
+  /** El blob ya estaba en la boveda: no es un template nuevo. */
+  alreadyStored?: boolean
+}
+
+function makeService(resolution: PinResolution = EMPLOYEE, options: Options = {}) {
   const stored: StoreTemplateInput[] = []
   const heldBio: HeldBiometricInput[] = []
   const unmapped: string[] = []
   const incidents: IncidentInput[] = []
+  const replicated: ReplicationInput[] = []
 
   const templates = {
     async store(input: StoreTemplateInput) {
       if (options.storeFails) return { ok: false as const, reason: options.storeFails }
       stored.push(input)
-      return { ok: true as const, templateId: stored.length, created: true }
+      return {
+        ok: true as const,
+        templateId: stored.length,
+        created: options.alreadyStored !== true,
+      }
     },
   } as unknown as TemplateService
+
+  const evidence = {
+    async fromBiometricUpload() {
+      return { closed: 1, requestedByUserId: options.requestedByUserId ?? null }
+    },
+  } as unknown as ExecutionEvidenceService
+
+  const replication = {
+    async replicate(input: ReplicationInput) {
+      replicated.push(input)
+      return { sourceAccessPointId: input.sourceAccessPointId, targets: [] }
+    },
+  } as unknown as ReplicationService
+
+  const roster = {
+    async reconcile() {
+      return { confirmed: 0, revoked: 0, revokeFailed: 0 }
+    },
+  } as unknown as RosterReconciliationService
+
+  const pivots = {
+    async listLiveByEmployee() {
+      return (options.pivots ?? []).map(
+        (pivot) =>
+          ({
+            accessPointId: pivot.accessPointId,
+            accessPointEmployeeSyncStatus: pivot.status ?? 'confirmed',
+          }) as AccessPointEmployee
+      )
+    },
+  } as unknown as EmployeeSyncRepository
 
   const pins = {
     async resolve() {
@@ -88,9 +137,11 @@ function makeService(
     },
   } as unknown as HeldPunchRepository
 
+  const recordOptions: Array<Record<string, unknown>> = []
   const incidentService = {
-    async record(input: IncidentInput): Promise<IncidentOutcome> {
+    async record(input: IncidentInput, opts?: Record<string, unknown>): Promise<IncidentOutcome> {
       incidents.push(input)
+      recordOptions.push(opts ?? {})
       return 'created'
     },
   } as unknown as IncidentService
@@ -100,9 +151,13 @@ function makeService(
     pins,
     heldBiometrics,
     heldPunches,
-    incidentService
+    incidentService,
+    evidence,
+    replication,
+    roster,
+    pivots
   )
-  return { service, stored, heldBio, unmapped, incidents }
+  return { service, stored, heldBio, unmapped, incidents, recordOptions, replicated }
 }
 
 test.group('Subida de biometricos: BIODATA', () => {
@@ -181,6 +236,87 @@ test.group('Subida de biometricos: BIODATA', () => {
     assert.equal(result.unparsed, 1)
     assert.equal(result.stored, 1)
     assert.lengthOf(stored, 1)
+  })
+})
+
+/**
+ * VLRH-H1791825638185, reglas 1 y 2: la huella que entra viaja sola. Antes
+ * cada huella nueva volvia a repartir todos los dedos y la foto a cada equipo.
+ */
+test.group('Subida de biometricos: reparto a los demas equipos', () => {
+  test('la huella nueva se reparte sola, al resto de los equipos vivos', async ({ assert }) => {
+    const { service, replicated } = makeService(EMPLOYEE, {
+      requestedByUserId: 9,
+      pivots: [
+        { accessPointId: 12 },
+        { accessPointId: 33 },
+        { accessPointId: 34, status: 'revoked' },
+        { accessPointId: 35, status: 'pending' },
+      ],
+    })
+    await service.ingestBiodata(contextOf())
+
+    assert.lengthOf(replicated, 1)
+    assert.deepEqual(replicated[0].only, { bioType: 1, bioNo: 7 })
+    assert.deepEqual(replicated[0].targetAccessPointIds, [33, 35])
+    assert.equal(replicated[0].sourceAccessPointId, 12)
+    assert.equal(replicated[0].actor.userId, 9)
+    assert.equal(replicated[0].actor.ip, '192.168.1.99')
+    assert.isFalse(replicated[0].dryRun)
+  })
+
+  /**
+   * Una huella enrolada en el teclado del aparato no tiene quien responda por
+   * la lectura, asi que no se copia. Pero callarlo dejaba al operador sin saber
+   * que esa huella vive en un solo equipo: queda un aviso en el que la capturo.
+   */
+  test('sin quien responda por la lectura, no se reparte pero se avisa', async ({ assert }) => {
+    const { service, replicated, incidents, recordOptions } = makeService(EMPLOYEE, {
+      requestedByUserId: null,
+      pivots: [{ accessPointId: 33 }],
+    })
+    await service.ingestBiodata(contextOf())
+    assert.lengthOf(replicated, 0)
+
+    assert.lengthOf(incidents, 1)
+    assert.equal(incidents[0].kind, 'fingerprint_not_spread')
+    // Un aviso por persona y dedo: otra persona en la misma hora no se deduplica.
+    assert.deepEqual(recordOptions[0].dedupeBy, ['pin', 'bioNo'])
+    assert.equal(incidents[0].severity, 'info')
+    assert.equal(incidents[0].key, 'huella-sin-repartir')
+    assert.equal(incidents[0].accessPointId, 12)
+    assert.equal(incidents[0].context?.pin, '9995')
+    assert.equal(incidents[0].context?.bioNo, 7)
+  })
+
+  test('sin otro equipo al que repartir, tampoco hay aviso', async ({ assert }) => {
+    const { service, incidents } = makeService(EMPLOYEE, {
+      requestedByUserId: null,
+      pivots: [{ accessPointId: 12 }],
+    })
+    await service.ingestBiodata(contextOf())
+    assert.lengthOf(incidents, 0)
+  })
+
+  test('un blob que ya estaba guardado no vuelve a repartirse', async ({ assert }) => {
+    const { service, replicated } = makeService(EMPLOYEE, {
+      requestedByUserId: 9,
+      pivots: [{ accessPointId: 33 }],
+      alreadyStored: true,
+    })
+    await service.ingestBiodata(contextOf())
+    assert.lengthOf(replicated, 0)
+  })
+
+  test('sin otro equipo donde la persona este dada de alta, no hay reparto', async ({
+    assert,
+  }) => {
+    const { service, replicated } = makeService(EMPLOYEE, {
+      requestedByUserId: 9,
+      pivots: [{ accessPointId: 12 }],
+    })
+    await service.ingestBiodata(contextOf())
+    assert.lengthOf(replicated, 0)
   })
 })
 

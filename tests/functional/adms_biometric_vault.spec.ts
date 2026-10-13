@@ -136,7 +136,8 @@ test.group('ADMS boveda de biometricos (rebanada 6)', (group) => {
         BiometricTemplate.query()
           .where('employee_id', employee.employeeId)
           .where('biometric_template_bio_type', 1)
-          .where('biometric_template_bio_no', 7),
+          .where('biometric_template_bio_no', 7)
+          .exec(),
       'conteo de templates'
     )
     assert.lengthOf(rows, 1)
@@ -154,7 +155,8 @@ test.group('ADMS boveda de biometricos (rebanada 6)', (group) => {
         BiometricTemplate.query()
           .where('employee_id', employee.employeeId)
           .where('biometric_template_bio_type', 1)
-          .where('biometric_template_bio_no', 7),
+          .where('biometric_template_bio_no', 7)
+          .exec(),
       'conteo por version'
     )
     assert.lengthOf(rows, 2)

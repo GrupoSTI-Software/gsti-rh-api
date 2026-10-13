@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import logger from '@adonisjs/core/services/logger'
 import AccessPointEmployee from '#models/access_point_employee'
 import AdmsHeldBiometric from '#models/adms_held_biometric'
 import AdmsHeldPunch from '#models/adms_held_punch'
@@ -166,7 +167,7 @@ export default class UnmappedPinsService {
     now?: DateTime
   }): Promise<LinkResult> {
     const now = input.now ?? DateTime.utc()
-    const row = await this.requireRow(input.unmappedPinId, input.businessUnitIds)
+    const row = await this.requirePendingRow(input.unmappedPinId, input.businessUnitIds)
 
     const employee = await Employee.query()
       .where('employee_id', input.employeeId)
@@ -218,6 +219,8 @@ export default class UnmappedPinsService {
     const movedBiometrics = await this.moveHeldBiometrics(row, employee, now)
 
     row.admsUnmappedPinStatus = 'linked'
+    /** A quien se vinculo queda en la fila: sin esto habia que deducirlo por el pivote. */
+    row.linkedEmployeeId = employee.employeeId
     /** El nombre que dijo el aparato deja de hacer falta y no se conserva. */
     row.admsUnmappedPinName = null
     row.admsUnmappedPinResolvedByUserId = input.userId
@@ -243,7 +246,7 @@ export default class UnmappedPinsService {
     userId: number | null
     now?: DateTime
   }): Promise<AdmsUnmappedPin> {
-    const row = await this.requireRow(input.unmappedPinId, input.businessUnitIds)
+    const row = await this.requirePendingRow(input.unmappedPinId, input.businessUnitIds)
     row.admsUnmappedPinStatus = 'dismissed'
     row.admsUnmappedPinDismissReason = input.reason.slice(0, 200)
     row.admsUnmappedPinName = null
@@ -274,7 +277,7 @@ export default class UnmappedPinsService {
       .where('access_point_id', row.accessPointId)
       .first()
 
-    await this.assists.ingest(
+    const { results } = await this.assists.ingest(
       held.map((punch) => ({
         subject: { kind: 'employeeId' as const, employeeId: employee.employeeId },
         assistType: null,
@@ -290,12 +293,29 @@ export default class UnmappedPinsService {
       { deferCalendarRecalc: true }
     )
 
-    for (const punch of held) {
+    /**
+     * Solo cuenta lo que el motor acepto, y cada checada retenida queda
+     * enlazada a la checada que la acredito. Una rechazada (colaborador dado
+     * de baja en medio, duplicada) se queda retenida: marcarla acreditada
+     * sin checada detras era decir que se pago algo que no existe.
+     */
+    let attributed = 0
+    for (const [index, punch] of held.entries()) {
+      const result = results[index]
+      if (!result || result.outcome === 'rejected' || result.assist === null) {
+        logger.warn(
+          { heldPunchId: punch.admsHeldPunchId, error: result?.error ?? null },
+          'PIN sin dueno: una checada retenida no se pudo acreditar y sigue retenida'
+        )
+        continue
+      }
       punch.admsHeldPunchStatus = 'attributed'
       punch.admsHeldPunchAttributedAt = now
+      punch.assistId = result.assist.assistId
       await punch.save()
+      attributed += 1
     }
-    return held.length
+    return attributed
   }
 
   /** Y los biometricos retenidos pasan a la boveda, ya con dueño. */
@@ -311,7 +331,12 @@ export default class UnmappedPinsService {
     let moved = 0
     for (const biometric of held) {
       const template = biometric.admsHeldBiometricTemplate
-      if (template === null) continue
+      if (template === null) {
+        /** Un blob que no descifra no va a servir nunca: se descarta en vez de quedar retenido para siempre. */
+        biometric.admsHeldBiometricStatus = 'discarded'
+        await biometric.save()
+        continue
+      }
       const result = await this.templates.store({
         employeeId: employee.employeeId,
         businessUnitId: row.businessUnitId,
@@ -333,6 +358,25 @@ export default class UnmappedPinsService {
       }
     }
     return moved
+  }
+
+  /**
+   * Vincular y descartar solo aplican a un PIN todavia pendiente: volver a
+   * vincular uno ya resuelto le colgaria un segundo pivote a otra persona.
+   */
+  private async requirePendingRow(
+    unmappedPinId: number,
+    businessUnitIds: number[]
+  ): Promise<AdmsUnmappedPin> {
+    const row = await this.requireRow(unmappedPinId, businessUnitIds)
+    if (row.admsUnmappedPinStatus === 'pending') return row
+    throw new AdmsError(
+      'Ese numero pendiente ya se resolvio',
+      ADMS_ERROR_CODES.PIN_PENDING_RESOLVED,
+      409,
+      'pin-pendiente-resuelto',
+      'Ese numero ya fue vinculado o descartado; no se puede resolver dos veces.'
+    )
   }
 
   private async requireRow(

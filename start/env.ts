@@ -295,6 +295,7 @@ export default await Env.create(new URL('../', import.meta.url), {
   ADMS_COMMAND_RETENTION_DAYS: Env.schema.number.optional(),
   ADMS_PHOTO_PUBLICATION_RETENTION_DAYS: Env.schema.number.optional(),
   ADMS_QUARANTINE_RETENTION_DAYS: Env.schema.number.optional(),
+  ADMS_INCIDENT_ORPHAN_RETENTION_DAYS: Env.schema.number.optional(),
 
   /*
   |----------------------------------------------------------

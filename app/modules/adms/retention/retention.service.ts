@@ -8,6 +8,7 @@ import { PHOTO_PUBLICATION_STATUS } from '#models/biometric_photo_publication'
 import {
   ADMS_PURGE_BATCH_SIZE,
   admsCommandRetentionDays,
+  admsIncidentOrphanRetentionDays,
   admsPhotoPublicationRetentionDays,
   admsQuarantineRetentionDays,
   admsRawFailedRetentionDays,
@@ -161,6 +162,35 @@ export default class RetentionService {
         'adms_quarantined_device_id',
         ids
       )
+    }, TENANT_UNSCOPED_REASON.ADMS_RETENTION)
+  }
+
+  /**
+   * Avisos que perdieron su equipo.
+   *
+   * Pasa al borrar un punto de acceso: la llave foranea deja el aviso con el
+   * equipo en nulo, pero conserva la empresa (ese FK es RESTRICT). Se van por
+   * plazo, nunca por tipo: el filtro es "sin equipo, con empresa" y la fecha.
+   *
+   * Los avisos globales --sondeos de series y de direcciones del canal-- nacen
+   * sin equipo NI empresa a proposito y no entran aqui: son el rastro de quien
+   * prueba el canal, y borrarlos por un filtro pensado para huerfanos era tirar
+   * evidencia de seguridad (pre-revision de VLRH-H1791836612205, B1).
+   */
+  async purgeOrphanIncidents(now: DateTime = DateTime.utc()): Promise<PurgeResult> {
+    const cutoff = now.minus({ days: admsIncidentOrphanRetentionDays() })
+
+    return TenantContext.runUnscoped(async () => {
+      const ids = await db
+        .from('adms_incidents')
+        .whereNull('access_point_id')
+        .whereNotNull('business_unit_id')
+        .where('adms_incident_created_at', '<', format(cutoff))
+        .orderBy('adms_incident_id', 'asc')
+        .limit(ADMS_PURGE_BATCH_SIZE)
+        .select('adms_incident_id')
+
+      return this.deleteByIds('adms_incidents', 'adms_incident_id', ids)
     }, TENANT_UNSCOPED_REASON.ADMS_RETENTION)
   }
 

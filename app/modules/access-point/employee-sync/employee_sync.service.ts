@@ -9,6 +9,8 @@ import { ACCESS_POINT_EMPLOYEE_EVENT_KIND } from '#models/access_point_employee_
 import DeviceCommandService from '#modules/device-commands/device_command.service'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
+import logger from '@adonisjs/core/services/logger'
+import PhotoPublicationService from '#modules/biometric-vault/photo/photo_publication.service'
 import EmployeeSyncRepositoryMysql from './employee_sync.repository.mysql.js'
 import { assertTransition, REVOKING_STATUSES } from './employee_sync_state.js'
 import type { EmployeeSyncRepository } from './employee_sync.repository.js'
@@ -53,7 +55,8 @@ export interface SetPinInput {
 export default class EmployeeSyncService {
   constructor(
     private readonly repository: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
-    private readonly commands: DeviceCommandPort = new DeviceCommandService()
+    private readonly commands: DeviceCommandPort = new DeviceCommandService(),
+    private readonly publications: PhotoPublicationService = new PhotoPublicationService()
   ) {}
 
   /**
@@ -392,6 +395,22 @@ export default class EmployeeSyncService {
           error: error instanceof Error ? error.message.slice(0, 200) : String(error),
         })
       }
+    }
+
+    /**
+     * Los permisos de descarga de su foto se retiran con la baja: cada uno es
+     * un enlace vivo a la cara de alguien que ya no esta. Las ordenes de foto
+     * las cancela cada `revoke`; los permisos ya publicados no los tocaba
+     * nadie y seguian validos hasta vencer. En su propio try/catch: una
+     * publicacion que no se pudo retirar no detiene una baja.
+     */
+    try {
+      await this.publications.withdrawForEmployee(employeeId, DateTime.utc())
+    } catch (error) {
+      logger.warn(
+        { employeeId, error: error instanceof Error ? error.message.slice(0, 200) : String(error) },
+        'EmployeeSyncService.revokeAll: no se pudieron retirar las publicaciones de foto'
+      )
     }
 
     return results
