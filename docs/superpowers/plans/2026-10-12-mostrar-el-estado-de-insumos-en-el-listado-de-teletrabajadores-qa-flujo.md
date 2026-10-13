@@ -34,8 +34,8 @@ Qué deja listo para esta prueba:
 
 - **QA Fundadora**: la empresa donde se hace todo el recorrido, con los tres módulos disponibles.
 - Los **tipos de activo** con su categoría de la norma: **Silla QA Listado** (categoría *Silla ergonómica*) y **Computo QA Listado** (categoría *Equipo de cómputo o impresión*).
-- Los **seis colaboradores** de la tabla de abajo: cinco se ven en el listado de **QA Fundadora** (códigos **971** a **975** de la columna **Código**) y el sexto (**976**) solo cuando la empresa activa es **QA Listado Empresa**, en el Escenario 4.7.
-- La **empresa ajena** **QA Listado Empresa**, con su propio teletrabajador (código **976**) y la membresía de la cuenta A en esa empresa, para el Escenario 4.7.
+- Los **seis colaboradores** de la tabla de abajo: cinco se ven en el listado de **QA Fundadora** (códigos **971** a **975** de la columna **Código**) y el sexto (**976**) pertenece a la empresa ajena, donde el recorrido no llega (apartado 7).
+- La **empresa ajena** **QA Listado Empresa**, con su propio teletrabajador (código **976**) y la membresía de la cuenta A en esa empresa; el aislamiento entre empresas no se recorre a mano (apartado 7).
 - Las **tres cuentas** de la §2.
 
 **Señal para reconocer lo nuestro:** los colaboradores de esta prueba son los de la tabla de abajo; en el listado de **QA Fundadora** los reconoces por sus códigos en la columna **Código** (**971** a **975**), y sus activos llevan folio `QA-LST-ACT-…` con tipos de activo que terminan en **QA Listado**. La misma pantalla trae colaboradores de otras pruebas (**901**, **951**, **953**, **954**, **955**, **956**, **957** y **958**): esos no se tocan y sus chips no se marcan aquí. El único ajeno que sí se mira en este manual es **Ulises Pardo Gil** (Híbrido al 20%), que **no** aparece en el listado por no llegar al 40%.
@@ -49,11 +49,11 @@ Estado de cada colaborador (lo que deja el sembrador):
 | `973` | Marta Espino Gil | Home Office, 100% | Silla `QA-LST-ACT-SIL-03` entregada con resguardo firmado + laptop `QA-LST-ACT-LAP-02` en envío | 4.3 y 4.6 |
 | `974` | Pedro Nava Rios | Home Office, 100% | Silla `QA-LST-ACT-SIL-04` entregada **sin** resguardo firmado + laptop `QA-LST-ACT-LAP-03` entregada con resguardo firmado | 4.4 |
 | `975` | Sofia Ortega Luna | Híbrido, 40% | Ninguno | 4.5 |
-| `976` | Bruno Ajeno Rios | Home Office, 100% (empresa **QA Listado Empresa**) | Ninguno | 4.7 |
+| `976` | Bruno Ajeno Rios | Home Office, 100% (empresa **QA Listado Empresa**) | Ninguno | — no se recorre (apartado 7) |
 
 Los códigos de arriba son los que muestra la columna **Código** del listado de teletrabajadores. La ficha del colaborador, a la que se entra desde **Empleados**, muestra el otro código del sembrador (`QA-LST-01`, `QA-LST-02`, …): es el mismo colaborador.
 
-Orden del recorrido: los escenarios se recorren **en orden**. El listado es de solo consulta, así que recorrerlo no cambia nada; el único que mueve la sesión es el **Escenario 4.7**, que cambia la empresa activa y hay que devolverla a **QA Fundadora** al terminar.
+Orden del recorrido: los escenarios se recorren **en orden**. El listado es de solo consulta, así que recorrerlo no cambia nada y no hay que devolver ningún estado al terminar.
 
 ### Cómo se reporta y dónde van los hallazgos
 
@@ -65,7 +65,7 @@ Las tres cuentas entran por el backoffice con el mismo flujo: en `http://127.0.0
 
 | | Correo | Contraseña | Login | Permisos (variante) | Para qué se usa |
 |---|---|---|---|---|---|
-| **A** | `qa-employee-assets-full@gsti-tests.local` | `password` | Backoffice | lectura de **Empleados** y de **Activos e insumos** (ve la columna y el enlace) | Escenarios 4.1 a 4.7 y 6 |
+| **A** | `qa-employee-assets-full@gsti-tests.local` | `password` | Backoffice | lectura de **Empleados** y de **Activos e insumos** (ve la columna y el enlace) | Escenarios 4.1 a 4.6 y 6 |
 | **B** | `qa-supplies-read@gsti-tests.local` | `password` | Backoffice | lectura de **Activos e insumos**, **sin** lectura de **Empleados** (ve la columna, no el enlace) | Escenario 5.1 |
 | **C** | `qa-roles-none@gsti-tests.local` | `password` | Backoffice | **sin** lectura de **Activos e insumos** ni de **Empleados** (no ve la columna) | Escenario 5.2 |
 
@@ -186,21 +186,6 @@ Objetivo: comprobar que el nombre del colaborador es un enlace que lleva a la se
 - **Sin entregar**: no se le ha entregado; solo aplica al **Aditamento**, que la norma no exige.
 - **Resguardo firmado**: la persona ya subió el vale con el que responde por el activo.
 
-### 4.7 Aislamiento entre empresas
-
-Objetivo: comprobar que el listado y sus estados corresponden **solo** a la empresa activa y no mezclan colaboradores ni insumos de otra empresa.
-
-1. Con el Usuario A, en **QA Fundadora**, abre **Empresa → Teletrabajadores** y anota los cinco colaboradores de esta prueba (códigos **971** a **975**) y sus chips.
-2. Arriba a la derecha abre **Mi cuenta** (el avatar) y en el campo **Empresa** elige **QA Listado Empresa**.
-3. Vuelve a entrar a **Empresa → Teletrabajadores**.
-4. Al terminar, elige otra vez **QA Fundadora** en el campo **Empresa**.
-
-**Qué debe verse:** con **QA Listado Empresa** activa, el listado trae **solo** colaboradores de esa empresa —el único es **Bruno Ajeno Rios** (código **976**), con el chip **2 sin cubrir**— y **ninguno** de **QA Fundadora** (no aparecen los códigos **971** a **975**). Al volver a **QA Fundadora**, el listado y sus chips vuelven a ser los de esa empresa.
-
-**Qué significa lo nuevo aquí:**
-
-- Que el listado dependa de la **empresa activa**: cada empresa lleva su propio listado. Al cambiar de empresa cambia todo el contenido, y el estado de insumos de una nunca se cuela en la otra.
-
 ## 5. Con los Usuarios B y C (sin algún permiso)
 
 ### 5.1 Sin permiso de Empleados: la columna sí, el enlace no
@@ -252,6 +237,7 @@ Se declara no revisable desde el navegador y queda cubierto por las pruebas auto
 
 - **El chip `Equipo propio declarado`.** La función que declara el equipo propio llega con otra historia, que todavía no está integrada, así que el ambiente sembrado **no produce** ese estado: no hay forma de que ese chip salga en la columna ni en la ficha. Se lista en los Escenarios 4.1 y 4.6 solo para que se sepa qué quiere decir; lo cubren las pruebas automáticas del resumen.
 - **El error del listado** (**No se pudo cargar el listado de teletrabajadores.** con **Reintentar**). Por la política global del backoffice, una petición sin respuesta o un error del servidor llevan a la **página de error de toda la aplicación**, así que desde la pantalla no se provoca un error *solo* del listado; y "detener la API" o "manipular la sesión" no son cosas que una persona de RH pueda hacer desde el navegador. Lo cubren las pruebas del backoffice y del API.
+- **El aislamiento entre empresas.** La comprobación pedía cambiar la empresa activa a **QA Listado Empresa** y ver que el listado trae solo a su colaborador (código **976**). No se puede recorrer: con esta cuenta, cambiar de empresa termina en la página 403 del backoffice por un defecto ajeno a esta historia —registrado como hallazgo **012** en `qa-valanserh/hallazgos.md`—. Queda cubierto por la prueba automática de aislamiento del API (caso CA-9 de `tests/functional/telework_workers_index.spec.ts`).
 - **El idioma inglés del listado.** El backoffice opera **solo en español** y esconde el cambio de idioma: cualquier dirección con otro prefijo de idioma (`/en/…`) se reescribe a español y no hay selector visible. No se inventan pasos para provocarlo; lo cubren los archivos de idioma (es/en) de la pantalla del backoffice.
 
 ## 8. Checklist
@@ -264,7 +250,6 @@ Cada casilla se marca **contra el objetivo de su escenario**, no contra "se hici
 - [ ] 4.4 En Pedro Nava Rios (`974`) la columna trae **Completo** **y** **1 resguardo sin firmar**, ambos chips
 - [ ] 4.5 Sofia Ortega Luna (`975`, Híbrido 40%) aparece en el listado con **% de teletrabajo** `40` y el chip **2 sin cubrir**; el 20% no aparece
 - [ ] 4.6 Pulsar el nombre de Marta Espino Gil (`973`) abre la sección **Activos** de su ficha y sus estados coinciden con el chip **1 en envío** del listado
-- [ ] 4.7 Con **QA Listado Empresa** activa el único colaborador es Bruno Ajeno Rios (`976`), y al volver a **QA Fundadora** reaparecen sus colaboradores
 - [ ] 5.1 Con el Usuario B la columna **Insumos** se ve, pero el nombre no es enlace ni navega
 - [ ] 5.2 Con el Usuario C no hay columna **Insumos** ni enlace, y la respuesta del listado no trae el resumen de insumos
 - [ ] 6 A 360 px y a unos 850 px no hay desplazamiento horizontal y los chips no se salen; a unos 1024 px se ven todas las columnas
