@@ -237,7 +237,7 @@ Se declara no revisable desde el navegador y queda cubierto por las pruebas auto
 
 - **El chip `Equipo propio declarado`.** La función que declara el equipo propio llega con otra historia, que todavía no está integrada, así que el ambiente sembrado **no produce** ese estado: no hay forma de que ese chip salga en la columna ni en la ficha. Se lista en los Escenarios 4.1 y 4.6 solo para que se sepa qué quiere decir; lo cubren las pruebas automáticas del resumen.
 - **El error del listado** (**No se pudo cargar el listado de teletrabajadores.** con **Reintentar**). Por la política global del backoffice, una petición sin respuesta o un error del servidor llevan a la **página de error de toda la aplicación**, así que desde la pantalla no se provoca un error *solo* del listado; y "detener la API" o "manipular la sesión" no son cosas que una persona de RH pueda hacer desde el navegador. Lo cubren las pruebas del backoffice y del API.
-- **El aislamiento entre empresas.** La comprobación pedía cambiar la empresa activa a **QA Listado Empresa** y ver que el listado trae solo a su colaborador (código **976**). No se puede recorrer: con esta cuenta, cambiar de empresa termina en la página 403 del backoffice por un defecto ajeno a esta historia —registrado como hallazgo **012** en `qa-valanserh/hallazgos.md` y explicado en el apartado 9—. Queda cubierto por la prueba automática de aislamiento del API (caso CA-9 de `tests/functional/telework_workers_index.spec.ts`).
+- **El aislamiento entre empresas.** La comprobación pedía cambiar la empresa activa a **QA Listado Empresa** y ver que el listado trae solo a su colaborador (código **976**). No se puede recorrer: con esta cuenta, cambiar de empresa termina en la página 403 del backoffice por un defecto ajeno a esta historia —explicado en el apartado 9—. Queda cubierto por la prueba automática de aislamiento del API (caso CA-9 de `tests/functional/telework_workers_index.spec.ts`).
 - **El idioma inglés del listado.** El backoffice opera **solo en español** y esconde el cambio de idioma: cualquier dirección con otro prefijo de idioma (`/en/…`) se reescribe a español y no hay selector visible. No se inventan pasos para provocarlo; lo cubren los archivos de idioma (es/en) de la pantalla del backoffice.
 
 ## 8. Checklist
@@ -258,14 +258,14 @@ Recorrido completado: cada casilla se marcó **contra el objetivo de su escenari
 
 ## 9. Hallazgos de otras historias
 
-Defectos que **no son de esta historia**, aparecidos en cualquier momento del trabajo: al escribir el plan, al implementar, al redactar este manual, al recorrerlo o cuando quien lo pidió los reporte. No se corrigen en esta rama y quedan registrados en `qa-valanserh/hallazgos.md`.
+Defectos que **no son de esta historia**, aparecidos en cualquier momento del trabajo: al escribir el plan, al implementar, al redactar este manual, al recorrerlo o cuando quien lo pidió los reporte. No se corrigen en esta rama; su registro es este apartado.
 
-### `012` — Cambiar de empresa deja al usuario en un 403
+### Cambiar de empresa deja al usuario en un 403
 
 - **Qué se hizo:** con el Usuario A, en **QA Fundadora**, abrir **Empresa → Teletrabajadores** y en **Mi cuenta → Empresa** elegir **QA Listado Empresa**.
 - **Qué se esperaba:** el listado de la empresa elegida, con sus propios colaboradores.
 - **Qué pasó:** la aplicación recarga y muestra la pantalla **403 — «No tienes permiso para ver esto.»**; el recorrido se detiene ahí y la sesión queda en la empresa nueva. La aplicación pregunta por el permiso de un rol que no es el de esa empresa: `GET /api/roles/has-access/9/telework-workers/read` responde **403**, aunque la cuenta sí tiene esa lectura en la empresa elegida.
-- **Registro formal:** defecto **012** en `qa-valanserh/hallazgos.md` (Alta / Alta, Abierto).
+- **Dónde se vio:** en el listado de teletrabajadores, al cambiar la empresa activa desde **Mi cuenta** (el recorrido no puede continuar desde ahí).
 
 Por este defecto, el aislamiento entre empresas no se recorre a mano: está declarado en el apartado 7 y lo cubre la prueba automática del API.
 
