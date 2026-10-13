@@ -38,7 +38,7 @@ Qué deja listo para esta prueba:
 - La **empresa ajena** **QA Listado Empresa**, con su propio teletrabajador (`QA-LST-B`) y la membresía de la cuenta A en esa empresa, para el Escenario 4.7.
 - Las **tres cuentas** de la §2.
 
-**Señal para reconocer lo nuestro:** los colaboradores de esta prueba tienen código de nómina `QA-LST-…`; los activos de esta prueba tienen folio `QA-LST-ACT-…`; los tipos terminan en `QA Listado`. El listado también trae colaboradores de otras historias (por ejemplo los de código `QA-TEL-…`): son de otra prueba, no se tocan, y sus chips no se marcan aquí.
+**Señal para reconocer lo nuestro:** los colaboradores de esta prueba tienen código de nómina `QA-LST-…`; los activos de esta prueba tienen folio `QA-LST-ACT-…`; los tipos terminan en `QA Listado`. El único colaborador de otro código que sí se mira en este manual es `QA-TEL-02` (Ulises Pardo Gil), que existe justamente para mostrar a alguien por debajo del 40% y **no** debe aparecer en el listado. El listado también trae otros colaboradores de otras historias (los demás de código `QA-TEL-…`): son de otra prueba, no se tocan, y sus chips no se marcan aquí.
 
 Estado de cada colaborador (lo que deja el sembrador):
 
@@ -63,7 +63,7 @@ Las tres cuentas entran por el backoffice con el mismo flujo: en `http://127.0.0
 
 | | Correo | Contraseña | Login | Permisos (variante) | Para qué se usa |
 |---|---|---|---|---|---|
-| **A** | `qa-employee-assets-full@gsti-tests.local` | `password` | Backoffice | lectura de **Empleados** y de **Activos e insumos** (ve la columna y el enlace) | Escenarios 4.1 a 4.7, 5 y 6 |
+| **A** | `qa-employee-assets-full@gsti-tests.local` | `password` | Backoffice | lectura de **Empleados** y de **Activos e insumos** (ve la columna y el enlace) | Escenarios 4.1 a 4.7 y 6 |
 | **B** | `qa-supplies-read@gsti-tests.local` | `password` | Backoffice | lectura de **Activos e insumos**, **sin** lectura de **Empleados** (ve la columna, no el enlace) | Escenario 5.1 |
 | **C** | `qa-roles-none@gsti-tests.local` | `password` | Backoffice | **sin** lectura de **Activos e insumos** ni de **Empleados** (no ve la columna) | Escenario 5.2 |
 
@@ -94,11 +94,11 @@ Entra con el Usuario A (`qa-employee-assets-full@gsti-tests.local`) y elige la e
 Objetivo: comprobar que un teletrabajador con la silla y el equipo de cómputo entregados y sus resguardos firmados aparece en el listado con el chip **Completo**, y que la categoría de **Aditamento** —que sigue sin entregarse— no le suma ningún pendiente.
 
 1. Con el Usuario A, abre **Empresa → Teletrabajadores**.
-2. Busca en el buscador **Buscar** (placeholder **Nombre del empleado o puesto**) a **Ana Lira Soto** (código de nómina `QA-LST-01`).
+2. Busca en el buscador **Buscar** (placeholder **Nombre del empleado o puesto**) a **Ana Lira Soto** (código de nómina `QA-LST-01`; su aditamento sigue **Sin entregar**).
 3. En su fila, mira la columna **Insumos**.
 4. **Negativo a comprobar a propósito:** en su celda **no** aparece ningún chip de **sin cubrir**, **en envío** ni **resguardo sin firmar**.
 
-**Qué debe verse:** la fila de **Ana Lira Soto** trae, en la columna **Insumos**, un único chip **Completo** (verde, de estado positivo). No aparecen los chips **N sin cubrir**, **N en envío** ni **N resguardo(s) sin firmar**. El aditamento, que la empresa no le ha entregado (su ficha lo muestra **Sin entregar**, ver el Escenario 4.6), **no** agrega ningún pendiente.
+**Qué debe verse:** la fila de **Ana Lira Soto** trae, en la columna **Insumos**, un único chip **Completo** (verde, de estado positivo). No aparecen los chips **N sin cubrir**, **N en envío** ni **N resguardo(s) sin firmar**. El aditamento **no** agrega ningún pendiente: la empresa no se lo ha entregado y sigue **Sin entregar**.
 
 **Evidencia:** anota el chip que viste en la fila de `QA-LST-01`; adjunta captura solo si el equipo lo pide.
 
@@ -159,7 +159,7 @@ Objetivo: comprobar que un colaborador híbrido justo en el **40%** —la fronte
 
 1. Con el Usuario A, busca a **Sofia Ortega Luna** (código de nómina `QA-LST-05`, Híbrido al 40%, sin insumos) y mírala en la tabla.
 2. Revisa su **Modalidad**, su **% de teletrabajo** y su columna **Insumos**.
-3. **Negativo a comprobar a propósito:** **Ulises Pardo Gil** (Híbrido al 20%) **no** aparece en el listado, porque no llega al 40%.
+3. **Negativo a comprobar a propósito:** **Ulises Pardo Gil** (código de nómina `QA-TEL-02`, Híbrido al 20%) **no** aparece en el listado, porque no llega al 40%.
 
 **Qué debe verse:** **Sofia Ortega Luna** aparece en la tabla con **Modalidad** *Híbrido*, **% de teletrabajo** `40` y, en **Insumos**, el chip **2 sin cubrir** (no tiene ni silla ni equipo de cómputo entregados; el aditamento no cuenta). **Ulises Pardo Gil** (20%) no está en la lista.
 
@@ -270,8 +270,7 @@ Se declara no revisable desde el navegador y queda cubierto por las pruebas auto
 
 - **El chip `Equipo propio declarado`.** La función que declara el equipo propio llega con otra historia, que todavía no está integrada, así que el ambiente sembrado **no produce** ese estado: no hay forma de que ese chip salga en la columna ni en la ficha. Se lista en los Escenarios 4.1 y 4.6 solo para que se sepa qué quiere decir; lo cubren las pruebas automáticas del resumen.
 - **El error del listado** (**No se pudo cargar el listado de teletrabajadores.** con **Reintentar**). Por la política global del backoffice, una petición sin respuesta o un error del servidor llevan a la **página de error de toda la aplicación**, así que desde la pantalla no se provoca un error *solo* del listado; y "detener la API" o "manipular la sesión" no son cosas que una persona de RH pueda hacer desde el navegador. Lo cubren las pruebas del backoffice y del API.
-- **El idioma inglés del listado.** El backoffice opera **solo en español** y esconde el cambio de idioma: cualquier dirección con otro prefijo de idioma (`/en/…`) se reescribe a español y no hay selector visible. No se inventan pasos para provocarlo; lo cubren los archivos de idioma (es/en) de la pantalla y `npm run lint:i18n` del backoffice, en verde.
-- **El detalle de la respuesta sin permiso.** En pantalla solo se ve la ausencia de la columna y del enlace (Escenario 5.2); que el servidor **no** mande el resumen ni el identificador de la ficha solo se comprueba por HTTP. Lo cubren las pruebas del API.
+- **El idioma inglés del listado.** El backoffice opera **solo en español** y esconde el cambio de idioma: cualquier dirección con otro prefijo de idioma (`/en/…`) se reescribe a español y no hay selector visible. No se inventan pasos para provocarlo; lo cubren los archivos de idioma (es/en) de la pantalla del backoffice.
 
 ## 8. Checklist
 
