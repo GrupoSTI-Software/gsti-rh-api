@@ -9,6 +9,7 @@ import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import DeviceCommand from '#models/device_command'
 import {
+  DEVICE_COMMAND_EVIDENCE,
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
 } from '#modules/device-commands/device_command.constants'
@@ -110,6 +111,13 @@ export default class RosterReconciliationService {
       if (!respondeAlCheck) return result
     }
 
+    /**
+     * El padron ES la respuesta del `CHECK`: lo que se le pidio ya llego. Sin
+     * esto el `CHECK` quedaba acusado para siempre y el barrido lo daba por
+     * fallido con el padron ya leido.
+     */
+    await this.markRosterRequestsExecuted(input.accessPointId, input.receivedAt)
+
     const declared = new Set(input.pins)
     const pivots = await AccessPointEmployee.query().where(
       'access_point_id',
@@ -166,6 +174,19 @@ export default class RosterReconciliationService {
     }
 
     return result
+  }
+
+  private async markRosterRequestsExecuted(accessPointId: number, now: DateTime): Promise<void> {
+    const checks = await DeviceCommand.query()
+      .where('access_point_id', accessPointId)
+      .where('device_command_kind', DEVICE_COMMAND_KIND.CHECK)
+      .where('device_command_status', DEVICE_COMMAND_STATUS.ACKED)
+    for (const check of checks) {
+      check.deviceCommandStatus = DEVICE_COMMAND_STATUS.EXECUTED
+      check.deviceCommandExecutedAt = now
+      check.deviceCommandExecutionEvidence = DEVICE_COMMAND_EVIDENCE.ROSTER_UPLOADED
+      await check.save()
+    }
   }
 
   /**

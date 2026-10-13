@@ -114,6 +114,12 @@ function makeRepository(options: Options = {}) {
       saved.push(command)
       return true
     },
+    async countFacesBelievedInside() {
+      return 0
+    },
+    async countFingerprintsBelievedInside() {
+      return 0
+    },
     async save(command) {
       saved.push(command)
     },

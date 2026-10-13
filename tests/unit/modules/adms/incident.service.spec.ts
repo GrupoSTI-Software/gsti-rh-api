@@ -10,14 +10,16 @@ function makeRepository(existing: IncidentRecord[] = []) {
   const inserted: IncidentRecord[] = []
   const resolved: IncidentRecord[] = []
   const repository: IncidentRepository = {
-    async findRecentSince(kind, scope, since) {
+    async findRecentSince(kind, scope, since, context) {
       return (
         existing.find(
           (row) =>
             row.kind === kind &&
             row.serial === scope.serial &&
             row.accessPointId === scope.accessPointId &&
-            row.createdAt >= since
+            row.createdAt >= since &&
+            (context?.pin === undefined || row.context?.pin === context.pin) &&
+            (context?.bioNo === undefined || row.context?.bioNo === context.bioNo)
         ) ?? null
       )
     },
@@ -28,9 +30,13 @@ function makeRepository(existing: IncidentRecord[] = []) {
     async hasOpen() {
       return false
     },
-    async resolveOpen(kind, accessPointId) {
+    async resolveOpen(kind, accessPointId, _now, context) {
       const abiertos = existing.filter(
-        (row) => row.kind === kind && row.accessPointId === accessPointId
+        (row) =>
+          row.kind === kind &&
+          row.accessPointId === accessPointId &&
+          (context?.pin === undefined || row.context?.pin === context.pin) &&
+          (context?.bioNo === undefined || row.context?.bioNo === context.bioNo)
       )
       resolved.push(...abiertos)
       return abiertos.length
@@ -55,13 +61,92 @@ test.group('ADMS incident service', () => {
       businessUnitId: 1,
       // Cast deliberado: el tipo ya no admite `name`, pero el contexto puede
       // llegar de un JSON externo. La lista blanca debe descartarlo en runtime.
-      context: { table: 'FOO', lines: 3, name: 'NO DEBE PASAR' } as AdmsIncidentContext,
+      context: { table: 'FOO', lines: 3, bioNo: 5, name: 'NO DEBE PASAR' } as AdmsIncidentContext,
       now: DateTime.utc(),
     })
     assert.equal(outcome, 'created')
     assert.lengthOf(inserted, 1)
     assert.equal(inserted[0].key, 'tabla-desconocida')
-    assert.deepEqual(inserted[0].context, { table: 'FOO', lines: 3 })
+    assert.deepEqual(inserted[0].context, { table: 'FOO', lines: 3, bioNo: 5 })
+  })
+
+  /**
+   * El aviso de huella sin repartir es por colaborador y dedo: dos personas
+   * enroladas en el mismo equipo dentro de la ventana son dos avisos, y copiar
+   * el dedo de una no cierra el de la otra.
+   */
+  test('con dedupeBy la ventana se acota al PIN y al dedo del contexto', async ({ assert }) => {
+    const now = DateTime.fromISO('2026-10-12T21:00:00Z')
+    const previo: IncidentRecord = {
+      kind: ADMS_INCIDENT_KIND.FINGERPRINT_NOT_SPREAD,
+      severity: 'info',
+      code: 'ADMS.BIO.002',
+      title: 'Huella capturada en el equipo sin orden del sistema',
+      detail: 'x',
+      key: 'huella-sin-repartir',
+      serial: 'S1',
+      accessPointId: 32,
+      businessUnitId: 7,
+      rawMessageId: null,
+      deviceCommandId: null,
+      context: { pin: '1', bioNo: 5 },
+      createdAt: now.minus({ minutes: 10 }),
+    }
+    const { repository, inserted } = makeRepository([previo])
+    const service = new IncidentService(repository)
+    const base = {
+      kind: ADMS_INCIDENT_KIND.FINGERPRINT_NOT_SPREAD,
+      severity: 'info' as const,
+      code: 'ADMS.BIO.002',
+      title: 'Huella capturada en el equipo sin orden del sistema',
+      detail: 'x',
+      key: 'huella-sin-repartir',
+      serial: 'S1',
+      accessPointId: 32,
+      businessUnitId: 7,
+      now,
+    }
+    const options = { dedupeMinutes: 60, dedupeBy: ['pin', 'bioNo'] as Array<'pin' | 'bioNo'> }
+
+    // Misma persona, mismo dedo: se repite y se deduplica.
+    assert.equal(await service.record({ ...base, context: { pin: '1', bioNo: 5 } }, options), 'deduped')
+    // Otra persona en el mismo equipo y la misma hora: es otro aviso.
+    assert.equal(await service.record({ ...base, context: { pin: '2', bioNo: 5 } }, options), 'created')
+    // Otro dedo de la misma persona: tambien.
+    assert.equal(await service.record({ ...base, context: { pin: '1', bioNo: 6 } }, options), 'created')
+    assert.lengthOf(inserted, 2)
+  })
+
+  test('cerrar por causa resuelta con contexto solo toca el aviso de ese PIN y dedo', async ({
+    assert,
+  }) => {
+    const now = DateTime.fromISO('2026-10-12T21:00:00Z')
+    const avisoDe = (pin: string, bioNo: number): IncidentRecord => ({
+      kind: ADMS_INCIDENT_KIND.FINGERPRINT_NOT_SPREAD,
+      severity: 'info',
+      code: 'ADMS.BIO.002',
+      title: 'x',
+      detail: 'x',
+      key: 'huella-sin-repartir',
+      serial: 'S1',
+      accessPointId: 32,
+      businessUnitId: 7,
+      rawMessageId: null,
+      deviceCommandId: null,
+      context: { pin, bioNo },
+      createdAt: now.minus({ minutes: 10 }),
+    })
+    const { repository, resolved } = makeRepository([avisoDe('1', 5), avisoDe('2', 5)])
+    const service = new IncidentService(repository)
+
+    const closed = await service.resolveResolvedCause(
+      ADMS_INCIDENT_KIND.FINGERPRINT_NOT_SPREAD,
+      32,
+      now,
+      { pin: '1', bioNo: 5 }
+    )
+    assert.equal(closed, 1)
+    assert.deepEqual(resolved.map((row) => row.context?.pin), ['1'])
   })
 
   test('con dedupe no repite el mismo incidente abierto dentro de la ventana', async ({

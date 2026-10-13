@@ -97,6 +97,10 @@ export default class DeviceCommandService implements DeviceCommandPort {
     return result
   }
 
+  async findLive(accessPointId: number, correlationKey: string): Promise<DeviceCommand | null> {
+    return this.repository.findLiveByCorrelation(accessPointId, correlationKey)
+  }
+
   /** `user_delete` no tiene tope: dejar a un ex-colaborador dentro del equipo es un riesgo. */
   private defaultMaxAttempts(kind: EnqueueCommandInput['kind']): number | null {
     return kind === DEVICE_COMMAND_KIND.USER_DELETE ? null : DEVICE_COMMAND_MAX_ATTEMPTS

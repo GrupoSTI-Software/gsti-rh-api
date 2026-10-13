@@ -120,8 +120,9 @@ export default class ReplicationService {
       .where('employee_id', input.employeeId)
       .whereNull('employee_biometric_face_id_deleted_at')
       .first()
+    const faceUse = faceId?.employeeBiometricFaceIdDeviceUse === true
     /** Con `only` la foto no viaja: ya tiene sus propios caminos. */
-    const photoEnabled = only === null && faceId?.employeeBiometricFaceIdDeviceUse === true
+    const photoEnabled = only === null && faceUse
 
     const targets: ReplicationTargetResult[] = []
     for (const accessPointId of input.targetAccessPointIds) {
@@ -132,6 +133,7 @@ export default class ReplicationService {
           slots,
           modalities,
           photoEnabled,
+          faceUse,
           derivativeVersion: faceId?.employeeBiometricFaceIdDerivativeVersion ?? 0,
           now,
         })
@@ -147,6 +149,7 @@ export default class ReplicationService {
     slots: TemplateSlot[]
     modalities: ReplicationModality[]
     photoEnabled: boolean
+    faceUse: boolean
     derivativeVersion: number
     now: DateTime
   }): Promise<ReplicationTargetResult> {
@@ -202,6 +205,7 @@ export default class ReplicationService {
           pin,
           slots,
           photoEnabled,
+          faceUse: args.faceUse,
           faceSupported: acceptsFacePhoto(profile ?? null),
           derivativeVersion: args.derivativeVersion,
           targetVersion: result.faceVersion,
@@ -358,6 +362,7 @@ export default class ReplicationService {
     pin: string
     slots: TemplateSlot[]
     photoEnabled: boolean
+    faceUse: boolean
     faceSupported: boolean
     derivativeVersion: number
     targetVersion: string | null
@@ -368,6 +373,10 @@ export default class ReplicationService {
 
     if (!args.faceSupported) {
       return skip(REPLICATION_MODALITY.FACE, BIO_TYPE.FACE, REPLICATION_SKIP.NO_FACE_SUPPORT)
+    }
+    /** Con el interruptor apagado el rostro no sale por ninguna via, tampoco por template. */
+    if (!args.faceUse) {
+      return skip(REPLICATION_MODALITY.FACE, BIO_TYPE.FACE, REPLICATION_SKIP.FACE_USE_OFF)
     }
 
     /**
@@ -424,10 +433,14 @@ export default class ReplicationService {
   /**
    * Saca el blob de la boveda y lo encola hacia el destino.
    *
-   * La lectura y su asiento en la bitacora van en la MISMA transaccion que el
-   * encolado: si el asiento falla, el blob no sale de la boveda y el comando no
-   * se crea. Un biometrico que se lee sin que conste quien lo leyo no tiene
-   * custodia.
+   * La lectura y su asiento en la bitacora van en la MISMA transaccion: si el
+   * asiento falla, el blob no sale de la boveda. Un biometrico que se lee sin
+   * que conste quien lo leyo no tiene custodia.
+   *
+   * El encolado va DESPUES y fuera de esa transaccion: `enqueueIdempotent`
+   * abre la suya con la fila del punto de acceso bloqueada, y anidarla dentro
+   * de la lectura cruzaria dos candados. Si el encolado falla, el asiento de
+   * lectura queda --la lectura si ocurrio-- y no hay comando.
    */
   private async queueTemplate(args: {
     input: ReplicationInput
