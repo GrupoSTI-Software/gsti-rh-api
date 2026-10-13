@@ -258,7 +258,7 @@ Recorrido completado: cada casilla se marcó **contra el objetivo de su escenari
 
 ## 9. Hallazgos de otras historias
 
-Defectos que aparecieron al recorrer este manual y **no son de esta historia**: no se corrigen en esta rama y quedan registrados en `qa-valanserh/hallazgos.md`.
+Defectos que **no son de esta historia**, aparecidos en cualquier momento del trabajo: al escribir el plan, al implementar, al redactar este manual, al recorrerlo o cuando quien lo pidió los reporte. No se corrigen en esta rama y quedan registrados en `qa-valanserh/hallazgos.md`.
 
 ### `012` — Cambiar de empresa deja al usuario en un 403
 
