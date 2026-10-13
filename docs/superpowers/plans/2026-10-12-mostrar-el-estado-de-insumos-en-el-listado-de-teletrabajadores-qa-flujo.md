@@ -208,11 +208,23 @@ Objetivo: comprobar que con un rol **sin lectura de Activos e insumos** el lista
 
 1. Cierra la sesión y entra con el **Usuario C** (`qa-roles-none@gsti-tests.local`). Elige la empresa **QA Fundadora**.
 2. Abre las herramientas del navegador (F12) → pestaña **Red** (**Network**), marca **Conservar registro** (**Preserve log**) y recarga **Empresa → Teletrabajadores**.
-3. En el **filtro** de esa pestaña escribe `telework-workers`. Verás tres peticiones con ese nombre: quédate con la que empieza por **nom037** (las otras dos son consultas de permiso) y púlsala.
-4. Abre su pestaña **Respuesta** (**Response**): en el cuerpo **no** debe aparecer ninguna palabra de los chips (**sin cubrir**, **en envío**, **resguardo**) ni un identificador de ficha (una cadena larga con guiones).
-5. Mira el listado en pantalla.
+3. En el **filtro** de esa pestaña escribe `telework-workers`. Quedarán tres peticiones: quédate con la del listado, la que en su dirección lleva **`nom037/telework-workers`** (las otras dos llevan `has-access`: son consultas de permiso). Púlsala.
+4. Abre su pestaña **Respuesta** (**Response**). El cuerpo trae los colaboradores de la empresa (13 en esta siembra), uno por renglón, y **cada renglón trae solo estos siete datos**: `employeeId`, `employeeCode`, `fullName`, `position`, `workSchedule`, `teleworkPercentage` y `workplaces`. Así se ve un renglón real:
 
-**Qué debe verse:** el listado se ve **como antes**: las columnas terminan en **% de teletrabajo** y siguen con **Lugar donde labora** (**no** aparece **Insumos**), y el **nombre** es texto, no enlace. En la **Red**, el cuerpo de la respuesta de **nom037/telework-workers** **no** trae ningún resumen de insumos ni un identificador de ficha.
+```json
+{ "employeeId": 179, "employeeCode": "973", "fullName": "Marta Espino Gil", "position": "QA Puesto origen",
+  "workSchedule": "Remote", "teleworkPercentage": 100, "workplaces": [] }
+```
+
+5. Comprueba que en **ningún** renglón aparezcan estas dos claves, que son las del dato de insumos:
+
+   - **`employeeSlug`** — el identificador de la ficha del colaborador; se vería como un valor largo con guiones, del estilo `9f1c4a7e-8b2d-4c56-9f31-0a7b6d2e4c88`.
+   - **`teleworkSuppliesSummary`** — el resumen de insumos; se vería como un grupo de conteos, del estilo `"uncoveredCount": 2`.
+
+   La forma rápida: con la respuesta abierta, busca en la página (Ctrl/Cmd + F) las palabras `employeeSlug` y `teleworkSuppliesSummary`. Si alguna aparece, el dato viajó al navegador sin permiso.
+6. Mira el listado en pantalla.
+
+**Qué debe verse:** el listado se ve **como antes**: las columnas terminan en **% de teletrabajo** y siguen con **Lugar donde labora** (**no** aparece **Insumos**), y el **nombre** es texto, no enlace. En la **Red**, el cuerpo de la respuesta de **nom037/telework-workers** trae a cada colaborador solo con sus siete datos, y en ninguno aparecen las claves `employeeSlug` ni `teleworkSuppliesSummary`.
 
 **Qué significa lo nuevo aquí:**
 
@@ -299,7 +311,7 @@ Defectos que **no son de esta historia**, aparecidos en cualquier momento del tr
 
 - **Qué se hizo:** con el Usuario A, en **QA Fundadora**, abrir **Empresa → Teletrabajadores** y en **Mi cuenta → Empresa** elegir **QA Listado Empresa**.
 - **Qué se esperaba:** el listado de la empresa elegida, con sus propios colaboradores.
-- **Qué pasó:** la aplicación recarga y muestra la pantalla **403 — «No tienes permiso para ver esto.»**; el recorrido se detiene ahí y la sesión queda en la empresa nueva. La aplicación pregunta por el permiso de un rol que no es el de esa empresa: `GET /api/roles/has-access/9/telework-workers/read` responde **403**, aunque la cuenta sí tiene esa lectura en la empresa elegida.
+- **Qué pasó:** la aplicación recarga y muestra la pantalla **403 — «No tienes permiso para ver esto.»**; el recorrido se detiene ahí y la sesión queda en la empresa nueva. La aplicación pregunta por el permiso de un rol que no es el de la empresa elegida: la petición termina en `/api/roles/has-access/9/telework-workers/read` —ese `9` es el rol que la cuenta tiene en **QA Fundadora**, no el que tiene en **QA Listado Empresa**— y responde **403**, aunque la cuenta sí tiene esa lectura en la empresa elegida.
 - **Dónde se vio:** en el listado de teletrabajadores, al cambiar la empresa activa desde **Mi cuenta** (el recorrido no puede continuar desde ahí).
 
 Por este defecto, el aislamiento entre empresas no se recorre a mano: está declarado en el apartado 7 y lo cubre la prueba automática del API.
