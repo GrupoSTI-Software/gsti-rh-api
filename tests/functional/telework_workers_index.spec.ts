@@ -623,9 +623,12 @@ test.group('Estado de insumos en el listado — endpoint HTTP', (group) => {
     client,
     assert,
   }) => {
-    const conDato = await fetchListado(client, actorLecturaReq(), publicIdA())
-    const llamadasTrasLectura = spy.calls.length
     const sinDato = await fetchListado(client, actorSoloListadoReq(), publicIdA())
+    // El espía arranca en cero en cada caso (se reinstala en el setup): la fila
+    // sin permiso se arma sin tocar al lector de insumos.
+    assert.equal(spy.calls.length, 0)
+
+    const conDato = await fetchListado(client, actorLecturaReq(), publicIdA())
 
     // Mismas filas (id y nombre), sin el detalle de insumos.
     assert.deepEqual(
@@ -636,8 +639,6 @@ test.group('Estado de insumos en el listado — endpoint HTTP', (group) => {
       assert.isFalse(Object.hasOwn(row, 'employeeSlug'))
       assert.isFalse(Object.hasOwn(row, 'teleworkSuppliesSummary'))
     }
-    // El lector no se volvió a tocar: la fila sin permiso se arma sin el resumen.
-    assert.equal(spy.calls.length, llamadasTrasLectura)
   })
 
   test('Objetivo: CA-8 — lote: una sola lectura con el alcance de la empresa y los cinco ids', async ({

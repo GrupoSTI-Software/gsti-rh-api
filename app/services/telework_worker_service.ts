@@ -159,7 +159,10 @@ export default class TeleworkWorkerService {
    * alcance vacío → mapa vacío sin consultar (el servicio de insumos también
    * devolvería vacío, pero la llamada sobra).
    */
-  private async summarizePage(scope: number[], employees: Employee[]) {
+  private async summarizePage(
+    scope: number[],
+    employees: Employee[]
+  ): Promise<Map<number, TeleworkSuppliesSummary>> {
     if (employees.length === 0 || scope.length === 0) {
       return new Map<number, TeleworkSuppliesSummary>()
     }
