@@ -34,11 +34,11 @@ Qué deja listo para esta prueba:
 
 - **QA Fundadora**: la empresa donde se hace todo el recorrido, con los tres módulos disponibles.
 - Los **tipos de activo** con su categoría de la norma: **Silla QA Listado** (categoría *Silla ergonómica*) y **Computo QA Listado** (categoría *Equipo de cómputo o impresión*).
-- Los **seis colaboradores** de la tabla de abajo (los códigos **971** a **976** de la columna **Código** del listado), uno por estado que prueba un escenario.
+- Los **seis colaboradores** de la tabla de abajo: cinco se ven en el listado de **QA Fundadora** (códigos **971** a **975** de la columna **Código**) y el sexto (**976**) solo cuando la empresa activa es **QA Listado Empresa**, en el Escenario 4.7.
 - La **empresa ajena** **QA Listado Empresa**, con su propio teletrabajador (código **976**) y la membresía de la cuenta A en esa empresa, para el Escenario 4.7.
 - Las **tres cuentas** de la §2.
 
-**Señal para reconocer lo nuestro:** en el listado, los colaboradores de esta prueba son los **seis** de la tabla de abajo: sus códigos en la columna **Código** van del **971** al **976** y sus activos llevan folio `QA-LST-ACT-…`; los tipos de activo terminan en **QA Listado**. El listado trae además colaboradores de otras pruebas —los códigos **951** a **958** y el **901**, que aparece al 40% con domicilio—: esos no se tocan y sus chips no se marcan aquí. El único ajeno que sí se mira en este manual es **Ulises Pardo Gil** (Híbrido al 20%), que **no** debe aparecer por no llegar al 40%.
+**Señal para reconocer lo nuestro:** los colaboradores de esta prueba son los de la tabla de abajo; en el listado de **QA Fundadora** los reconoces por sus códigos en la columna **Código** (**971** a **975**), y sus activos llevan folio `QA-LST-ACT-…` con tipos de activo que terminan en **QA Listado**. La misma pantalla trae colaboradores de otras pruebas (**901**, **951**, **953**, **954**, **955**, **956**, **957** y **958**): esos no se tocan y sus chips no se marcan aquí. El único ajeno que sí se mira en este manual es **Ulises Pardo Gil** (Híbrido al 20%), que **no** aparece en el listado por no llegar al 40%.
 
 Estado de cada colaborador (lo que deja el sembrador):
 
@@ -190,7 +190,7 @@ Objetivo: comprobar que el nombre del colaborador es un enlace que lleva a la se
 
 Objetivo: comprobar que el listado y sus estados corresponden **solo** a la empresa activa y no mezclan colaboradores ni insumos de otra empresa.
 
-1. Con el Usuario A, en **QA Fundadora**, abre **Empresa → Teletrabajadores** y anota los seis colaboradores de esta prueba (códigos **971** a **976**) y sus chips.
+1. Con el Usuario A, en **QA Fundadora**, abre **Empresa → Teletrabajadores** y anota los cinco colaboradores de esta prueba (códigos **971** a **975**) y sus chips.
 2. Arriba a la derecha abre **Mi cuenta** (el avatar) y en el campo **Empresa** elige **QA Listado Empresa**.
 3. Vuelve a entrar a **Empresa → Teletrabajadores**.
 4. Al terminar, elige otra vez **QA Fundadora** en el campo **Empresa**.
@@ -264,7 +264,7 @@ Cada casilla se marca **contra el objetivo de su escenario**, no contra "se hici
 - [ ] 4.4 En Pedro Nava Rios (`974`) la columna trae **Completo** **y** **1 resguardo sin firmar**, ambos chips
 - [ ] 4.5 Sofia Ortega Luna (`975`, Híbrido 40%) aparece en el listado con **% de teletrabajo** `40` y el chip **2 sin cubrir**; el 20% no aparece
 - [ ] 4.6 Pulsar el nombre de Marta Espino Gil (`973`) abre la sección **Activos** de su ficha y sus estados coinciden con el chip **1 en envío** del listado
-- [ ] 4.7 Con **QA Listado Empresa** activa solo aparece Bruno Ajeno Rios (`976`), y al volver a **QA Fundadora** reaparecen sus colaboradores
+- [ ] 4.7 Con **QA Listado Empresa** activa el único colaborador es Bruno Ajeno Rios (`976`), y al volver a **QA Fundadora** reaparecen sus colaboradores
 - [ ] 5.1 Con el Usuario B la columna **Insumos** se ve, pero el nombre no es enlace ni navega
 - [ ] 5.2 Con el Usuario C no hay columna **Insumos** ni enlace, y la respuesta del listado no trae el resumen de insumos
 - [ ] 6 A 360 px y a unos 850 px no hay desplazamiento horizontal y los chips no se salen; a unos 1024 px se ven todas las columnas
