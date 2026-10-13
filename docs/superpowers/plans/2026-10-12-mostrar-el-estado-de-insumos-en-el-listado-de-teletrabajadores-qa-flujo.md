@@ -231,16 +231,50 @@ Objetivo: comprobar que el listado con la columna **Insumos** no se desborda a l
 
 (Lo que se ve es lo ya explicado en el Escenario 4.1.)
 
-## 7. Lo que no se revisa aquí
+## 7. Escenarios que resuelven las pruebas automatizadas
 
-Se declara no revisable desde el navegador y queda cubierto por las pruebas automatizadas del plan:
+Estos escenarios **no se recorren a mano**: el ambiente de prueba no los puede provocar. Los resolvieron las pruebas automatizadas de esta historia, y se documentan aquí con la misma forma de los demás.
 
-- **El chip `Equipo propio declarado`.** La función que declara el equipo propio llega con otra historia, que todavía no está integrada, así que el ambiente sembrado **no produce** ese estado: no hay forma de que ese chip salga en la columna ni en la ficha. Se lista en los Escenarios 4.1 y 4.6 solo para que se sepa qué quiere decir; lo cubren las pruebas automáticas del resumen.
-- **El error del listado** (**No se pudo cargar el listado de teletrabajadores.** con **Reintentar**). Por la política global del backoffice, una petición sin respuesta o un error del servidor llevan a la **página de error de toda la aplicación**, así que desde la pantalla no se provoca un error *solo* del listado; y "detener la API" o "manipular la sesión" no son cosas que una persona de RH pueda hacer desde el navegador. Lo cubren las pruebas del backoffice y del API.
-- **El aislamiento entre empresas.** La comprobación pedía cambiar la empresa activa a **QA Listado Empresa** y ver que el listado trae solo a su colaborador (código **976**). No se puede recorrer: con esta cuenta, cambiar de empresa termina en la página 403 del backoffice por un defecto ajeno a esta historia —explicado en el apartado 9—. Queda cubierto por la prueba automática de aislamiento del API (caso CA-9 de `tests/functional/telework_workers_index.spec.ts`).
-- **El idioma inglés del listado.** El backoffice opera **solo en español** y esconde el cambio de idioma: cualquier dirección con otro prefijo de idioma (`/en/…`) se reescribe a español y no hay selector visible. No se inventan pasos para provocarlo; lo cubren los archivos de idioma (es/en) de la pantalla del backoffice.
+### 7.1 El chip «Equipo propio declarado»
 
-## 8. Checklist
+Objetivo: comprobar que una categoría que el colaborador cubre con su propio equipo cuenta como cubierta y **no** suma pendientes en la columna **Insumos**.
+
+**Qué debe verse:** la celda con el chip **Completo** —el equipo propio declarado no resta—; y en la ficha, esa categoría con su estado **Equipo propio declarado**.
+
+**Qué pasó:** no se puede provocar en el ambiente sembrado: la función que declara el equipo propio llega con otra historia que todavía no está integrada, así que ninguna pantalla produce ese estado. Lo resuelve la prueba automatizada del resumen de insumos, que comprueba que el equipo propio declarado no resta de **Completo**.
+
+### 7.2 El error del listado
+
+Objetivo: comprobar que, si algo falla al armar el listado, la pantalla avisa y ofrece **Reintentar**, sin mostrar detalles internos del sistema.
+
+**Qué debe verse:** el aviso **No se pudo cargar el listado de teletrabajadores.** con el botón **Reintentar**, y ningún detalle interno del sistema en el mensaje.
+
+**Qué pasó:** no se provoca desde la pantalla: por la política general del backoffice, un error del servidor lleva a la página de error de toda la aplicación, y detener el servicio no es algo que una persona de RH haga desde el navegador. Lo resuelven las pruebas automatizadas del listado: el mensaje de error y que no exponga el detalle interno.
+
+### 7.3 El aislamiento entre empresas
+
+Objetivo: comprobar que el listado y sus estados son **solo** de la empresa activa, sin mezclar colaboradores ni insumos de otra empresa.
+
+**Qué debe verse:** con otra empresa activa, el listado trae únicamente a los colaboradores de esa empresa y a ninguno de **QA Fundadora**; y los insumos de una empresa nunca entran en el cálculo de la otra.
+
+**Qué pasó:** no se recorre porque hoy cambiar de empresa termina en la pantalla 403 —un defecto ajeno a esta historia, explicado en el apartado 9—. Lo resuelve la prueba automatizada de aislamiento del API, que comprueba que el colaborador de otra empresa no aparece en el listado ni viaja al cálculo del resumen.
+
+### 7.4 El idioma inglés del listado
+
+Objetivo: comprobar que los textos de la pantalla —la columna **Insumos** y sus chips— existen también en inglés.
+
+**Qué debe verse:** en inglés, la columna y los chips con su texto traducido.
+
+**Qué pasó:** no se provoca desde la pantalla: el backoffice opera solo en español y reescribe cualquier dirección con otro idioma. Lo resuelven la paridad de claves de idioma de la pantalla y su lint.
+
+**Checklist de estos escenarios** (se marca si la prueba automatizada pasó):
+
+- [ ] 7.1 La prueba del resumen pasa: el equipo propio declarado **no** resta de **Completo**
+- [ ] 7.2 La prueba del listado pasa: el error avisa con **Reintentar** y no expone detalle interno
+- [ ] 7.3 La prueba de aislamiento del API pasa: el colaborador de la otra empresa no aparece ni entra al cálculo
+- [ ] 7.4 El lint de claves de idioma pasa: cada clave de la pantalla existe en español y en inglés
+
+## 8. Checklist del recorrido manual
 
 Cada casilla se marca **contra el objetivo de su escenario**, no contra "se hicieron los pasos":
 
