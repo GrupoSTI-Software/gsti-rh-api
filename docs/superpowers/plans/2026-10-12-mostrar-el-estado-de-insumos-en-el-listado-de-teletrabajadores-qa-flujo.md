@@ -53,9 +53,9 @@ Estado de cada colaborador (lo que deja el sembrador):
 
 Orden del recorrido: los escenarios se recorren **en orden**. El listado es de solo consulta, así que recorrerlo no cambia nada; el único que mueve la sesión es el **Escenario 4.7**, que cambia la empresa activa y hay que devolverla a **QA Fundadora** al terminar.
 
-### Evidencia y hallazgos
+### Cómo se reporta y dónde van los hallazgos
 
-Cada escenario se marca **contra su `Objetivo:`**, no contra "se hicieron los pasos". Este manual **no pide capturas ni adjuntos**: el resultado esperado va escrito y quien recorre reporta lo que vio, con la cuenta y la empresa que usó. Los hallazgos que surjan se registran en `qa-valanserh/hallazgos.md`, en su cuadro de **14 campos**; el detalle técnico (código, causa) va en **Comentarios/Historial**, no en Evidencia. Los hallazgos se corrigen en esta misma rama.
+Cada escenario se marca **contra su `Objetivo:`**, no contra "se hicieron los pasos". Este manual **no pide capturas ni adjuntos**: el resultado esperado va escrito y quien recorre reporta lo que vio, con la cuenta y la empresa que usó. Los hallazgos que surjan se registran en `qa-valanserh/hallazgos.md`, en su cuadro de **14 campos**; el detalle técnico (código, causa) va en **Comentarios/Historial**, no en la columna Evidencia. Los hallazgos se corrigen en esta misma rama.
 
 ## 2. Usuarios
 
@@ -100,8 +100,6 @@ Objetivo: comprobar que un teletrabajador con la silla y el equipo de cómputo e
 
 **Qué debe verse:** la fila de **Ana Lira Soto** trae, en la columna **Insumos**, un único chip **Completo** (verde, de estado positivo). No aparecen los chips **N sin cubrir**, **N en envío** ni **N resguardo(s) sin firmar**. El aditamento **no** agrega ningún pendiente: la empresa no se lo ha entregado y sigue **Sin entregar**.
 
-**Evidencia:** anota el chip que viste en la fila de `QA-LST-01`; adjunta captura solo si el equipo lo pide.
-
 **Qué significa cada cosa que se ve:**
 
 - **Insumos**: el encabezado de la columna nueva; resume el cumplimiento de insumos de teletrabajo del colaborador. Va a la derecha de **% de teletrabajo**.
@@ -120,8 +118,6 @@ Objetivo: comprobar que a un teletrabajador al que se le entregó la silla pero 
 
 **Qué debe verse:** la celda **Insumos** de **Luis Bravo Cano** trae un solo chip **1 sin cubrir**. No dice **Completo** ni **en envío**.
 
-**Evidencia:** anota el chip de la fila de `QA-LST-02`; adjunta captura solo si el equipo lo pide.
-
 (Lo que se ve es lo ya explicado en el Escenario 4.1: el conteo son las categorías obligatorias sin entregar; aquí el equipo de cómputo es la que falta.)
 
 ### 4.3 Colaborador con un insumo en envío
@@ -132,8 +128,6 @@ Objetivo: comprobar que un activo que va en camino no cuenta como entregado —s
 2. **Negativo a comprobar a propósito:** su celda **no** dice **Completo**; y como la silla ya está entregada, tampoco dice **sin cubrir**.
 
 **Qué debe verse:** la celda **Insumos** de **Marta Espino Gil** trae un solo chip **1 en envío**. No aparece **Completo** ni **sin cubrir**.
-
-**Evidencia:** anota el chip de la fila de `QA-LST-03`; adjunta captura solo si el equipo lo pide.
 
 **Qué significa lo nuevo aquí:**
 
@@ -146,8 +140,6 @@ Objetivo: comprobar que un activo **ya entregado** cuyo resguardo todavía no se
 1. Con el Usuario A, busca a **Pedro Nava Rios** (código de nómina `QA-LST-04`, Home Office al 100%; su silla está entregada sin el vale firmado) y mira su columna **Insumos**.
 
 **Qué debe verse:** la celda **Insumos** de **Pedro Nava Rios** trae **dos** chips, uno junto al otro: **Completo** y **1 resguardo sin firmar**. El de resguardo **no** reemplaza a **Completo**: aparecen los dos.
-
-**Evidencia:** anota los dos chips de la fila de `QA-LST-04`; adjunta captura solo si el equipo lo pide.
 
 **Qué significa lo nuevo aquí:**
 
@@ -162,8 +154,6 @@ Objetivo: comprobar que un colaborador híbrido justo en el **40%** —la fronte
 3. **Negativo a comprobar a propósito:** **Ulises Pardo Gil** (código de nómina `QA-TEL-02`, Híbrido al 20%) **no** aparece en el listado, porque no llega al 40%.
 
 **Qué debe verse:** **Sofia Ortega Luna** aparece en la tabla con **Modalidad** *Híbrido*, **% de teletrabajo** `40` y, en **Insumos**, el chip **2 sin cubrir** (no tiene ni silla ni equipo de cómputo entregados; el aditamento no cuenta). **Ulises Pardo Gil** (20%) no está en la lista.
-
-**Evidencia:** anota la fila de `QA-LST-05` y que el 20% no aparece; adjunta captura solo si el equipo lo pide.
 
 **Qué significa lo nuevo aquí:**
 
@@ -185,8 +175,6 @@ Objetivo: comprobar que el nombre del colaborador es un enlace que lleva a la se
 - **Aditamento** → chip **Sin entregar**, sin activos debajo.
 - El resumen de la tarjeta dice **1 en envío**, el mismo estado que la columna **Insumos** del listado.
 
-**Evidencia:** anota el chip del listado y el estado que viste en la ficha; adjunta captura solo si el equipo lo pide.
-
 **Qué significa lo nuevo aquí** (los estados de la categoría que se ven en la ficha):
 
 - **Entregado**: la empresa ya le entregó cuando menos un activo de esa categoría.
@@ -207,8 +195,6 @@ Objetivo: comprobar que el listado y sus estados corresponden **solo** a la empr
 
 **Qué debe verse:** con **QA Listado Empresa** activa, el listado trae **solo** colaboradores de esa empresa —el único es **Bruno Ajeno Rios** (código `QA-LST-B`), con el chip **2 sin cubrir**— y **ninguno** de **QA Fundadora** (no aparece Ana Lira Soto ni ningún `QA-LST-01`…`QA-LST-05`). Al volver a **QA Fundadora**, el listado y sus chips vuelven a ser los de esa empresa.
 
-**Evidencia:** anota qué colaboradores viste con cada empresa activa; adjunta captura solo si el equipo lo pide.
-
 **Qué significa lo nuevo aquí:**
 
 - Que el listado dependa de la **empresa activa**: cada empresa lleva su propio listado. Al cambiar de empresa cambia todo el contenido, y el estado de insumos de una nunca se cuela en la otra.
@@ -225,8 +211,6 @@ Objetivo: comprobar que con un rol **sin lectura de Empleados** la columna **Ins
 
 **Qué debe verse:** la columna **Insumos** aparece igual, con sus chips. El **nombre** es texto normal —sin subrayado ni apariencia de enlace— y al pulsarlo **no** navega a ninguna parte. El resto del listado funciona igual.
 
-**Evidencia:** anota que la columna está y el nombre no es enlace; adjunta captura solo si el equipo lo pide.
-
 **Qué significa lo nuevo aquí:**
 
 - Que el nombre deje de ser enlace: abrir la ficha exige la lectura de **Empleados**. Sin ese permiso, la columna de insumos se sigue viendo, pero el nombre se queda como texto.
@@ -241,8 +225,6 @@ Objetivo: comprobar que con un rol **sin lectura de Activos e insumos** el lista
 4. Mira el listado en pantalla.
 
 **Qué debe verse:** el listado se ve **como antes**: las columnas terminan en **% de teletrabajo** y siguen con **Lugar donde labora** (**no** aparece **Insumos**), y el **nombre** es texto, no enlace. En la pestaña de red, el cuerpo de la respuesta **no** trae ningún resumen de insumos ni un identificador de ficha.
-
-**Evidencia:** anota que no hay columna ni enlace y que la respuesta no traía el resumen; adjunta captura solo si el equipo lo pide.
 
 **Qué significa lo nuevo aquí:**
 
@@ -259,8 +241,6 @@ Objetivo: comprobar que el listado con la columna **Insumos** no se desborda a l
 5. Pon la ventana a **ancho de escritorio** (desde unos **1024 px**).
 
 **Qué debe verse:** a **360 px**, el listado **no** presenta desplazamiento horizontal; los chips de la columna **Insumos** envuelven en varias líneas dentro de su celda y nada se corta. A unos **850 px** tampoco hay desbordamiento y los chips se leen completos. Desde unos **1024 px** se ven todas las columnas, con **Insumos** a la derecha de **% de teletrabajo**.
-
-**Evidencia:** anota en qué anchos no hubo desplazamiento horizontal; adjunta captura solo si el equipo lo pide.
 
 (Lo que se ve es lo ya explicado en el Escenario 4.1.)
 
