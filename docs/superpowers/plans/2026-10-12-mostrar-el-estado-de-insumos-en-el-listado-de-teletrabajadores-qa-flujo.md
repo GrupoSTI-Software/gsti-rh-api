@@ -55,9 +55,9 @@ Los códigos de arriba son los que muestra la columna **Código** del listado de
 
 Orden del recorrido: los escenarios se recorren **en orden**. El listado es de solo consulta, así que recorrerlo no cambia nada y no hay que devolver ningún estado al terminar.
 
-### Cómo se reporta y dónde van los hallazgos
+### Cómo se reporta
 
-Cada escenario se marca **contra su `Objetivo:`**, no contra "se hicieron los pasos". Este manual **no pide capturas ni adjuntos**: el resultado esperado va escrito y quien recorre reporta lo que vio, con la cuenta y la empresa que usó. Los hallazgos que surjan se registran en `qa-valanserh/hallazgos.md`, en su cuadro de **14 campos**; el detalle técnico (código, causa) va en **Comentarios/Historial**, no en la columna Evidencia. Los hallazgos se corrigen en esta misma rama.
+Cada escenario se marca **contra su `Objetivo:`**, no contra "se hicieron los pasos". Este manual **no pide capturas ni adjuntos**: el resultado esperado va escrito y quien recorre reporta lo que vio, con la cuenta y la empresa que usó. Lo que aparezca y sea de esta historia se corrige en esta misma rama; lo que sea de otra historia se anota en el apartado **9. Hallazgos de otras historias**, que es donde este manual deja su registro.
 
 ## 2. Usuarios
 
