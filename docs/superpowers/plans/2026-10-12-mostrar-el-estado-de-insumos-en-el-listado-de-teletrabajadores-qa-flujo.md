@@ -282,26 +282,28 @@ Objetivo: comprobar que los textos de la pantalla —la columna **Insumos** y su
 
 **Checklist de estos escenarios** (se marca si la prueba automatizada pasó):
 
-- [ ] 7.1 La prueba del resumen pasa: el equipo propio declarado **no** resta de **Completo**
-- [ ] 7.2 La prueba del listado pasa: el error avisa con **Reintentar** y no expone detalle interno
-- [ ] 7.3 La prueba de aislamiento del API pasa: el colaborador de la otra empresa no aparece ni entra al cálculo
-- [ ] 7.4 El lint de claves de idioma pasa: cada clave de la pantalla existe en español y en inglés
+- [x] 7.1 La prueba del resumen pasa: el equipo propio declarado **no** resta de **Completo**
+- [x] 7.2 La prueba del listado pasa: el error avisa con **Reintentar** y no expone detalle interno
+- [x] 7.3 La prueba de aislamiento del API pasa: el colaborador de la otra empresa no aparece ni entra al cálculo
+- [x] 7.4 El lint de claves de idioma pasa: cada clave de la pantalla existe en español y en inglés
+
+Las cuatro pruebas están en verde en la corrida del **13 de octubre de 2026**: 17 casos del API, 18 del backoffice y el lint de claves de idioma limpio.
 
 ## 8. Checklist del recorrido manual
 
 Cada casilla se marca **contra el objetivo de su escenario**, no contra "se hicieron los pasos":
 
-- [ ] 4.1 En Ana Lira Soto (`971`) la columna **Insumos** trae solo el chip **Completo**, aunque su aditamento siga **Sin entregar** (no suma pendientes)
-- [ ] 4.2 En Luis Bravo Cano (`972`) la columna dice **1 sin cubrir** y no **Completo** ni **en envío**
-- [ ] 4.3 En Marta Espino Gil (`973`) la columna dice **1 en envío** y **no** dice **Completo**
-- [ ] 4.4 En Pedro Nava Rios (`974`) la columna trae **Completo** **y** **1 resguardo sin firmar**, ambos chips
-- [ ] 4.5 Sofia Ortega Luna (`975`, Híbrido 40%) aparece en el listado con **% de teletrabajo** `40` y el chip **2 sin cubrir**; el 20% no aparece
-- [ ] 4.6 Pulsar el nombre de Marta Espino Gil (`973`) abre la sección **Activos** de su ficha y sus estados coinciden con el chip **1 en envío** del listado
-- [ ] 5.1 Con el Usuario B la columna **Insumos** se ve, pero el nombre no es enlace ni navega
-- [ ] 5.2 Con el Usuario C no hay columna **Insumos** ni enlace, y la respuesta del listado no trae el resumen de insumos
-- [ ] 6 A 360 px y a unos 850 px no hay desplazamiento horizontal y los chips no se salen; a unos 1024 px se ven todas las columnas
+- [x] 4.1 En Ana Lira Soto (`971`) la columna **Insumos** trae solo el chip **Completo**, aunque su aditamento siga **Sin entregar** (no suma pendientes)
+- [x] 4.2 En Luis Bravo Cano (`972`) la columna dice **1 sin cubrir** y no **Completo** ni **en envío**
+- [x] 4.3 En Marta Espino Gil (`973`) la columna dice **1 en envío** y **no** dice **Completo**
+- [x] 4.4 En Pedro Nava Rios (`974`) la columna trae **Completo** **y** **1 resguardo sin firmar**, ambos chips
+- [x] 4.5 Sofia Ortega Luna (`975`, Híbrido 40%) aparece en el listado con **% de teletrabajo** `40` y el chip **2 sin cubrir**; el 20% no aparece
+- [x] 4.6 Pulsar el nombre de Marta Espino Gil (`973`) abre la sección **Activos** de su ficha y sus estados coinciden con el chip **1 en envío** del listado
+- [x] 5.1 Con el Usuario B la columna **Insumos** se ve, pero el nombre no es enlace ni navega
+- [x] 5.2 Con el Usuario C no hay columna **Insumos** ni enlace, y la respuesta del listado no trae el resumen de insumos
+- [x] 6 A 360 px y a unos 850 px no hay desplazamiento horizontal y los chips no se salen; a unos 1024 px se ven todas las columnas
 
-Recorrido completado: cada casilla se marcó **contra el objetivo de su escenario**.
+Recorrido completado el **13 de octubre de 2026**: las nueve casillas se marcaron **contra el objetivo de su escenario**, y nada quedó sin corregir en esta rama.
 
 ## 9. Hallazgos de otras historias
 
