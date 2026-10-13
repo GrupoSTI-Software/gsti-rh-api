@@ -12,6 +12,8 @@ import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
 import EmployeeOffboarding from '#models/employee_offboarding'
 import EmployeeOffboardingDocument from '#models/employee_offboarding_document'
+import EmployeeOffboardingItem from '#models/employee_offboarding_item'
+import EmployeeOffboardingItemEvidence from '#models/employee_offboarding_item_evidence'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
@@ -24,6 +26,7 @@ import {
   type EmployeeOffboardingDocumentType,
 } from '#modules/employee-offboarding/documents/documents.constants'
 import {
+  EMPLOYEE_OFFBOARDING_ITEM_STATUS,
   EMPLOYEE_OFFBOARDING_ORIGIN,
   EMPLOYEE_OFFBOARDING_STATUS,
 } from '#modules/employee-offboarding/offboardings/offboardings.constants'
@@ -42,6 +45,10 @@ import { TenantContext } from '#utils/tenant_context'
  * concretada (expediente cerrado, o constancia/convenio emitidos) no se
  * deshace; 409 sin efectos. Los documentos se siembran por inserción directa,
  * sin renderizar PDF.
+ *
+ * VLRH-H1790812613830 (tercer grupo) — al deshacer la baja, el expediente
+ * abierto queda `cancelled` con quién y cuándo, conserva todo lo registrado y
+ * la falla de la cancelación revierte la reactivación completa.
  */
 
 const TEST_PASSWORD = 'DeshacerBaja123!'
@@ -217,6 +224,41 @@ function bodyFor(fixture: EmployeeFixture, overrides: Record<string, unknown> = 
   }
 }
 
+/** `PUT …/reactivate` con la cabecera de la empresa dada; nunca lanza por 4xx/5xx. */
+function reactivateRequest(
+  client: ApiClient,
+  fixture: EmployeeFixture,
+  actor: Actor,
+  unit: BusinessUnit
+) {
+  return client
+    .put(`/api/employees/${fixture.employee.employeeId}/reactivate`)
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', unit.businessUnitPublicId)
+    .setup((request) => {
+      request.request.ok(() => true)
+    })
+}
+
+/** Baja real por HTTP con D: abre el expediente en automático (o reutiliza el programado). */
+async function terminateRequest(
+  client: ApiClient,
+  fixture: EmployeeFixture,
+  actor: Actor,
+  unit: BusinessUnit
+): Promise<void> {
+  const response = await client
+    .delete(`/api/employees/${fixture.employee.employeeId}`)
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', unit.businessUnitPublicId)
+    .json({
+      employeeTerminatedDate: D,
+      employeeTerminationModality: MODALITY,
+      employeeTerminationType: TERMINATION_TYPE,
+    })
+  response.assertStatus(201)
+}
+
 /** Fila del colaborador tal como está en BD (fecha de baja como `yyyy-MM-dd HH:mm:ss`). */
 async function employeeRow(employeeId: number) {
   return db
@@ -240,9 +282,14 @@ async function offboardingRows(employeeId: number) {
     .select(
       'employee_offboarding_id',
       'employee_offboarding_status',
+      'employee_offboarding_origin',
       'employee_offboarding_termination_date',
       'employee_offboarding_termination_modality',
       'employee_offboarding_termination_type',
+      'employee_offboarding_closed_at',
+      'employee_offboarding_closed_by_user_id',
+      'employee_offboarding_cancelled_at',
+      'employee_offboarding_cancelled_by_user_id',
       db.raw("DATE_FORMAT(employee_offboarding_updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at")
     )
     .orderBy('employee_offboarding_id')
@@ -288,15 +335,27 @@ async function destroyFixtures(
 ): Promise<void> {
   const employeeIds = fixtures.map((fixture) => fixture.employee.employeeId)
   if (employeeIds.length > 0) {
+    const caseIds = db
+      .from(OFFBOARDINGS_TABLE)
+      .whereIn('employee_id', employeeIds)
+      .select('employee_offboarding_id')
+    await db
+      .from(EmployeeOffboardingItemEvidence.table)
+      .whereIn(
+        'employee_offboarding_item_id',
+        db
+          .from(EmployeeOffboardingItem.table)
+          .whereIn('employee_offboarding_id', caseIds)
+          .select('employee_offboarding_item_id')
+      )
+      .delete()
+    await db
+      .from(EmployeeOffboardingItem.table)
+      .whereIn('employee_offboarding_id', caseIds)
+      .delete()
     await db
       .from('employee_offboarding_documents')
-      .whereIn(
-        'employee_offboarding_id',
-        db
-          .from(OFFBOARDINGS_TABLE)
-          .whereIn('employee_id', employeeIds)
-          .select('employee_offboarding_id')
-      )
+      .whereIn('employee_offboarding_id', caseIds)
       .delete()
     await db.from(OFFBOARDINGS_TABLE).whereIn('employee_id', employeeIds).delete()
     await db.from('employee_salary_history').whereIn('employee_id', employeeIds).delete()
@@ -340,32 +399,11 @@ test.group(
       return fixture
     }
 
-    /** Baja real por HTTP con D: abre el expediente en automático. */
-    const terminate = async (
-      client: ApiClient,
-      fixture: EmployeeFixture,
-      inUnit: BusinessUnit = unit
-    ) => {
-      const response = await client
-        .delete(`/api/employees/${fixture.employee.employeeId}`)
-        .loginAs(root.user)
-        .header('X-Business-Unit-Id', inUnit.businessUnitPublicId)
-        .json({
-          employeeTerminatedDate: D,
-          employeeTerminationModality: MODALITY,
-          employeeTerminationType: TERMINATION_TYPE,
-        })
-      response.assertStatus(201)
-    }
+    const terminate = (client: ApiClient, fixture: EmployeeFixture, inUnit: BusinessUnit = unit) =>
+      terminateRequest(client, fixture, root, inUnit)
 
     const reactivate = (client: ApiClient, fixture: EmployeeFixture, actor: Actor = root) =>
-      client
-        .put(`/api/employees/${fixture.employee.employeeId}/reactivate`)
-        .loginAs(actor.user)
-        .header('X-Business-Unit-Id', unit.businessUnitPublicId)
-        .setup((request) => {
-          request.request.ok(() => true)
-        })
+      reactivateRequest(client, fixture, actor, unit)
 
     /** Colaborador con el código dado, ya dado de baja por HTTP. */
     const terminatedEmployee = async (client: ApiClient, label: string, code: string) => {
@@ -719,27 +757,12 @@ test.group('Salida concretada — R2 al deshacer la baja (VLRH-H1791055794596)',
   }
 
   const reactivate = (client: ApiClient, fixture: EmployeeFixture) =>
-    client
-      .put(`/api/employees/${fixture.employee.employeeId}/reactivate`)
-      .loginAs(root.user)
-      .header('X-Business-Unit-Id', unit.businessUnitPublicId)
-      .setup((request) => {
-        request.request.ok(() => true)
-      })
+    reactivateRequest(client, fixture, root, unit)
 
   /** Colaborador dado de baja por HTTP (abre su expediente) y su expediente abierto. */
   const terminatedWithCase = async (client: ApiClient, label: string) => {
     const fixture = await track(() => createEmployee(unit, label, `SC-${label}-${stamp()}`))
-    const response = await client
-      .delete(`/api/employees/${fixture.employee.employeeId}`)
-      .loginAs(root.user)
-      .header('X-Business-Unit-Id', unit.businessUnitPublicId)
-      .json({
-        employeeTerminatedDate: D,
-        employeeTerminationModality: MODALITY,
-        employeeTerminationType: TERMINATION_TYPE,
-      })
-    response.assertStatus(201)
+    await terminateRequest(client, fixture, root, unit)
     const [openCase] = await offboardingRows(fixture.employee.employeeId)
     if (!openCase) throw new Error('la baja debía abrir el expediente')
     return { fixture, offboardingId: Number(openCase.employee_offboarding_id) }
@@ -928,5 +951,253 @@ test.group('Salida concretada — R2 al deshacer la baja (VLRH-H1791055794596)',
     assert.equal(response.body().code, 'EMP.QUOTA.EXCEEDED')
     const row = await employeeRow(fixture.employee.employeeId)
     assert.isNotNull(row.employee_deleted_at)
+  })
+})
+
+test.group('Cancelar el expediente al deshacer la baja (VLRH-H1790812613830)', (group) => {
+  let unit: BusinessUnit
+  let foreignUnit: BusinessUnit
+  let root: Actor
+  const fixtures: EmployeeFixture[] = []
+  const actors: Actor[] = []
+  const SERVER_ERROR_BODY = {
+    type: 'error',
+    title: 'Server error',
+    message: 'An unexpected error has occurred on the server',
+  }
+
+  const track = async (build: () => Promise<EmployeeFixture>): Promise<EmployeeFixture> => {
+    const fixture = await asFixture(build)
+    fixtures.push(fixture)
+    return fixture
+  }
+
+  const reactivate = (client: ApiClient, fixture: EmployeeFixture) =>
+    reactivateRequest(client, fixture, root, unit)
+
+  /** Colaborador dado de baja por HTTP con su expediente abierto. */
+  const terminatedWithCase = async (client: ApiClient, label: string) => {
+    const fixture = await track(() => createEmployee(unit, label, `CX-${label}-${stamp()}`))
+    await terminateRequest(client, fixture, root, unit)
+    const [openCase] = await offboardingRows(fixture.employee.employeeId)
+    if (!openCase) throw new Error('la baja debía abrir el expediente')
+    return { fixture, offboardingId: Number(openCase.employee_offboarding_id) }
+  }
+
+  const createItem = (offboardingId: number, status: string) =>
+    EmployeeOffboardingItem.create({
+      employeeOffboardingId: offboardingId,
+      offboardingConceptId: null,
+      employeeSupplyId: null,
+      employeeOffboardingItemName: `Pendiente ${status}`,
+      employeeOffboardingItemStatus: status,
+      employeeOffboardingItemAmount: null,
+      employeeOffboardingItemNote: null,
+      employeeOffboardingItemCompletedAt:
+        status === EMPLOYEE_OFFBOARDING_ITEM_STATUS.COMPLETED ? DateTime.utc() : null,
+      employeeOffboardingItemCompletedByUserId: null,
+    })
+
+  const itemRows = (offboardingId: number) =>
+    db
+      .from(EmployeeOffboardingItem.table)
+      .where('employee_offboarding_id', offboardingId)
+      .select('employee_offboarding_item_id', 'employee_offboarding_item_status')
+      .orderBy('employee_offboarding_item_id')
+
+  const evidenceCount = async (offboardingId: number) => {
+    const rows = await db
+      .from(EmployeeOffboardingItemEvidence.table)
+      .whereIn(
+        'employee_offboarding_item_id',
+        db
+          .from(EmployeeOffboardingItem.table)
+          .where('employee_offboarding_id', offboardingId)
+          .select('employee_offboarding_item_id')
+      )
+      .whereNull('employee_offboarding_item_evidence_deleted_at')
+      .count('* as total')
+    return Number(rows[0].total)
+  }
+
+  /** Expediente abierto sin rastro de cancelación ni copia de la baja. */
+  const assertCaseUntouched = (assert: Assert, row: Record<string, unknown>) => {
+    assert.equal(row.employee_offboarding_status, EMPLOYEE_OFFBOARDING_STATUS.OPEN)
+    assert.isNull(row.employee_offboarding_cancelled_at)
+    assert.isNull(row.employee_offboarding_cancelled_by_user_id)
+    assert.isNull(row.employee_offboarding_termination_date)
+    assert.isNull(row.employee_offboarding_termination_modality)
+    assert.isNull(row.employee_offboarding_termination_type)
+  }
+
+  group.setup(async () => {
+    await asFixture(async () => {
+      unit = await createUnit('cancelar')
+      foreignUnit = await createUnit('cancelar-ajena')
+      root = await createRootActor([unit, foreignUnit])
+      actors.push(root)
+    })
+  })
+
+  group.teardown(() => asFixture(() => destroyFixtures(fixtures, actors, [unit, foreignUnit])))
+
+  test('CA-1: el expediente de la baja queda cancelado con quién y cuándo, y conserva pendientes y evidencias', async ({
+    client,
+    assert,
+  }) => {
+    const { fixture, offboardingId } = await terminatedWithCase(client, 'Completo')
+    const pending = await createItem(offboardingId, EMPLOYEE_OFFBOARDING_ITEM_STATUS.PENDING)
+    await createItem(offboardingId, EMPLOYEE_OFFBOARDING_ITEM_STATUS.COMPLETED)
+    await EmployeeOffboardingItemEvidence.create({
+      employeeOffboardingItemId: pending.employeeOffboardingItemId,
+      employeeOffboardingItemEvidenceFile: `tests/evidences/${stamp()}.pdf`,
+      employeeOffboardingItemEvidenceOriginalName: 'comprobante.pdf',
+    })
+    const itemsBefore = await itemRows(offboardingId)
+
+    const response = await reactivate(client, fixture)
+    response.assertStatus(200)
+
+    const [offboarding] = await offboardingRows(fixture.employee.employeeId)
+    assert.equal(offboarding.employee_offboarding_status, EMPLOYEE_OFFBOARDING_STATUS.CANCELLED)
+    assert.isNotNull(offboarding.employee_offboarding_cancelled_at)
+    assert.equal(offboarding.employee_offboarding_cancelled_by_user_id, root.user.userId)
+    assert.isNull(offboarding.employee_offboarding_closed_at)
+    assert.isNull(offboarding.employee_offboarding_closed_by_user_id)
+    // La copia de la baja (VLRH-H1790812613829) sigue escrita
+    assert.equal(toCalendarIsoDate(offboarding.employee_offboarding_termination_date), D)
+    // Regla 2: nada se borra ni se revierte
+    assert.deepEqual(await itemRows(offboardingId), itemsBefore)
+    assert.equal(await evidenceCount(offboardingId), 1)
+    const row = await employeeRow(fixture.employee.employeeId)
+    assert.isNull(row.employee_deleted_at)
+  })
+
+  test('CA-2: el expediente programado antes de la baja es el que queda cancelado', async ({
+    client,
+    assert,
+  }) => {
+    const fixture = await track(() => createEmployee(unit, 'Programado', `CX-PR-${stamp()}`))
+    const scheduled = await EmployeeOffboarding.create({
+      employeeId: fixture.employee.employeeId,
+      businessUnitId: unit.businessUnitId,
+      employeeOffboardingPlannedDate: D,
+      employeeOffboardingStatus: EMPLOYEE_OFFBOARDING_STATUS.OPEN,
+      employeeOffboardingOrigin: EMPLOYEE_OFFBOARDING_ORIGIN.SCHEDULED,
+      employeeOffboardingNotes: null,
+      employeeOffboardingOpenedByUserId: root.user.userId,
+    })
+    await terminateRequest(client, fixture, root, unit)
+    // La baja reutiliza el programado: sigue habiendo uno solo
+    assert.lengthOf(await offboardingRows(fixture.employee.employeeId), 1)
+
+    const response = await reactivate(client, fixture)
+    response.assertStatus(200)
+
+    const [offboarding] = await offboardingRows(fixture.employee.employeeId)
+    assert.equal(offboarding.employee_offboarding_id, scheduled.employeeOffboardingId)
+    assert.equal(offboarding.employee_offboarding_origin, EMPLOYEE_OFFBOARDING_ORIGIN.SCHEDULED)
+    assert.equal(offboarding.employee_offboarding_status, EMPLOYEE_OFFBOARDING_STATUS.CANCELLED)
+    assert.equal(offboarding.employee_offboarding_cancelled_by_user_id, root.user.userId)
+  })
+
+  test('CA-3: sin expediente abierto la reactivación procede y ninguna fila del expediente cambia', async ({
+    client,
+    assert,
+  }) => {
+    const { fixture } = await terminatedWithCase(client, 'SinAbierto')
+    await db
+      .from(OFFBOARDINGS_TABLE)
+      .where('employee_id', fixture.employee.employeeId)
+      .update({ employee_offboarding_deleted_at: new Date() })
+    const before = await offboardingRows(fixture.employee.employeeId)
+
+    const response = await reactivate(client, fixture)
+    response.assertStatus(200)
+
+    assert.deepEqual(await offboardingRows(fixture.employee.employeeId), before)
+    assert.isNull(before[0].employee_offboarding_cancelled_at)
+    const row = await employeeRow(fixture.employee.employeeId)
+    assert.isNull(row.employee_deleted_at)
+  })
+
+  test('CA-4: si la cancelación falla, la reactivación completa revierte y responde 500 genérico', async ({
+    client,
+    assert,
+    cleanup,
+  }) => {
+    const { fixture, offboardingId } = await terminatedWithCase(client, 'Rollback')
+    await createItem(offboardingId, EMPLOYEE_OFFBOARDING_ITEM_STATUS.PENDING)
+    const before = await employeeRow(fixture.employee.employeeId)
+    type WithCancel = { cancelOnReactivation: (...args: unknown[]) => Promise<void> }
+    const prototype = OffboardingsService.prototype as unknown as WithCancel
+    const original = prototype.cancelOnReactivation
+    cleanup(() => {
+      prototype.cancelOnReactivation = original
+    })
+    prototype.cancelOnReactivation = async () => {
+      throw new Error('fallo simulado al cancelar')
+    }
+
+    const response = await reactivate(client, fixture)
+    response.assertStatus(500)
+    assert.deepEqual(response.body(), SERVER_ERROR_BODY)
+
+    // El colaborador sigue dado de baja, con sufijo y datos de baja
+    assert.deepEqual(await employeeRow(fixture.employee.employeeId), before)
+    assert.isNotNull(before.employee_deleted_at)
+    assert.match(String(before.employee_code), /-IN\d+$/)
+    assert.equal(before.employee_termination_modality, MODALITY)
+    const [offboarding] = await offboardingRows(fixture.employee.employeeId)
+    assertCaseUntouched(assert, offboarding)
+  })
+
+  test('CA-5: un expediente abierto de otra empresa revierte todo y nunca se cancela', async ({
+    client,
+    assert,
+  }) => {
+    const { fixture, offboardingId } = await terminatedWithCase(client, 'Ajeno')
+    await db
+      .from(OFFBOARDINGS_TABLE)
+      .where('employee_offboarding_id', offboardingId)
+      .update({ business_unit_id: foreignUnit.businessUnitId })
+    const before = await employeeRow(fixture.employee.employeeId)
+
+    const response = await reactivate(client, fixture)
+    response.assertStatus(500)
+    assert.deepEqual(response.body(), SERVER_ERROR_BODY)
+
+    assert.deepEqual(await employeeRow(fixture.employee.employeeId), before)
+    const [offboarding] = await offboardingRows(fixture.employee.employeeId)
+    assertCaseUntouched(assert, offboarding)
+  })
+
+  test('CA-10: una baja posterior abre un expediente nuevo y el cancelado queda como historial', async ({
+    client,
+    assert,
+  }) => {
+    const { fixture, offboardingId } = await terminatedWithCase(client, 'Historial')
+    const reactivated = await reactivate(client, fixture)
+    reactivated.assertStatus(200)
+
+    await terminateRequest(client, fixture, root, unit)
+
+    const rows = await offboardingRows(fixture.employee.employeeId)
+    assert.lengthOf(rows, 2)
+    const [cancelled, fresh] = rows
+    assert.equal(cancelled.employee_offboarding_id, offboardingId)
+    assert.equal(cancelled.employee_offboarding_status, EMPLOYEE_OFFBOARDING_STATUS.CANCELLED)
+    assert.equal(fresh.employee_offboarding_status, EMPLOYEE_OFFBOARDING_STATUS.OPEN)
+    assert.equal(fresh.employee_offboarding_origin, EMPLOYEE_OFFBOARDING_ORIGIN.TERMINATION)
+    assert.isNull(fresh.employee_offboarding_cancelled_at)
+
+    const byEmployee = await client
+      .get(`/api/employee-offboardings/by-employee/${fixture.employee.employeeId}`)
+      .loginAs(root.user)
+      .header('X-Business-Unit-Id', unit.businessUnitPublicId)
+    byEmployee.assertStatus(200)
+    const dto = byEmployee.body().data.employeeOffboarding
+    assert.equal(dto.employeeOffboardingId, fresh.employee_offboarding_id)
+    assert.equal(dto.employeeOffboardingStatus, EMPLOYEE_OFFBOARDING_STATUS.OPEN)
   })
 })

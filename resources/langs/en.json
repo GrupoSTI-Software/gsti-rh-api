@@ -932,6 +932,8 @@
   "employee_offboarding_case_not_closed_message": "The offboarding case is still open; there is nothing to reopen",
   "employee_offboarding_case_closed_read_only_title": "Offboarding case closed",
   "employee_offboarding_case_closed_read_only_message": "The offboarding case is closed. Reopen it to keep registering progress.",
+  "employee_offboarding_case_cancelled_read_only_title": "Offboarding case cancelled",
+  "employee_offboarding_case_cancelled_read_only_message": "The exit was cancelled when the employee was reactivated; the case is read-only.",
   "employee_offboarding_document_resource_title": "Offboarding case documents",
   "employee_offboarding_document_issue_error_title": "The separation certificate could not be issued",
   "employee_offboarding_document_download_error_title": "The download link could not be generated",

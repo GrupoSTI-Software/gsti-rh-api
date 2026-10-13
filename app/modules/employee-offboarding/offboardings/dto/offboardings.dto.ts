@@ -6,6 +6,7 @@ import { toCalendarIsoDate, isBusinessCalendarDateBefore } from '#utils/business
 import {
   EMPLOYEE_OFFBOARDING_ITEM_STATUS,
   EMPLOYEE_OFFBOARDING_STATUS,
+  isOffboardingCaseWritable,
 } from '../offboardings.constants.js'
 import { SUPPLY_OUTCOME, type SupplyOutcome } from '../../items/items.constants.js'
 
@@ -61,6 +62,11 @@ export interface EmployeeOffboardingDto {
   /** Rastro del cierre (USRH1786568279596): null mientras el expediente siga abierto. */
   employeeOffboardingClosedAt: string | null
   employeeOffboardingClosedByUserId: number | null
+  /** Rastro de la cancelación al deshacer la baja (VLRH-H1790812613830); `null` si no se canceló. */
+  employeeOffboardingCancelledAt: string | null
+  employeeOffboardingCancelledByUserId: number | null
+  /** Nombre de quien reactivó (misma regla que la autoría de pendientes); `null` sin usuario o ya borrado. */
+  employeeOffboardingCancelledByUserName: string | null
   /**
    * Bloque de avance (USRH1786568279596, §6.2): derivado de los MISMOS
    * pendientes de esta respuesta — no puede divergir de los `isOverdue`
@@ -310,7 +316,7 @@ export function toOffboardingDto(
     suppliesById: params.suppliesById,
     userNamesById: params.userNamesById,
     evidenceCountsByItemId: params.evidenceCountsByItemId,
-    caseIsOpen: offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.OPEN,
+    caseIsOpen: isOffboardingCaseWritable(offboarding.employeeOffboardingStatus),
   }
 
   const items = orderedItems.map((item) => toItemDto(item, context))
@@ -330,6 +336,13 @@ export function toOffboardingDto(
     employeeDeleted: params.employeeDeleted,
     employeeOffboardingClosedAt: offboarding.employeeOffboardingClosedAt?.toISO() ?? null,
     employeeOffboardingClosedByUserId: offboarding.employeeOffboardingClosedByUserId ?? null,
+    employeeOffboardingCancelledAt: offboarding.employeeOffboardingCancelledAt?.toISO() ?? null,
+    employeeOffboardingCancelledByUserId: offboarding.employeeOffboardingCancelledByUserId ?? null,
+    employeeOffboardingCancelledByUserName:
+      offboarding.employeeOffboardingCancelledByUserId !== null &&
+      offboarding.employeeOffboardingCancelledByUserId !== undefined
+        ? (params.userNamesById.get(offboarding.employeeOffboardingCancelledByUserId) ?? null)
+        : null,
     itemsTotal: items.length,
     itemsCompleted,
     itemsOpen: items.length - itemsCompleted,
