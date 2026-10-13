@@ -209,7 +209,7 @@ Objetivo: comprobar que con un rol **sin lectura de Activos e insumos** el lista
 1. Cierra la sesión y entra con el **Usuario C** (`qa-roles-none@gsti-tests.local`). Elige la empresa **QA Fundadora**.
 2. Abre las herramientas del navegador (F12) → pestaña **Red** (**Network**), marca **Conservar registro** (**Preserve log**) y recarga **Empresa → Teletrabajadores**.
 3. En el **filtro** de esa pestaña escribe `telework-workers`. Quedarán tres peticiones: quédate con la del listado, la que en su dirección lleva **`nom037/telework-workers`** (las otras dos llevan `has-access`: son consultas de permiso). Púlsala.
-4. Abre su pestaña **Respuesta** (**Response**). El cuerpo trae los colaboradores de la empresa (13 en esta siembra), uno por renglón, y **cada renglón trae solo estos siete datos**: `employeeId`, `employeeCode`, `fullName`, `position`, `workSchedule`, `teleworkPercentage` y `workplaces`. Así se ve un renglón real:
+4. Abre su pestaña **Respuesta** (**Response**). El cuerpo trae los colaboradores de la empresa (13 en esta siembra), uno por renglón, y **cada renglón trae solo estos siete datos**: `employeeId`, `employeeCode`, `fullName`, `position`, `workSchedule`, `teleworkPercentage` y `workplaces`. Así se ve un renglón real (el `employeeId` y el `position` cambian con cada siembra; el juego de claves es el mismo):
 
 ```json
 { "employeeId": 179, "employeeCode": "973", "fullName": "Marta Espino Gil", "position": "QA Puesto origen",
