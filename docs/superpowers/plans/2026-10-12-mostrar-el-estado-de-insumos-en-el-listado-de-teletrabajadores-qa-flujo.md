@@ -207,11 +207,12 @@ Objetivo: comprobar que con un rol **sin lectura de Empleados** la columna **Ins
 Objetivo: comprobar que con un rol **sin lectura de Activos e insumos** el listado se ve como antes de esta historia —sin la columna **Insumos** y sin enlace en el nombre— y que el dato de insumos ni siquiera llega al navegador.
 
 1. Cierra la sesión y entra con el **Usuario C** (`qa-roles-none@gsti-tests.local`). Elige la empresa **QA Fundadora**.
-2. Abre la consola del navegador (F12) → pestaña de **red**, marca **Conservar registro**, y recarga **Empresa → Teletrabajadores**.
-3. En la respuesta que alimenta el listado, busca las palabras de los chips (**sin cubrir**, **en envío**, **resguardo**) o un identificador de ficha.
-4. Mira el listado en pantalla.
+2. Abre las herramientas del navegador (F12) → pestaña **Red** (**Network**), marca **Conservar registro** (**Preserve log**) y recarga **Empresa → Teletrabajadores**.
+3. En el **filtro** de esa pestaña escribe `telework-workers`. Verás tres peticiones con ese nombre: quédate con la que empieza por **nom037** (las otras dos son consultas de permiso) y púlsala.
+4. Abre su pestaña **Respuesta** (**Response**): en el cuerpo **no** debe aparecer ninguna palabra de los chips (**sin cubrir**, **en envío**, **resguardo**) ni un identificador de ficha (una cadena larga con guiones).
+5. Mira el listado en pantalla.
 
-**Qué debe verse:** el listado se ve **como antes**: las columnas terminan en **% de teletrabajo** y siguen con **Lugar donde labora** (**no** aparece **Insumos**), y el **nombre** es texto, no enlace. En la pestaña de red, el cuerpo de la respuesta **no** trae ningún resumen de insumos ni un identificador de ficha.
+**Qué debe verse:** el listado se ve **como antes**: las columnas terminan en **% de teletrabajo** y siguen con **Lugar donde labora** (**no** aparece **Insumos**), y el **nombre** es texto, no enlace. En la **Red**, el cuerpo de la respuesta de **nom037/telework-workers** **no** trae ningún resumen de insumos ni un identificador de ficha.
 
 **Qué significa lo nuevo aquí:**
 
