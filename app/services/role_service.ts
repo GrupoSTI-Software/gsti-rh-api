@@ -1,3 +1,4 @@
+import { isHumanCapitalIneligibleRole } from '#helpers/system_role_lock'
 import Department from '#models/department'
 import { PLATFORM_ROLE_SLUG } from '#constants/system_roles'
 import {
@@ -12,6 +13,27 @@ import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
+
+/** Traza de un cambio real de la marca Recursos Humanos. Sin datos personales. */
+export interface RoleHumanCapitalTrace {
+  event: 'role.human_capital.changed'
+  actorUserId: number
+  roleId: number
+  businessUnitId: number | null
+  previous: boolean
+  next: boolean
+}
+
+/**
+ * Arma la traza solo cuando la marca cambia. Si el valor se queda igual,
+ * no hay nada que registrar.
+ */
+export function buildRoleHumanCapitalTrace(
+  input: Omit<RoleHumanCapitalTrace, 'event'>
+): RoleHumanCapitalTrace | null {
+  if (input.previous === input.next) return null
+  return { event: 'role.human_capital.changed', ...input }
+}
 
 /** Qué parte de cada rol entrega el listado. */
 export interface RoleIndexOptions {
@@ -60,6 +82,7 @@ export default class RoleService {
     newRole.roleSlug = role.roleSlug
     newRole.businessUnitId = role.businessUnitId ?? null
     newRole.roleActive = role.roleActive
+    newRole.roleHumanCapital = isHumanCapitalIneligibleRole(role) ? false : role.roleHumanCapital === true
     if (trx) newRole.useTransaction(trx)
     await newRole.save()
     return newRole
@@ -76,6 +99,11 @@ export default class RoleService {
     currentRole.roleName = role.roleName
     currentRole.roleDescription = role.roleDescription
     currentRole.roleActive = role.roleActive
+    if (isHumanCapitalIneligibleRole(currentRole)) {
+      currentRole.roleHumanCapital = false
+    } else if (role.roleHumanCapital !== undefined) {
+      currentRole.roleHumanCapital = role.roleHumanCapital === true
+    }
     await currentRole.save()
     return currentRole
   }

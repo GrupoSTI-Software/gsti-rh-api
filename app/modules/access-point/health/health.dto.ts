@@ -90,10 +90,27 @@ export interface EnrollmentHealth {
   pendingEmployees: number
   /** PIN que el equipo reporto y que nadie ha vinculado a una persona. */
   unmappedPins: number
-  /** Biometricos resguardados que llegaron desde este equipo. */
+  /** Biometricos resguardados que se CAPTURARON en este equipo. */
   fingerprints: number
   faces: number
   palms: number
+  /**
+   * Dedos que Valanserh cree dentro del aparato: capturados ahi mas copias
+   * ejecutadas o acusadas. Es lo comparable con lo que el equipo declara.
+   */
+  fingerprintsInside: number
+  /** Colaboradores con rostro dentro, por template o por foto. */
+  facesInside: number
+  /**
+   * Lo que el propio equipo declaro en su ultima lectura de opciones. El
+   * firmware si reporta conteos actuales (medido el 2026-10-12: paso de 3 a 5
+   * huellas tras dos copias); `null` cuando nunca mando opciones.
+   */
+  declared: {
+    users: number | null
+    fingerprints: number | null
+    faces: number | null
+  }
 }
 
 /**

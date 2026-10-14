@@ -35,6 +35,12 @@ export interface EnqueueCommandResult {
  */
 export interface DeviceCommandPort {
   enqueue(input: EnqueueCommandInput): Promise<EnqueueCommandResult>
+  /**
+   * La orden viva (`pending` o `sent`) con esa llave hacia ese equipo, o
+   * `null`. Es la misma pregunta que hace `enqueue` para no duplicar, expuesta
+   * para quien necesita saberlo ANTES de crear lo que la orden lleva.
+   */
+  findLive(accessPointId: number, correlationKey: string): Promise<DeviceCommand | null>
   cancel(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand>
   /**
    * Cierra lo que siga vivo para ese vinculo. Devuelve cuantos cerro.

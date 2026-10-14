@@ -115,7 +115,7 @@ export default class OffboardingsController {
    *         schema: { type: integer }
    *     responses:
    *       200:
-   *         description: Expediente en data.employeeOffboarding, con avance y rastro de cierre
+   *         description: Expediente en data.employeeOffboarding, con avance, rastro de cierre y terminationSnapshot (baja deshecha; null sin registro)
    *       404:
    *         description: Colaborador fuera del alcance (colaborador-no-encontrado) o que nunca tuvo expediente (expediente-no-encontrado)
    *       403:
@@ -172,7 +172,7 @@ export default class OffboardingsController {
    *         description: Nombre completo (LIKE) o código de nómina exacto
    *       - in: query
    *         name: status
-   *         schema: { type: string, enum: [open, closed] }
+   *         schema: { type: string, enum: [open, closed, cancelled] }
    *       - in: query
    *         name: overdueOnly
    *         schema: { type: boolean }

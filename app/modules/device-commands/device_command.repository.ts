@@ -1,5 +1,6 @@
 import type { DateTime } from 'luxon'
 import type DeviceCommand from '#models/device_command'
+import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import type { DeviceCommandKind, DeviceCommandStatus } from './device_command.constants.js'
 
 export interface CommandInsert {
@@ -23,6 +24,26 @@ export interface CommandInsert {
 export interface EnqueueIdempotentResult {
   command: DeviceCommand
   created: boolean
+}
+
+/**
+ * Lo unico que la replicacion y el acuse necesitan saber de la cola: si ya
+ * hubo una copia EJECUTADA con esa llave hacia ese equipo.
+ *
+ * Es un puerto aparte, y no un metodo mas del repositorio completo, para que
+ * quien solo hace esta pregunta no cargue con la cola entera ni obligue a cada
+ * doble de pruebas a conocerla.
+ */
+export interface ExecutedCopyLookup {
+  /**
+   * @param excludeCommandId - El propio comando que se esta acusando: una
+   *   recopia solo cuenta como repetida si hubo OTRA entrega antes.
+   */
+  hasExecutedByCorrelation(
+    accessPointId: number,
+    correlationKey: string,
+    excludeCommandId?: number
+  ): Promise<boolean>
 }
 
 /** Puerto de persistencia de la cola. El servicio no toca Lucid. */
@@ -84,19 +105,39 @@ export interface DeviceCommandRepository {
    *
    * Devuelve falso si otra peticion se lo llevo primero; el que pierde no
    * entrega nada.
-   */
-  markSent(input: { commandId: number; payload: string; sentAt: DateTime }): Promise<boolean>
-  /**
-   * Devuelve a la cola los comandos que salieron y nadie acuso.
    *
-   * Suma un intento a cada uno: el que agote los suyos queda `failed`, para
-   * que una orden que el equipo no puede ejecutar no se reintente eternamente.
+   * `countersSnapshot` es la foto de los contadores del equipo ANTES de que
+   * reciba la orden: la linea base con la que despues se acredita que el
+   * biometrico entro. Se toma aqui y no al acusar porque hay firmwares que
+   * suben `options` antes de acusar, y una foto tomada al acusar ya traia el
+   * dato nuevo dentro.
    */
-  requeueStaleInFlight(input: {
-    accessPointId: number
-    sentBefore: DateTime
+  markSent(input: {
+    commandId: number
+    payload: string
+    sentAt: DateTime
+    countersSnapshot?: DeviceCommandCountersSnapshot | null
+  }): Promise<boolean>
+  /**
+   * Cierra un comando en vuelo que agoto su plazo, y solo si SIGUE en vuelo.
+   *
+   * Vuelve a la cola con un intento mas mientras le queden intentos; al
+   * agotarlos queda `failed`. `null` en el maximo es "insiste siempre" (la
+   * baja de usuario). Un enrolamiento presencial se falla al primer
+   * vencimiento: reabrir la captura sin la persona enfrente no sirve.
+   *
+   * La linea base de contadores se conserva al reencolar: se tomo antes de
+   * que el equipo recibiera la orden y sigue siendo la referencia.
+   *
+   * Es la UNICA politica de plazo en vuelo: antes el despacho tenia otra, a
+   * cinco minutos, que el barrido de cada minuto dejaba sin efecto.
+   */
+  requeueOrFailIfStill(input: {
+    commandId: number
+    expectedStatus: DeviceCommandStatus
     now: DateTime
-  }): Promise<{ requeued: number; failed: number }>
+    error: string
+  }): Promise<'requeued' | 'failed' | 'untouched'>
   /**
    * Falla un comando solo si sigue en el estado en que se leyo.
    *
@@ -127,5 +168,16 @@ export interface DeviceCommandRepository {
     pin?: string
     bioNo?: number
   }): Promise<DeviceCommand[]>
+  /**
+   * Dedos distintos (colaborador y numero) que el sistema cree dentro de ese
+   * equipo: los capturados ahi mas las copias ejecutadas o acusadas. Es con lo
+   * que se compara el contador de huellas del aparato.
+   */
+  countFingerprintsBelievedInside(accessPointId: number): Promise<number>
+  /**
+   * Colaboradores con rostro que el sistema cree dentro de ese equipo: template
+   * de rostro capturado ahi, copia de rostro o foto ejecutada o acusada.
+   */
+  countFacesBelievedInside(accessPointId: number): Promise<number>
   save(command: DeviceCommand): Promise<void>
 }

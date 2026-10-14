@@ -28,7 +28,8 @@ export interface IncidentRepository {
   findRecentSince(
     kind: AdmsIncidentKind,
     scope: IncidentScope,
-    since: DateTime
+    since: DateTime,
+    context?: IncidentContextFilter
   ): Promise<IncidentRecord | null>
   insert(record: IncidentRecord): Promise<number>
   /** Hay un incidente abierto de ese tipo para el dispositivo. */
@@ -39,5 +40,21 @@ export interface IncidentRepository {
    * Es para la causa que ya no existe, no para taparla: quien lo llama acaba
    * de comprobar que la condicion se resolvio.
    */
-  resolveOpen(kind: AdmsIncidentKind, accessPointId: number, now: DateTime): Promise<number>
+  resolveOpen(
+    kind: AdmsIncidentKind,
+    accessPointId: number,
+    now: DateTime,
+    context?: IncidentContextFilter
+  ): Promise<number>
+}
+
+/**
+ * Acota la deduplicacion o el cierre a un dato del contexto del aviso. Lo usa
+ * el aviso de huella sin repartir, que es por colaborador y dedo: dos
+ * personas enroladas en el mismo equipo son dos avisos, y copiar el dedo de
+ * una no cierra el de la otra.
+ */
+export interface IncidentContextFilter {
+  pin?: string
+  bioNo?: number
 }

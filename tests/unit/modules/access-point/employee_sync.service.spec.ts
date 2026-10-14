@@ -9,6 +9,7 @@ import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employe
 import type { DeviceCommandPort, EnqueueCommandInput } from '#modules/device-commands/device_command_port'
 import type DeviceCommand from '#models/device_command'
 import { AdmsError } from '#exceptions/adms_error'
+import type PhotoPublicationService from '#modules/biometric-vault/photo/photo_publication.service'
 
 function pivotOf(overrides: Partial<AccessPointEmployee> = {}): AccessPointEmployee {
   return {
@@ -34,6 +35,7 @@ interface Options {
   pinOwners?: Array<{ pivotId: number; pin: string }>
   live?: AccessPointEmployee[]
   enqueueThrows?: boolean
+  withdrawThrows?: boolean
 }
 
 function makeService(options: Options = {}) {
@@ -43,6 +45,8 @@ function makeService(options: Options = {}) {
   /** Vinculos a los que se les cerro lo vivo antes de pedir la baja. */
   const cancelledFor: number[] = []
   const statuses: Array<{ id: number; status: string }> = []
+  /** Colaboradores a los que se les retiraron las publicaciones de foto. */
+  const withdrawnFor: number[] = []
 
   const repository: EmployeeSyncRepository = {
     async withDeviceLock(_id, fn) {
@@ -106,6 +110,9 @@ function makeService(options: Options = {}) {
     async findForDevice() {
       return null
     },
+    async findLive() {
+      return null
+    },
     async cancelFingerprintWritesFor() {
       return 0
     },
@@ -118,12 +125,21 @@ function makeService(options: Options = {}) {
     },
   }
 
+  const publications = {
+    async withdrawForEmployee(employeeId: number) {
+      if (options.withdrawThrows) throw new Error('la boveda no respondio')
+      withdrawnFor.push(employeeId)
+      return 1
+    },
+  } as unknown as PhotoPublicationService
+
   return {
-    service: new EmployeeSyncService(repository, commands),
+    service: new EmployeeSyncService(repository, commands, publications),
     saved,
     events,
     enqueued,
     cancelledFor,
+    withdrawnFor,
   }
 }
 
@@ -364,6 +380,28 @@ test.group('Baja del colaborador', () => {
   test('sin equipos asignados no hay nada que revocar', async ({ assert }) => {
     const { service } = makeService({ live: [] })
     assert.deepEqual(await service.revokeAll(77, 44), [])
+  })
+
+  test('la baja retira los permisos de descarga de su foto', async ({ assert }) => {
+    const { service, withdrawnFor } = makeService({
+      pivot: pivotOf(),
+      live: [pivotOf({ accessPointId: 12 })],
+    })
+    await service.revokeAll(77, 44)
+    // Cada publicacion viva es un enlace a la cara de alguien que ya no esta.
+    assert.deepEqual(withdrawnFor, [77])
+  })
+
+  test('no poder retirar las publicaciones no detiene la baja', async ({ assert }) => {
+    const { service, enqueued } = makeService({
+      pivot: pivotOf(),
+      live: [pivotOf({ accessPointId: 12 })],
+      withdrawThrows: true,
+    })
+    const results = await service.revokeAll(77, 44)
+    assert.lengthOf(results, 1)
+    assert.isTrue(results[0].ok)
+    assert.lengthOf(enqueued, 1)
   })
 })
 

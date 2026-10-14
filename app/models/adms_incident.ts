@@ -35,6 +35,8 @@ export interface AdmsIncidentContext {
   declared?: number
   /** Cuantos deberia tener segun el servidor. */
   expected?: number
+  /** Numero de dedo (0-9) de la huella que subio el aparato. */
+  bioNo?: number
 }
 
 /** Claves permitidas, derivadas del tipo: agregar una obliga a tocar la interfaz. */

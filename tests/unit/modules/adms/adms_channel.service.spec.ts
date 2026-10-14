@@ -19,6 +19,9 @@ import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resol
 import type DeviceProfileService from '#modules/access-point/device-profile/device_profile.service'
 import type AttlogIngestionService from '#modules/adms/ingestion/attlog_ingestion.service'
 import type AccessPointProfile from '#models/access_point_profile'
+import type CommandAckService from '#modules/device-commands/dispatch/command_ack.service'
+import type BiometricUploadService from '#modules/adms/uploads/biometric_upload.service'
+import type { UploadContextRepository } from '#modules/adms/channel/upload_context.repository'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
 
@@ -144,13 +147,43 @@ function makeService(
       }
     },
   } as unknown as AttlogIngestionService
+  /** Ni acuses ni biometricos entran en estas pruebas; se dejan mudos a proposito. */
+  const ack = {
+    async apply() {
+      return { kind: 'unreadable' as const }
+    },
+  } as unknown as CommandAckService
+  const biometrics = {
+    async ingestBiodata() {
+      return { status: 'processed', error: null, stored: 0, held: 0, invalid: 0, unparsed: 0 }
+    },
+    async ingestOperlog() {
+      return { status: 'processed', error: null, stored: 0, held: 0, invalid: 0, unparsed: 0 }
+    },
+  } as unknown as BiometricUploadService
+  /**
+   * El nombre del equipo y la zona de la sede salen de un puerto: con el
+   * modelo directo, la consulta corria sin contexto de empresa y el canal
+   * leia la excepcion como un fallo de persistencia.
+   */
+  const uploadContext: UploadContextRepository = {
+    async accessPointName() {
+      return 'Checador de pruebas'
+    },
+    async businessUnitTimezone() {
+      return 'America/Mexico_City'
+    },
+  }
   const service = new AdmsChannelService(
     rawMessages,
     incidents,
     progress,
     profiles,
     deviceProfiles,
-    attlog
+    attlog,
+    ack,
+    biometrics,
+    uploadContext
   )
   return { service, recorded }
 }

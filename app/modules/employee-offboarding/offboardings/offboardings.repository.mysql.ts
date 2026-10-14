@@ -262,8 +262,10 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
         .if(!!filters.withoutSeparationLetter, (query) => {
           // Regla 3: sin baja ejecutada no hay faltante; regla 1: la misma
           // subconsulta del select, negada — el filtro y la marca no divergen
+          // Regla 5 de VLRH-H1791055795208: la salida cancelada nunca es faltante
           query
             .whereNotNull('e.employee_deleted_at')
+            .whereNot('eo.employee_offboarding_status', EMPLOYEE_OFFBOARDING_STATUS.CANCELLED)
             .whereRaw(`NOT EXISTS (${SEPARATION_LETTER_EXISTS_SUBQUERY})`, [
               EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER,
             ])
@@ -278,7 +280,11 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
           'eo.employee_offboarding_closed_by_user_id as closedByUserId',
           'e.employee_code as employeeCode',
           'e.employee_payroll_code as employeePayrollCode',
-          'e.employee_terminated_date as terminatedDate',
+          // La baja deshecha manda (VLRH-H1791055795208, regla 2): solo los
+          // cancelados llevan snapshot, así que open y closed no cambian
+          db.raw(
+            'COALESCE(eo.employee_offboarding_termination_date, e.employee_terminated_date) as terminatedDate'
+          ),
           'e.employee_deleted_at as employeeDeletedAt',
           'd.department_name as departmentName',
           'p.position_name as positionName',
@@ -308,6 +314,7 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
           'eo.employee_offboarding_closed_by_user_id',
           'e.employee_code',
           'e.employee_payroll_code',
+          'eo.employee_offboarding_termination_date',
           'e.employee_terminated_date',
           'e.employee_deleted_at',
           'e.employee_first_name',
@@ -340,8 +347,10 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
 
     const rows = (await aggregateQuery
       .clone()
-      // Orden por fecha de referencia (R2) con desempate estable por id
-      .orderByRaw('COALESCE(e.employee_terminated_date, eo.employee_offboarding_planned_date) DESC')
+      // Orden por fecha de referencia (R2; snapshot primero, VLRH-H1791055795208) con desempate estable por id
+      .orderByRaw(
+        'COALESCE(eo.employee_offboarding_termination_date, e.employee_terminated_date, eo.employee_offboarding_planned_date) DESC'
+      )
       .orderBy('eo.employee_offboarding_id', 'desc')
       .limit(safeLimit)
       .offset((safePage - 1) * safeLimit)) as Record<string, unknown>[]

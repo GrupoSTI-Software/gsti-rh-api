@@ -22,6 +22,9 @@ import type DeviceCommand from '#models/device_command'
 
 export interface CommandSweepResult {
   taken: number
+  /** En vuelo sin acuse que volvieron a la cola con un intento mas. */
+  requeued: number
+  /** En vuelo sin acuse que agotaron sus intentos (o eran presenciales). */
   timedOut: number
   withoutEvidence: number
   /** Equipos a los que se les volvio a pedir el padron para cerrar una baja. */
@@ -73,23 +76,37 @@ export default class CommandSweepService {
       TENANT_UNSCOPED_REASON.ADMS_COMMAND_SWEEP
     )
 
+    let requeued = 0
     let timedOut = 0
     let withoutEvidence = 0
 
     for (const command of stuck) {
       if (command.deviceCommandStatus === DEVICE_COMMAND_STATUS.SENT) {
         /**
+         * Una sola politica para lo que salio y nadie acuso: vuelve a la cola
+         * con un intento mas, y solo al agotarlos queda fallido. La baja de
+         * usuario no tiene tope; el enrolamiento presencial no se reintenta.
+         *
          * Condicionado al estado leido: entre la lectura de la tanda y esta
-         * escritura puede haber entrado el acuse. Marcar "fallo" sobre una
-         * orden que el equipo si ejecuto haria que el operador la reintentara.
+         * escritura puede haber entrado el acuse. Tocar una orden que el
+         * equipo si ejecuto haria que el operador la reintentara.
+         *
+         * El vinculo se suelta solo al fallar: mientras la orden se reintenta
+         * sigue en camino, y moverlo en cada vuelta lo dejaria contando una
+         * historia que no paso.
          */
-        const failed = await this.repository.markFailedIfStill({
-          commandId: command.deviceCommandId,
-          expectedStatus: DEVICE_COMMAND_STATUS.SENT,
-          failedAt: now,
-          error: DEVICE_COMMAND_FAILURE.INFLIGHT_TIMEOUT,
-        })
-        if (failed) {
+        const outcome = await TenantContext.runUnscoped(
+          () =>
+            this.repository.requeueOrFailIfStill({
+              commandId: command.deviceCommandId,
+              expectedStatus: DEVICE_COMMAND_STATUS.SENT,
+              now,
+              error: DEVICE_COMMAND_FAILURE.INFLIGHT_TIMEOUT,
+            }),
+          TENANT_UNSCOPED_REASON.ADMS_COMMAND_SWEEP
+        )
+        if (outcome === 'requeued') requeued += 1
+        if (outcome === 'failed') {
           timedOut += 1
           await this.releasePivot(command)
         }
@@ -115,12 +132,23 @@ export default class CommandSweepService {
         continue
       }
 
-      const failed = await this.repository.markFailedIfStill({
-        commandId: command.deviceCommandId,
-        expectedStatus: DEVICE_COMMAND_STATUS.ACKED,
-        failedAt: now,
-        error: DEVICE_COMMAND_FAILURE.NO_EVIDENCE,
-      })
+      /**
+       * Tambien fuera del corte por empresa, como la lectura de la tanda. Las
+       * escrituras del barrido corrian sin bypass y el mixin las bloqueaba en
+       * silencio desde la consola (`mode: blocked`): ningun comando colgado se
+       * cerraba nunca. Se vio el 2026-10-12 con un alta en vuelo que siguio
+       * `sent` despues de tres barridos.
+       */
+      const failed = await TenantContext.runUnscoped(
+        () =>
+          this.repository.markFailedIfStill({
+            commandId: command.deviceCommandId,
+            expectedStatus: DEVICE_COMMAND_STATUS.ACKED,
+            failedAt: now,
+            error: DEVICE_COMMAND_FAILURE.NO_EVIDENCE,
+          }),
+        TENANT_UNSCOPED_REASON.ADMS_COMMAND_SWEEP
+      )
       if (failed) withoutEvidence += 1
     }
 
@@ -135,7 +163,14 @@ export default class CommandSweepService {
     )
     const rosterRequested = await this.requestPendingRosters(now, limit)
 
-    return { taken: stuck.length, timedOut, withoutEvidence, rosterRequested, revocationsClosed }
+    return {
+      taken: stuck.length,
+      requeued,
+      timedOut,
+      withoutEvidence,
+      rosterRequested,
+      revocationsClosed,
+    }
   }
 
   /**

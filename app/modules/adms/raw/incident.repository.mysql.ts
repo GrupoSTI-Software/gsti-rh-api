@@ -2,7 +2,7 @@ import type { DateTime } from 'luxon'
 import AdmsIncident from '#models/adms_incident'
 import type { AdmsIncidentKind } from '#modules/adms/adms.constants'
 // El tipo se usa tambien en `hasOpen`, que no filtra por ventana.
-import type { IncidentRecord, IncidentRepository, IncidentScope } from './incident.repository.js'
+import type { IncidentRecord, IncidentRepository, IncidentScope, IncidentContextFilter } from './incident.repository.js'
 
 function toRecord(row: AdmsIncident): IncidentRecord {
   return {
@@ -39,11 +39,13 @@ export default class IncidentRepositoryMysql implements IncidentRepository {
   async findRecentSince(
     kind: AdmsIncidentKind,
     scope: IncidentScope,
-    since: DateTime
+    since: DateTime,
+    context?: IncidentContextFilter
   ): Promise<IncidentRecord | null> {
     const query = AdmsIncident.query()
       .where('adms_incident_kind', kind)
       .where('adms_incident_created_at', '>=', since.toFormat('yyyy-MM-dd HH:mm:ss'))
+    applyContextFilter(query, context)
     if (scope.accessPointId !== null) {
       query.where('access_point_id', scope.accessPointId)
     } else if (scope.serial !== null) {
@@ -69,12 +71,15 @@ export default class IncidentRepositoryMysql implements IncidentRepository {
   async resolveOpen(
     kind: AdmsIncidentKind,
     accessPointId: number,
-    now: DateTime
+    now: DateTime,
+    context?: IncidentContextFilter
   ): Promise<number> {
-    const open = await AdmsIncident.query()
+    const query = AdmsIncident.query()
       .where('adms_incident_kind', kind)
       .where('adms_incident_status', 'open')
       .where('access_point_id', accessPointId)
+    applyContextFilter(query, context)
+    const open = await query
 
     for (const incident of open) {
       incident.admsIncidentStatus = 'resolved'
@@ -102,5 +107,22 @@ export default class IncidentRepositoryMysql implements IncidentRepository {
     incident.admsIncidentStatus = 'open'
     await incident.save()
     return incident.admsIncidentId
+  }
+}
+
+/**
+ * Filtro por PIN y dedo sobre el JSON del contexto, con parametros ligados
+ * igual que el filtro por serie de arriba.
+ */
+function applyContextFilter(
+  query: ReturnType<typeof AdmsIncident.query>,
+  context: IncidentContextFilter | undefined
+): void {
+  if (!context) return
+  if (context.pin !== undefined) {
+    query.whereRaw("JSON_UNQUOTE(JSON_EXTRACT(adms_incident_context, '$.pin')) = ?", [context.pin])
+  }
+  if (context.bioNo !== undefined) {
+    query.whereRaw("JSON_EXTRACT(adms_incident_context, '$.bioNo') = ?", [context.bioNo])
   }
 }

@@ -6,6 +6,7 @@ import BusinessUnit from '#models/business_unit'
 import PlatformDevice from '#models/platform_device'
 import PlatformDeviceService from '#services/platform_device_service'
 import PlatformDeviceAssignmentService from '#services/platform_device_assignment_service'
+import type { AccessPointPreloadOutcome } from '#services/platform_device_access_point_service'
 import DeviceCommandService from '#modules/device-commands/device_command.service'
 import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
@@ -33,7 +34,7 @@ export interface ClaimFromQuarantineResult {
   accessPointId: number
   accessPointName: string
   /** `created` si el punto de acceso nacio aqui, `adopted` si ya existia. */
-  accessPointOutcome: 'created' | 'adopted'
+  accessPointOutcome: AccessPointPreloadOutcome
   /** Verdadero si hubo que revivir una fila dada de baja con esa serie. */
   revivedDeletedAccessPoint: boolean
   /**

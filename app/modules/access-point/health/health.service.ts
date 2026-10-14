@@ -19,6 +19,8 @@ import {
   DEVICE_COMMAND_STATUS,
 } from '#modules/device-commands/device_command.constants'
 import UploadProgressRepositoryMysql from '#modules/access-point/upload-progress/upload_progress.repository.mysql'
+import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
+import type { DeviceCommandRepository } from '#modules/device-commands/device_command.repository'
 import type { UploadProgressRepository } from '#modules/access-point/upload-progress/upload_progress.repository'
 import {
   ADMS_CAPACITY_SOURCE,
@@ -73,7 +75,8 @@ export interface ModelCapacity {
  */
 export default class HealthService {
   constructor(
-    private readonly progress: UploadProgressRepository = new UploadProgressRepositoryMysql()
+    private readonly progress: UploadProgressRepository = new UploadProgressRepositoryMysql(),
+    private readonly commands: DeviceCommandRepository = new DeviceCommandRepositoryMysql()
   ) {}
 
   /** Salud de todos los equipos del alcance. */
@@ -98,7 +101,7 @@ export default class HealthService {
     const catalogModel = await this.modelOf(accessPoint)
     const queue = await this.queueOf(accessPoint, now)
     const openIncidents = await this.openIncidentsOf(accessPoint.accessPointId)
-    const enrollment = await this.enrollmentOf(accessPoint.accessPointId)
+    const enrollment = await this.enrollmentOf(accessPoint.accessPointId, profile ?? null)
     const ipAnomalyOpen = await this.hasOpenIpAnomaly(accessPoint.accessPointId)
 
     const lastUploadAt: Record<string, string | null> = {}
@@ -157,7 +160,10 @@ export default class HealthService {
    * Valanserh tiene registrado, que ademas es lo accionable — un PIN suelto se
    * vincula y un alta sin confirmar se reintenta.
    */
-  private async enrollmentOf(accessPointId: number): Promise<EnrollmentHealth> {
+  private async enrollmentOf(
+    accessPointId: number,
+    profile: AccessPointProfile | null
+  ): Promise<EnrollmentHealth> {
     const confirmed = await AccessPointEmployee.query()
       .where('access_point_id', accessPointId)
       .where(
@@ -197,6 +203,13 @@ export default class HealthService {
       fingerprints: byType.get(BIO_TYPE.FINGERPRINT) ?? 0,
       faces: byType.get(BIO_TYPE.FACE) ?? 0,
       palms: byType.get(BIO_TYPE.PALM) ?? 0,
+      fingerprintsInside: await this.commands.countFingerprintsBelievedInside(accessPointId),
+      facesInside: await this.commands.countFacesBelievedInside(accessPointId),
+      declared: {
+        users: profile?.accessPointProfileUserCount ?? null,
+        fingerprints: profile?.accessPointProfileFpCount ?? null,
+        faces: profile?.accessPointProfileFaceCount ?? null,
+      },
     }
   }
 

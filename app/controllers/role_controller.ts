@@ -1,5 +1,6 @@
 import { HttpContext } from '@adonisjs/core/http'
-import RoleService from '#services/role_service'
+import logger from '@adonisjs/core/services/logger'
+import RoleService, { buildRoleHumanCapitalTrace } from '#services/role_service'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
 import Role from '#models/role'
 import { isReservedRoleIdentitySlug } from '#constants/system_roles'
@@ -294,7 +295,7 @@ export default class RoleController {
    *                       type: string
    */
   async store(ctx: HttpContext) {
-    const { request, response, businessUnitScope, i18n } = ctx
+    const { auth, request, response, businessUnitScope, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       // Un rol siempre nace dentro de una empresa: la activa de la sesión, la
@@ -367,6 +368,7 @@ export default class RoleController {
       } as Role
 
       const data = await request.validateUsing(createRoleValidator)
+      role.roleHumanCapital = data.roleHumanCapital ?? false
 
       // La plantilla concede permisos al rol recién creado: con solo `create`,
       // quien no puede editar permisos repartiría las concesiones de un módulo
@@ -430,6 +432,19 @@ export default class RoleController {
       }
 
       if (newRole) {
+        const actorUserId = auth.user?.userId
+        if (typeof actorUserId === 'number' && newRole.roleHumanCapital === true) {
+          const trace = buildRoleHumanCapitalTrace({
+            actorUserId,
+            roleId: newRole.roleId,
+            businessUnitId: newRole.businessUnitId ?? null,
+            previous: false,
+            next: true,
+          })
+          if (trace) {
+            logger.info(trace, 'roles: cambio de la marca Recursos Humanos')
+          }
+        }
         response.status(201)
         return {
           type: 'success',
@@ -450,7 +465,7 @@ export default class RoleController {
 
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
+      response.status(error.code === 'E_VALIDATION_ERROR' ? 422 : 500)
       return {
         type: 'error',
         title: 'Server error',
@@ -672,6 +687,10 @@ export default class RoleController {
         }
       }
       const data = await request.validateUsing(updateRoleValidator)
+      const previousHumanCapital = currentRole.roleHumanCapital
+      if (data.roleHumanCapital !== undefined) {
+        role.roleHumanCapital = data.roleHumanCapital
+      }
       const verifyInfo = await roleService.verifyInfo(role)
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
@@ -684,6 +703,19 @@ export default class RoleController {
       }
       const updateRole = await roleService.update(currentRole, role)
       if (updateRole) {
+        const actorUserId = auth.user?.userId
+        if (typeof actorUserId === 'number') {
+          const trace = buildRoleHumanCapitalTrace({
+            actorUserId,
+            roleId: updateRole.roleId,
+            businessUnitId: updateRole.businessUnitId ?? null,
+            previous: previousHumanCapital,
+            next: updateRole.roleHumanCapital,
+          })
+          if (trace) {
+            logger.info(trace, 'roles: cambio de la marca Recursos Humanos')
+          }
+        }
         response.status(201)
         return {
           type: 'success',
@@ -695,7 +727,7 @@ export default class RoleController {
     } catch (error) {
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
+      response.status(error.code === 'E_VALIDATION_ERROR' ? 422 : 500)
       return {
         type: 'error',
         title: 'Server error',

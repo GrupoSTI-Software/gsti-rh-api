@@ -78,7 +78,6 @@ export const ADMS_HOT_SESSION_MINUTES = 30
 export const ADMS_RATE = {
   devicePerMinute: 300,
   ipPerMinute: 1200,
-  photoPerMinute: 60,
   unknownSerialPerHour: 20,
   unknownSerialBlockMinutes: 15,
   quarantineRowsPerIpPerDay: 200,
@@ -260,6 +259,13 @@ export const ADMS_INCIDENT_KIND = {
   CHANNEL_HOST_PROBE: 'channel_host_probe',
   /** El aparato declara plataforma o firmware distintos de los guardados. */
   DEVICE_IDENTITY_CHANGED: 'device_identity_changed',
+  /**
+   * El equipo subio una huella que nadie le pidio desde el sistema y la persona
+   * esta dada de alta en otros equipos: no se reparte, porque la boveda no
+   * entrega un biometrico sin un humano que responda por la lectura, y sin
+   * aviso nadie sabria que esa huella se quedo en un solo aparato.
+   */
+  FINGERPRINT_NOT_SPREAD: 'fingerprint_not_spread',
 } as const
 export type AdmsIncidentKind = (typeof ADMS_INCIDENT_KIND)[keyof typeof ADMS_INCIDENT_KIND]
 

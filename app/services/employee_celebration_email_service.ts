@@ -18,6 +18,7 @@ import mail from '@adonisjs/mail/services/main'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import { DateTime } from 'luxon'
 import { resolveBusinessUnitSlugsForSetting } from '#helpers/system_settings_by_business_unit'
+import { fetchTenantHumanCapitalUsers } from '#helpers/tenant_users_with_module_permission'
 
 type CelebrationFlag = 'birthday' | 'anniversary'
 
@@ -35,6 +36,18 @@ export type EmployeeCelebrationSettingRunResult = {
   systemSettingId: number
   tradeName: string
 } & EmployeeCelebrationProcessSettingResult
+
+/** Persona de Recursos Humanos de un recordatorio, con las empresas donde lo es. */
+export interface HumanCapitalReminderRecipient {
+  user: User
+  businessUnitIds: number[]
+}
+
+/** Recordatorio ya repartido: solo los colaboradores de las empresas del destinatario. */
+export interface HrReminderBatch {
+  recipient: HumanCapitalReminderRecipient
+  employees: Employee[]
+}
 
 export type EmployeeCelebrationRunResult = {
   kind: EmployeeCelebrationEmailKind
@@ -204,41 +217,69 @@ export default class EmployeeCelebrationEmailService {
       .preload('position')
   }
 
-  private async fetchHrUsers(businessUnitSlugs: string[]): Promise<User[]> {
-    if (businessUnitSlugs.length === 0) {
-      return []
-    }
-
+  /**
+   * Personas de Recursos Humanos de las empresas pedidas, por la marca del rol
+   * efectivo. Un usuario sale una sola vez, con las empresas donde lo es.
+   * El correo vacío no entra.
+   */
+  async fetchHrUsers(businessUnitSlugs: string[]): Promise<HumanCapitalReminderRecipient[]> {
     const normalizedSlugs = businessUnitSlugs.map((slug) => slug.trim()).filter(Boolean)
+    if (normalizedSlugs.length === 0) return []
 
-    // La empresa de un rol se pregunta por su llave. Antes se cruzaba el CSV
-    // `role_business_access` con `FIND_IN_SET`, que era la forma de preguntar lo
-    // mismo cuando el rol no tenía dueño.
     const businessUnits = await BusinessUnit.query()
       .whereNull('business_unit_deleted_at')
       .whereIn('business_unit_slug', normalizedSlugs)
       .select('business_unit_id')
 
-    if (businessUnits.length === 0) {
-      return []
+    if (businessUnits.length === 0) return []
+
+    const rows = await fetchTenantHumanCapitalUsers({
+      businessUnitIds: businessUnits.map((unit) => unit.businessUnitId),
+    })
+
+    const companiesByUser = new Map<number, number[]>()
+    for (const row of rows) {
+      if (row.email === null || row.email.trim() === '') continue
+      const companies = companiesByUser.get(row.userId) ?? []
+      if (!companies.includes(row.businessUnitId)) companies.push(row.businessUnitId)
+      companiesByUser.set(row.userId, companies)
     }
 
-    const businessUnitIds = businessUnits.map((unit) => unit.businessUnitId)
+    const userIds = [...companiesByUser.keys()].sort((left, right) => left - right)
+    if (userIds.length === 0) return []
 
-    return User.query()
-      .whereNull('user_deleted_at')
-      .where('user_active', 1)
-      .whereNotNull('user_email')
-      .whereRaw("TRIM(user_email) <> ''")
-      .whereHas('role', (roleQuery) => {
-        roleQuery
-          .whereNull('role_deleted_at')
-          .where('role_active', 1)
-          .whereRaw('LOWER(TRIM(role_slug)) = ?', ['rh-manager'])
-          .whereIn('business_unit_id', businessUnitIds)
+    const users = await User.query().whereIn('user_id', userIds).preload('person')
+    const usersById = new Map(users.map((user) => [user.userId, user]))
+
+    const recipients: HumanCapitalReminderRecipient[] = []
+    for (const userId of userIds) {
+      const user = usersById.get(userId)
+      if (!user) continue
+      recipients.push({
+        user,
+        businessUnitIds: [...(companiesByUser.get(userId) ?? [])].sort((left, right) => left - right),
       })
-      .preload('person')
-      .preload('role')
+    }
+    return recipients
+  }
+
+  /**
+   * Reparte los colaboradores: cada destinatario solo ve los de las empresas
+   * donde es Recursos Humanos. Sin colaboradores que le toquen, no hay lote.
+   */
+  buildHrReminderBatches(
+    recipients: HumanCapitalReminderRecipient[],
+    employees: Employee[]
+  ): HrReminderBatch[] {
+    const batches: HrReminderBatch[] = []
+    for (const recipient of recipients) {
+      const matched = employees.filter((employee) =>
+        recipient.businessUnitIds.includes(employee.businessUnitId)
+      )
+      if (matched.length === 0) continue
+      batches.push({ recipient, employees: matched })
+    }
+    return batches
   }
 
   private formatSettingLabel(setting: SystemSetting): string {
@@ -326,9 +367,12 @@ export default class EmployeeCelebrationEmailService {
       return { sent: false, reason: 'no_employees' }
     }
 
-    const hrUsers = await this.fetchHrUsers(businessUnitSlugs)
-    if (hrUsers.length === 0) {
-      log.warning(`${settingLabel}: no hay usuarios RH elegibles para recordatorio de cumpleaños`)
+    const recipients = await this.fetchHrUsers(businessUnitSlugs)
+    const batches = this.buildHrReminderBatches(recipients, employees)
+    if (batches.length === 0) {
+      log.warning(
+        `${settingLabel}: no hay usuarios con rol marcado como Recursos Humanos y correo en la empresa (cumpleaños)`
+      )
       return { sent: false, reason: 'no_hr_recipients' }
     }
 
@@ -336,12 +380,12 @@ export default class EmployeeCelebrationEmailService {
     let emailsSkippedDev = 0
     let emailsFailed = 0
 
-    for (const hrUser of hrUsers) {
-      const person = hrUser.person
+    for (const batch of batches) {
+      const person = batch.recipient.user.person
       const html = generateBirthdayReminderEmailHtml(
         person.personFirstname,
         person.personLastname,
-        employees,
+        batch.employees,
         systemSetting.systemSettingTradeName,
         systemSetting.systemSettingSidebarColor,
         systemSetting.systemSettingLogo
@@ -350,7 +394,7 @@ export default class EmployeeCelebrationEmailService {
 
       try {
         const outcome = await this.sendHtmlEmail(
-          hrUser.userEmail,
+          batch.recipient.user.userEmail,
           subject,
           html,
           log,
@@ -369,7 +413,7 @@ export default class EmployeeCelebrationEmailService {
     }
 
     log.info(
-      `${settingLabel}: recordatorio cumpleaños RH — enviados ${emailsSent}, omitidos dev ${emailsSkippedDev}, fallidos ${emailsFailed}, RH ${hrUsers.length}, cumpleañeros ${employees.length}`
+      `${settingLabel}: recordatorio cumpleaños RH — enviados ${emailsSent}, omitidos dev ${emailsSkippedDev}, fallidos ${emailsFailed}, RH ${batches.length}, cumpleañeros ${employees.length}`
     )
 
     return emailsSent > 0 || emailsSkippedDev > 0
@@ -475,9 +519,12 @@ export default class EmployeeCelebrationEmailService {
       return { sent: false, reason: 'no_employees' }
     }
 
-    const hrUsers = await this.fetchHrUsers(businessUnitSlugs)
-    if (hrUsers.length === 0) {
-      log.warning(`${settingLabel}: no hay usuarios RH elegibles para recordatorio de aniversario`)
+    const recipients = await this.fetchHrUsers(businessUnitSlugs)
+    const batches = this.buildHrReminderBatches(recipients, employees)
+    if (batches.length === 0) {
+      log.warning(
+        `${settingLabel}: no hay usuarios con rol marcado como Recursos Humanos y correo en la empresa (aniversario)`
+      )
       return { sent: false, reason: 'no_hr_recipients' }
     }
 
@@ -485,12 +532,12 @@ export default class EmployeeCelebrationEmailService {
     let emailsSkippedDev = 0
     let emailsFailed = 0
 
-    for (const hrUser of hrUsers) {
-      const person = hrUser.person
+    for (const batch of batches) {
+      const person = batch.recipient.user.person
       const html = generateAnniversaryReminderEmailHtml(
         person.personFirstname,
         person.personLastname,
-        employees,
+        batch.employees,
         systemSetting.systemSettingTradeName,
         systemSetting.systemSettingSidebarColor,
         systemSetting.systemSettingLogo
@@ -499,7 +546,7 @@ export default class EmployeeCelebrationEmailService {
 
       try {
         const outcome = await this.sendHtmlEmail(
-          hrUser.userEmail,
+          batch.recipient.user.userEmail,
           subject,
           html,
           log,
@@ -518,7 +565,7 @@ export default class EmployeeCelebrationEmailService {
     }
 
     log.info(
-      `${settingLabel}: recordatorio aniversario RH — enviados ${emailsSent}, omitidos dev ${emailsSkippedDev}, fallidos ${emailsFailed}, RH ${hrUsers.length}, aniversarios ${employees.length}`
+      `${settingLabel}: recordatorio aniversario RH — enviados ${emailsSent}, omitidos dev ${emailsSkippedDev}, fallidos ${emailsFailed}, RH ${batches.length}, aniversarios ${employees.length}`
     )
 
     return emailsSent > 0 || emailsSkippedDev > 0

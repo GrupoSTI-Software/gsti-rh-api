@@ -236,6 +236,11 @@ test.group('Reconciliacion del padron (rebanada 8.1)', (group) => {
         receivedAt: DateTime.utc().plus({ seconds: 10 }),
       })
       assert.equal(result.revoked, 1)
+
+      // El padron es la respuesta del CHECK: la orden queda ejecutada con esa prueba.
+      const answered = await DeviceCommand.findOrFail(check.deviceCommandId)
+      assert.equal(answered.deviceCommandStatus, 'executed')
+      assert.equal(answered.deviceCommandExecutionEvidence, 'roster_uploaded')
     })
 
     const fresh = await TenantContext.run([businessUnitId], () =>
