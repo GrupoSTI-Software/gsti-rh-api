@@ -140,7 +140,10 @@ export default class OwnEquipmentDeclarationsService {
           businessUnitId: locked.businessUnitId,
           category: input.category,
           description: input.description,
-          conditions: input.conditions,
+          // La columna es NULL-able y el contrato dice `null`: la cadena vacía
+          // (ya recortada por Vine) no es un valor de negocio, así que se guarda
+          // como NULL en vez de persistir ''.
+          conditions: input.conditions === '' ? null : input.conditions,
           startDate,
           monthlyFee,
           feeSource: 'adjusted',
