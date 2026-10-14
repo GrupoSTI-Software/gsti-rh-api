@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import Stripe from 'stripe'
 import logger from '@adonisjs/core/services/logger'
 import {
@@ -19,11 +20,14 @@ import {
   type BillingCatalogProviderPort,
   type BillingCheckoutProviderPort,
   type BillingInvoiceProviderPort,
+  type BillingCustomerIdentityProviderPort,
   type BillingPaymentMethodProviderPort,
   type BillingProviderPort,
   type BillingSubscriptionStateProviderPort,
   type DefaultPaymentMethodRequest,
   type ProviderCard,
+  type ProviderCustomerAddress,
+  type ProviderCustomerIdentity,
   type BillingWebhookProviderPort,
   type InvoiceChargeDraft,
   type ProviderPaymentFailure,
@@ -167,6 +171,73 @@ export function buildStripeSubscriptionParams(params: {
       valanserh_signup_attempt: String(params.attempt),
     },
   }
+}
+
+function buildStripeIdentityMetadata(identity: ProviderCustomerIdentity): Stripe.MetadataParam {
+  return {
+    valanserh_business_unit_id: String(identity.businessUnitId),
+    valanserh_business_unit_public_id: identity.businessUnitPublicId,
+    valanserh_billing_subscription_id: String(identity.billingSubscriptionId),
+    valanserh_billing_plan_id: String(identity.billingPlanId),
+    valanserh_billing_plan_price_id: String(identity.billingPlanPriceId),
+  }
+}
+
+function stripeCustomerAddressFromProvider(
+  address: ProviderCustomerAddress
+): Stripe.Emptyable<Stripe.AddressParam> {
+  const fields = [
+    address.line1,
+    address.line2,
+    address.city,
+    address.state,
+    address.postalCode,
+  ]
+  if (fields.every((value) => value === null)) {
+    return ''
+  }
+  return {
+    line1: address.line1 ?? '',
+    line2: address.line2 ?? '',
+    city: address.city ?? '',
+    state: address.state ?? '',
+    postal_code: address.postalCode ?? '',
+    country: 'MX',
+  }
+}
+
+export function buildStripeCustomerIdentityParams(identity: ProviderCustomerIdentity): {
+  customer: Stripe.CustomerUpdateParams
+  subscription: Stripe.SubscriptionUpdateParams
+} {
+  const metadata = buildStripeIdentityMetadata(identity)
+  const customer: Stripe.CustomerUpdateParams = { metadata }
+  if (identity.name !== null && identity.name !== '') {
+    customer.name = identity.name
+  }
+  if (identity.contact !== null) {
+    if (identity.contact.billingEmail !== null) {
+      customer.email = identity.contact.billingEmail
+    }
+    customer.address = stripeCustomerAddressFromProvider(identity.contact.address)
+  }
+  return {
+    customer,
+    subscription: { metadata },
+  }
+}
+
+export function customerIdentityIdempotencyKey(
+  billingSubscriptionId: number,
+  target: 'customer' | 'subscription',
+  params: Stripe.CustomerUpdateParams | Stripe.SubscriptionUpdateParams,
+  version: string
+): string {
+  const hash = createHash('sha256')
+    .update(JSON.stringify({ params, version }))
+    .digest('hex')
+    .slice(0, 16)
+  return `valanserh-subscription-${billingSubscriptionId}-identity-${target}-${hash}`
 }
 
 const INVOICE_REF_PATTERN = /^in_[A-Za-z0-9]+$/
@@ -968,7 +1039,8 @@ export default class StripeBillingProviderAdapter
     BillingCheckoutProviderPort,
     BillingInvoiceProviderPort,
     BillingSubscriptionStateProviderPort,
-    BillingPaymentMethodProviderPort
+    BillingPaymentMethodProviderPort,
+    BillingCustomerIdentityProviderPort
 {
   readonly key = BILLING_PROVIDER_KEYS.STRIPE
 
@@ -1392,6 +1464,31 @@ export default class StripeBillingProviderAdapter
       )
     } catch (error) {
       throw this.#wrap('cancelProviderSubscription', error)
+    }
+  }
+
+  async syncCustomerIdentity(identity: ProviderCustomerIdentity): Promise<void> {
+    const client = this.#requireClient()
+    const { customer, subscription } = buildStripeCustomerIdentityParams(identity)
+    try {
+      await client.customers.update(identity.customerRef, customer, {
+        idempotencyKey: customerIdentityIdempotencyKey(
+          identity.billingSubscriptionId,
+          'customer',
+          customer,
+          identity.version
+        ),
+      })
+      await client.subscriptions.update(identity.subscriptionRef, subscription, {
+        idempotencyKey: customerIdentityIdempotencyKey(
+          identity.billingSubscriptionId,
+          'subscription',
+          subscription,
+          identity.version
+        ),
+      })
+    } catch (error) {
+      throw this.#wrap('syncCustomerIdentity', error)
     }
   }
 

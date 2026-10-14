@@ -137,6 +137,10 @@ export default class TenantBillingProfileService {
       })
 
       await profile.refresh()
+      void import('#services/billing_customer_identity_service').then(
+        ({ default: BillingCustomerIdentityService }) =>
+          new BillingCustomerIdentityService().syncForBusinessUnit(businessUnitId, 'profile')
+      )
       return this.toView(profile, true)
     } catch (error) {
       this.rethrowProfileConflict(error)

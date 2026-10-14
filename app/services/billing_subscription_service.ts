@@ -6,6 +6,7 @@ import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
 import BillingCatalogService, { type AppliedDiscountCode } from '#services/billing_catalog_service'
+import BillingCustomerIdentityService from '#services/billing_customer_identity_service'
 import DiscountCodeService from '#services/discount_code_service'
 import DiscountCode from '#models/discount_code'
 import AllianceAttributionService from '#services/alliance_attribution_service'
@@ -822,7 +823,7 @@ export default class BillingSubscriptionService {
       )
     }
 
-    return db.transaction(async (trx) => {
+    const updated = await db.transaction(async (trx) => {
       subscription.useTransaction(trx)
       subscription.billingPlanId = billingPlanId
       subscription.billingPlanPriceId = currentPrice.billingPlanPriceId
@@ -867,6 +868,12 @@ export default class BillingSubscriptionService {
       await subscription.save()
       return subscription
     })
+
+    void new BillingCustomerIdentityService().syncForSubscription(
+      updated.billingSubscriptionId,
+      'plan'
+    )
+    return updated
   }
 
   /**

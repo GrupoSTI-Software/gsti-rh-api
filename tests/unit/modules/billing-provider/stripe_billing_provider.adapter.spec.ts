@@ -17,9 +17,11 @@ import ManualBillingProviderAdapter from '#modules/billing-provider/manual_billi
 import {
   BILLING_PROVIDER_KEYS,
   isBillingInvoiceProvider,
+  isBillingCustomerIdentityProvider,
   isBillingPaymentMethodProvider,
   isBillingSubscriptionStateProvider,
   type BillingProviderPort,
+  type ProviderCustomerIdentity,
 } from '#modules/billing-provider/billing_provider.port'
 import StripeBillingProviderAdapter, {
   buildInvoiceItemParams,
@@ -27,6 +29,8 @@ import StripeBillingProviderAdapter, {
   buildStripeSetupIntentParams,
   buildStripePriceParams,
   buildStripeProductParams,
+  buildStripeCustomerIdentityParams,
+  customerIdentityIdempotencyKey,
   catalogIdempotencyKey,
   billingSubscriptionCardSetupIdempotencyKey,
   buildStripeBillingSubscriptionSetupIntentParams,
@@ -1672,5 +1676,133 @@ test.group('StripeBillingProviderAdapter — tarjeta vigente (USRH1790724549203)
     const manual = new ManualBillingProviderAdapter()
     assert.isTrue(isBillingPaymentMethodProvider(stripe))
     assert.isFalse(isBillingPaymentMethodProvider(manual))
+  })
+})
+
+test.group('StripeBillingProviderAdapter — identidad tenant (VLRH-H1791925351695)', () => {
+  const baseIdentity = (): ProviderCustomerIdentity => ({
+    customerRef: 'cus_fx',
+    subscriptionRef: 'sub_fx',
+    billingSubscriptionId: 4510,
+    businessUnitId: 12,
+    businessUnitPublicId: 'bu_public_fx',
+    billingPlanId: 3,
+    billingPlanPriceId: 9,
+    name: 'Comercializadora Norte SA de CV',
+    contact: null,
+    version: '1-none',
+  })
+
+  test('CA-2: perfil capturado arma customer con domicilio y metadata', ({ assert }) => {
+    const { customer, subscription } = buildStripeCustomerIdentityParams({
+      ...baseIdentity(),
+      contact: {
+        billingEmail: 'facturas@norte.mx',
+        address: {
+          line1: 'Av. Juárez 120',
+          line2: '4B, Centro',
+          city: 'Monterrey',
+          state: 'Nuevo León',
+          postalCode: '64000',
+        },
+      },
+    })
+    assert.equal(customer.name, 'Comercializadora Norte SA de CV')
+    assert.equal(customer.email, 'facturas@norte.mx')
+    assert.deepEqual(customer.address, {
+      line1: 'Av. Juárez 120',
+      line2: '4B, Centro',
+      city: 'Monterrey',
+      state: 'Nuevo León',
+      postal_code: '64000',
+      country: 'MX',
+    })
+    const metadata = customer.metadata as Record<string, string>
+    assert.equal(metadata.valanserh_billing_plan_price_id, '9')
+    assert.deepEqual(customer.metadata, subscription.metadata)
+    assert.notProperty(subscription, 'items')
+  })
+
+  test('CA-3: sin contacto no envía email ni address', ({ assert }) => {
+    const { customer } = buildStripeCustomerIdentityParams(baseIdentity())
+    assert.equal(customer.name, 'Comercializadora Norte SA de CV')
+    assert.notProperty(customer, 'email')
+    assert.notProperty(customer, 'address')
+  })
+
+  test('CA-4: domicilio vacío manda address como cadena vacía', ({ assert }) => {
+    const { customer } = buildStripeCustomerIdentityParams({
+      ...baseIdentity(),
+      contact: {
+        billingEmail: null,
+        address: {
+          line1: 'Calle 1',
+          line2: '',
+          city: 'Monterrey',
+          state: 'NL',
+          postalCode: '64000',
+        },
+      },
+    })
+    assert.notProperty(customer, 'email')
+    assert.isObject(customer.address)
+    assert.equal((customer.address as { line2: string }).line2, '')
+  })
+
+  test('CA-7: metadata solo cinco llaves Valanserh', ({ assert }) => {
+    const { customer } = buildStripeCustomerIdentityParams(baseIdentity())
+    assert.deepEqual(Object.keys(customer.metadata ?? {}).sort(), [
+      'valanserh_billing_plan_id',
+      'valanserh_billing_plan_price_id',
+      'valanserh_billing_subscription_id',
+      'valanserh_business_unit_id',
+      'valanserh_business_unit_public_id',
+    ])
+    assert.notInclude(JSON.stringify(customer), 'valanserh_signup_draft_id')
+  })
+
+  test('CA-8: perfil fiscal no filtra RFC al JSON de params', ({ assert }) => {
+    const serialized = JSON.stringify(buildStripeCustomerIdentityParams(baseIdentity()))
+    assert.notInclude(serialized, 'RFC')
+    assert.notInclude(serialized, 'tax_id')
+  })
+
+  test('CA-9: llaves idempotentes distintas por versión', ({ assert }) => {
+    const params = buildStripeCustomerIdentityParams(baseIdentity()).customer
+    const a = customerIdentityIdempotencyKey(1, 'customer', params, 'v1')
+    const b = customerIdentityIdempotencyKey(1, 'customer', params, 'v2')
+    const c = customerIdentityIdempotencyKey(1, 'customer', params, 'v1')
+    assert.notEqual(a, b)
+    assert.equal(a, c)
+  })
+
+  test('syncCustomerIdentity llama customers.update y subscriptions.update', async ({ assert }) => {
+    const order: string[] = []
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () =>
+      ({
+        customers: {
+          update: async () => {
+            order.push('customer')
+            return {}
+          },
+        },
+        subscriptions: {
+          update: async () => {
+            order.push('subscription')
+            return {}
+          },
+        },
+      }) as unknown as Stripe
+    )
+
+    await adapter.syncCustomerIdentity(baseIdentity())
+    assert.deepEqual(order, ['customer', 'subscription'])
+  })
+
+  test('isBillingCustomerIdentityProvider distingue stripe y manual', ({ assert }) => {
+    const stripe = new StripeBillingProviderAdapter(DISABLED_SETTINGS)
+    const manual = new ManualBillingProviderAdapter()
+    assert.isTrue(isBillingCustomerIdentityProvider(stripe))
+    assert.isFalse(isBillingCustomerIdentityProvider(manual))
   })
 })
