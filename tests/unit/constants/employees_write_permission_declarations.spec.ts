@@ -31,9 +31,11 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
   // syncEmployeesBySelection con el retiro de /api/synchronization/* (USRH1790276646847).
   // 158: entra listVacationAuthorizationRequests, el permiso que les faltaba a
   // los tres GET del formulario de autorizacion con firma.
-  test('declara exactamente 158 operaciones con module employees y bypass standard', ({ assert }) => {
+  // 159: entra storeOwnEquipmentDeclaration, la declaración de equipo propio de
+  // la ficha.
+  test('declara exactamente 159 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 158)
+    assert.equal(keys.length, 159)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -256,6 +258,7 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     ])
 
     assert.equal(d.createEmployeeSupply.action, 'manage-employee-supplies')
+    assert.equal(d.storeOwnEquipmentDeclaration.action, 'manage-employee-supplies')
     assert.equal(d.updateEmployeeSupply.action, 'manage-employee-supplies')
     assert.equal(d.retireEmployeeSupply.action, 'manage-employee-supplies')
     assert.equal(d.deleteEmployeeSupply.action, 'manage-employee-supplies')

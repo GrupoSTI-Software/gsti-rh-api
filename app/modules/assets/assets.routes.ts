@@ -1,5 +1,6 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
+import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import { SUPPLIES_PERMISSION_DECLARATIONS } from '#constants/supplies_permission_declarations'
 
 /**
@@ -52,6 +53,16 @@ router
         '#modules/assets/employee_assets.controller.teleworkSupplies'
       )
       .use(middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.showEmployeeTeleworkSupplies))
+    // Alta de la declaración de equipo propio: el permiso es el de administrar
+    // los suministros del colaborador, que vive en Empleados (no en supplies).
+    router
+      .post(
+        '/employees/:employeeId/own-equipment-declarations',
+        '#modules/assets/own_equipment_declarations.controller.store'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.storeOwnEquipmentDeclaration)
+      )
   })
   .prefix('/api')
   .use(middleware.auth())
