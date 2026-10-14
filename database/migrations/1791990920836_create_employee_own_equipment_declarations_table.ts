@@ -6,8 +6,9 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * La tabla nace completa: incluye las columnas que solo escriben las historias
  * de ajuste (`end_date`, `fee_source` ajustado, el cierre con `closed_reason` y
  * `closed_by_user_id`) y la de evidencia (`file`), porque ninguna de ellas
- * vuelve a migrar. Las FKs sin cascada conservan la evidencia NOM-037 10.4
- * aunque se borre en duro al colaborador o a la empresa.
+ * vuelve a migrar. Las FKs sin cascada son RESTRICT: impiden el borrado en
+ * duro del colaborador (o de la empresa) mientras tenga declaraciones, y así
+ * conservan la evidencia (NOM-037 10.4).
  *
  * El UNIQUE de a lo sumo una declaración vigente por colaborador y categoría
  * va sobre la columna generada `..._open_flag`, creada FUERA del callback de

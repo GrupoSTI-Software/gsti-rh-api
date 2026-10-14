@@ -29,9 +29,10 @@ import {
  * Declaración del uso de equipo propio con su cuota (VLRH-H1791306075599).
  *
  * Parte 1 (CA-14): la tabla y sus invariantes de BD, SIN HTTP. Prueba lo único
- * que la migración garantiza por sí sola: la FK sin cascada conserva la
- * evidencia NOM-037 aunque se borre al colaborador en duro, y el UNIQUE sobre la
- * columna generada admite a lo sumo una declaración vigente por colaborador y
+ * que la migración garantiza por sí sola: la FK RESTRICT impide el borrado en
+ * duro del colaborador mientras tenga declaraciones, conservando así la
+ * evidencia (NOM-037 10.4), y el UNIQUE sobre la columna generada admite a lo
+ * sumo una declaración vigente por colaborador y
  * categoría: cerrar y el borrado lógico liberan el índice, y otra categoría del
  * mismo colaborador entra sin choque.
  *
