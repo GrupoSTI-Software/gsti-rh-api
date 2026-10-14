@@ -18,10 +18,10 @@ import {
  *
  * Prueba lo único que la migración garantiza por sí sola (CA-14): la FK sin
  * cascada conserva la evidencia NOM-037 aunque se borre al colaborador en
- * duro, el UNIQUE sobre la columna generada admite a lo sumo una declaración
- * vigente por colaborador y categoría (cerrar libera el índice) y la
- * declaración queda atada a la empresa de su colaborador. El ciclo de alta por
- * API lo agregan las tareas siguientes sobre este mismo archivo.
+ * duro, y el UNIQUE sobre la columna generada admite a lo sumo una declaración
+ * vigente por colaborador y categoría: cerrar y el borrado lógico liberan el
+ * índice, y otra categoría del mismo colaborador entra sin choque. El ciclo de
+ * alta por API lo agregan las tareas siguientes sobre este mismo archivo.
  */
 
 const RUN = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
@@ -68,6 +68,20 @@ test.group('Declaraciones de equipo propio — tabla (sin HTTP)', (group) => {
     return id
   }
 
+  /**
+   * Corre `fn` y devuelve el código de error de MySQL si truena, o `undefined`
+   * si no hubo error. Centraliza el try/catch + cast que antes repetían los
+   * casos que esperan una violación de la BD (FK o UNIQUE).
+   */
+  async function dbErrorCode(fn: () => Promise<unknown>): Promise<string | undefined> {
+    try {
+      await fn()
+      return undefined
+    } catch (error) {
+      return (error as { code?: string }).code
+    }
+  }
+
   group.setup(async () => {
     actor = await createTenantActor('equipo-propio-tabla')
     employee = await createEmployeeFixture(
@@ -98,12 +112,9 @@ test.group('Declaraciones de equipo propio — tabla (sin HTTP)', (group) => {
   }) => {
     await insertDeclaration()
 
-    let code: string | undefined
-    try {
-      await db.rawQuery('DELETE FROM employees WHERE employee_id = ?', [employeeId()])
-    } catch (error) {
-      code = (error as { code?: string }).code
-    }
+    const code = await dbErrorCode(() =>
+      db.rawQuery('DELETE FROM employees WHERE employee_id = ?', [employeeId()])
+    )
 
     assert.equal(code, 'ER_ROW_IS_REFERENCED_2')
   })
@@ -113,12 +124,7 @@ test.group('Declaraciones de equipo propio — tabla (sin HTTP)', (group) => {
   }) => {
     const firstId = await insertDeclaration({ category: 'ergonomic_chair' })
 
-    let code: string | undefined
-    try {
-      await insertDeclaration({ category: 'ergonomic_chair' })
-    } catch (error) {
-      code = (error as { code?: string }).code
-    }
+    const code = await dbErrorCode(() => insertDeclaration({ category: 'ergonomic_chair' }))
     assert.equal(code, 'ER_DUP_ENTRY')
 
     // Cerrar la vigente la saca del índice (libera el slot de la categoría).
@@ -128,24 +134,33 @@ test.group('Declaraciones de equipo propio — tabla (sin HTTP)', (group) => {
       .update({ employee_own_equipment_declaration_status: 'closed' })
 
     // Nueva vigente de la misma categoría: entra sin ER_DUP_ENTRY.
-    await insertDeclaration({ category: 'ergonomic_chair' })
+    const afterClose = await dbErrorCode(() => insertDeclaration({ category: 'ergonomic_chair' }))
+    assert.isUndefined(afterClose)
   })
 
-  test('CA-14: la tabla distingue categorías y empresas', async ({ assert }) => {
-    const chairId = await insertDeclaration({ category: 'ergonomic_chair' })
-    // Otra categoría del mismo colaborador entra: el UNIQUE es por categoría.
-    const computingId = await insertDeclaration({ category: 'computing_equipment' })
+  test('CA-14: el UNIQUE es por colaborador y categoría', async ({ assert }) => {
+    await insertDeclaration({ category: 'ergonomic_chair' })
 
-    const rows: { employee_own_equipment_declaration_id: number; business_unit_id: number }[] =
-      await db
-        .from('employee_own_equipment_declarations')
-        .whereIn('employee_own_equipment_declaration_id', [chairId, computingId])
-        .select('employee_own_equipment_declaration_id', 'business_unit_id')
+    // Otra categoría del mismo colaborador entra sin ER_DUP_ENTRY: el UNIQUE
+    // incluye la categoría, así que dos categorías no comparten slot.
+    const code = await dbErrorCode(() => insertDeclaration({ category: 'computing_equipment' }))
 
-    assert.lengthOf(rows, 2)
-    // La declaración queda atada a la empresa del colaborador, nunca otra.
-    for (const row of rows) {
-      assert.equal(row.business_unit_id, businessUnitId())
-    }
+    assert.isUndefined(code)
+  })
+
+  test('CA-14: el borrado lógico también libera el slot del UNIQUE', async ({ assert }) => {
+    const firstId = await insertDeclaration({ category: 'accessory' })
+
+    // El borrado LÓGICO (no el cierre) también saca la fila del índice: al
+    // llenar `..._deleted_at`, el `open_flag` generado pasa a NULL.
+    await db
+      .from('employee_own_equipment_declarations')
+      .where('employee_own_equipment_declaration_id', firstId)
+      .update({ employee_own_equipment_declaration_deleted_at: new Date() })
+
+    // Nueva vigente de la misma categoría: entra sin ER_DUP_ENTRY.
+    const code = await dbErrorCode(() => insertDeclaration({ category: 'accessory' }))
+
+    assert.isUndefined(code)
   })
 })
