@@ -1,7 +1,12 @@
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
-import { OPEN_ASSIGNMENT_STATUSES, type OwnEquipmentDeclarationStatus } from './assets.constants.js'
+import {
+  OPEN_ASSIGNMENT_STATUSES,
+  type OwnEquipmentClosedReason,
+  type OwnEquipmentDeclarationStatus,
+  type OwnEquipmentFeeSource,
+} from './assets.constants.js'
 import type {
   OwnEquipmentDeclarationByEmployee,
   OwnEquipmentDeclarationDto,
@@ -36,8 +41,11 @@ const DECLARATION_DTO_COLUMNS = [
   'employee_own_equipment_declaration_description as description',
   'employee_own_equipment_declaration_conditions as conditions',
   calendarDate('employee_own_equipment_declaration_start_date', 'start_date'),
+  calendarDate('employee_own_equipment_declaration_end_date', 'end_date'),
   'employee_own_equipment_declaration_monthly_fee as monthly_fee',
+  'employee_own_equipment_declaration_fee_source as fee_source',
   'employee_own_equipment_declaration_status as status',
+  'employee_own_equipment_declaration_closed_reason as closed_reason',
   'employee_own_equipment_declaration_created_at as created_at',
 ]
 
@@ -49,8 +57,11 @@ interface DeclarationRow {
   description: string
   conditions: string | null
   start_date: string
+  end_date: string | null
   monthly_fee: string | number
+  fee_source: OwnEquipmentFeeSource
   status: OwnEquipmentDeclarationStatus
+  closed_reason: OwnEquipmentClosedReason | null
   created_at: string | Date
 }
 
@@ -63,8 +74,11 @@ function toDto(row: DeclarationRow): OwnEquipmentDeclarationDto {
     description: row.description,
     conditions: row.conditions,
     startDate: row.start_date,
+    endDate: row.end_date,
     monthlyFee: Number(row.monthly_fee),
+    feeSource: row.fee_source,
     status: row.status,
+    closedReason: row.closed_reason,
     createdAt: new Date(row.created_at).toISOString(),
   }
 }

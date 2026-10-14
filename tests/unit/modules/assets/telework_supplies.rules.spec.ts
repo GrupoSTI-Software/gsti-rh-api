@@ -1,7 +1,10 @@
 import { test } from '@japa/runner'
 import {
   buildEmployeeTeleworkSupplies,
+  hasOwnEquipmentChanges,
+  isOwnEquipmentSuperseded,
   resolveCategoryStatus,
+  resolveOwnEquipmentFeeSource,
   resolveTeleworkApplicability,
   summarizeTeleworkSupplies,
 } from '#modules/assets/telework_supplies.rules'
@@ -64,6 +67,9 @@ function makeDeclaration(
     monthlyFee: 350,
     status: 'active',
     createdAt: '2026-11-01T16:02:11.000Z',
+    endDate: null,
+    closedReason: null,
+    feeSource: 'adjusted',
     ...overrides,
   }
 }
@@ -363,4 +369,73 @@ test('un mapa vacío no cambia nada (la hermana anterior sigue igual)', ({ asser
   // Ninguna categoría porta declaración sin mapa.
   assert.isNull(categoryAt(explicit, 0).ownEquipment)
   assert.isNull(categoryAt(explicit, 1).ownEquipment)
+})
+
+test('resolveOwnEquipmentFeeSource decide el origen comparando centavos, nunca flotantes', ({
+  assert,
+}) => {
+  // Coinciden exactamente: la cuota es la estándar.
+  assert.equal(resolveOwnEquipmentFeeSource(350, 350), 'default')
+  assert.equal(resolveOwnEquipmentFeeSource(350, 350.0), 'default')
+
+  // Sin cuota estándar no hay precarga posible: siempre ajustada.
+  assert.equal(resolveOwnEquipmentFeeSource(350, null), 'adjusted')
+
+  // Montos distintos: cuota ajustada por RH.
+  assert.equal(resolveOwnEquipmentFeeSource(500, 350), 'adjusted')
+
+  // Centavos: el redondeo a centavos evita el ruido de punto flotante.
+  assert.equal(resolveOwnEquipmentFeeSource(0.3, 0.3), 'default')
+  assert.equal(resolveOwnEquipmentFeeSource(0.29, null), 'adjusted')
+})
+
+test('isOwnEquipmentSuperseded solo con vigente y categoria cubierta', ({ assert }) => {
+  // Cubierta (entregada o en envío) con declaración vigente: el aviso aplica.
+  assert.isTrue(isOwnEquipmentSuperseded('delivered', true))
+  assert.isTrue(isOwnEquipmentSuperseded('shipping', true))
+
+  // Cubierta por equipo propio no se sustituye por sí misma.
+  assert.isFalse(isOwnEquipmentSuperseded('own_equipment', true))
+
+  // Sin declaración vigente no hay nada que sustituir.
+  assert.isFalse(isOwnEquipmentSuperseded('delivered', false))
+  assert.isFalse(isOwnEquipmentSuperseded('uncovered', false))
+  assert.isFalse(isOwnEquipmentSuperseded('not_delivered', false))
+})
+
+test('hasOwnEquipmentChanges exige un cambio real en cuota, descripcion o condiciones', ({
+  assert,
+}) => {
+  const current = { monthlyFee: 350, description: 'Silla', conditions: null as string | null }
+
+  // Sin diferencias no es cambio.
+  assert.isFalse(hasOwnEquipmentChanges(current, { monthlyFee: 350, description: 'Silla' }))
+
+  // La cuota se compara en centavos.
+  assert.isFalse(
+    hasOwnEquipmentChanges(current, { monthlyFee: 350.0, description: 'Silla', conditions: null })
+  )
+
+  // Descripción normalizada con trim.
+  assert.isFalse(
+    hasOwnEquipmentChanges(
+      { ...current, description: ' x ' },
+      { monthlyFee: 350, description: 'x', conditions: null }
+    )
+  )
+
+  // Los opcionales ausentes heredan el valor vigente.
+  assert.isFalse(hasOwnEquipmentChanges(current, { monthlyFee: 350 }))
+
+  // Condiciones vacías normalizan a null.
+  assert.isFalse(
+    hasOwnEquipmentChanges(current, { monthlyFee: 350, conditions: '' })
+  )
+
+  // Cambios reales.
+  assert.isTrue(hasOwnEquipmentChanges(current, { monthlyFee: 420 }))
+  assert.isTrue(hasOwnEquipmentChanges(current, { monthlyFee: 350, description: 'b' }))
+  assert.isTrue(
+    hasOwnEquipmentChanges(current, { monthlyFee: 350, conditions: 'x' })
+  )
 })

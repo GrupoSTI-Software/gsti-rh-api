@@ -1,6 +1,7 @@
 import {
   EMPLOYEE_ASSET_CUSTODY_STATUSES,
   type EmployeeAssetCustodyStatus,
+  type OwnEquipmentFeeSource,
   type TeleworkSupplyCoverageStatus,
 } from './assets.constants.js'
 import {
@@ -275,4 +276,69 @@ function toAssetDto(row: TeleworkCoverageRow): TeleworkSupplyAssetDto {
 function resolveCustodyStatus(hasContract: boolean): EmployeeAssetCustodyStatus {
   const [signed, unsigned] = EMPLOYEE_ASSET_CUSTODY_STATUSES
   return hasContract ? signed : unsigned
+}
+
+/**
+ * Origen de la cuota mensual (regla 5, R2): `default` solo cuando la cuota
+ * coincide, al centavo, con la estándar vigente de la empresa; sin estándar o
+ * con una cuota distinta el origen es `adjusted`. Comparar centavos
+ * (`Math.round(x * 100)`) evita el ruido del punto flotante: nunca igualdad de
+ * `number` a pelo.
+ */
+export function resolveOwnEquipmentFeeSource(
+  monthlyFee: number,
+  feeDefault: number | null
+): OwnEquipmentFeeSource {
+  const isDefault =
+    feeDefault !== null && Math.round(monthlyFee * 100) === Math.round(feeDefault * 100)
+
+  return isDefault ? 'default' : 'adjusted'
+}
+
+/**
+ * ¿La categoría la cubre un activo y además el colaborador tiene declaración
+ * vigente? (regla 7, R5): el aviso de sustitución solo aplica con la categoría
+ * `delivered` o `shipping` —el activo deja obsoleta la declaración— y con una
+ * vigente que sustituir. `own_equipment` no se sustituye a sí mismo y los
+ * estados sin cobertura no llevan aviso.
+ */
+export function isOwnEquipmentSuperseded(
+  status: TeleworkSupplyCoverageStatus,
+  hasOpenDeclaration: boolean
+): boolean {
+  return hasOpenDeclaration && (status === 'delivered' || status === 'shipping')
+}
+
+/**
+ * Normaliza un texto opcional de la declaración: recorta los espacios y trata
+ * el vacío (y el `null`) como ausencia de valor, para comparar dos versiones.
+ */
+function normalizeOptionalText(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null
+  const trimmed = value.trim()
+  return trimmed.length === 0 ? null : trimmed
+}
+
+/**
+ * ¿El ajuste introduce un cambio real? (R5): la cuota se compara en centavos y
+ * la descripción y las condiciones normalizadas (`trim`, vacío = `null`), donde
+ * un `undefined` hereda el valor vigente. Limpiar las condiciones
+ * (`conditions: null` contra un valor vigente) ES un cambio; contra otro vacío,
+ * no.
+ */
+export function hasOwnEquipmentChanges(
+  current: { monthlyFee: number; description: string; conditions: string | null },
+  input: { monthlyFee: number; description?: string; conditions?: string | null }
+): boolean {
+  if (Math.round(current.monthlyFee * 100) !== Math.round(input.monthlyFee * 100)) {
+    return true
+  }
+
+  const nextDescription = input.description ?? current.description
+  if (normalizeOptionalText(nextDescription) !== normalizeOptionalText(current.description)) {
+    return true
+  }
+
+  const nextConditions = input.conditions === undefined ? current.conditions : input.conditions
+  return normalizeOptionalText(nextConditions) !== normalizeOptionalText(current.conditions)
 }
