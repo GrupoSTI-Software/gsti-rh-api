@@ -185,6 +185,8 @@ async function applyLastPaymentFailureIfNewer(
     declineCode: failure.declineCode,
     intentStatus: failure.intentStatus,
   })
+  sub.billingSubscriptionLastPaymentFailureCode = failure.errorCode
+  sub.billingSubscriptionLastPaymentFailureDeclineCode = failure.declineCode ?? null
   sub.billingSubscriptionLastPaymentFailureInvoiceRef = failure.invoiceRef
   await sub.save()
 }
