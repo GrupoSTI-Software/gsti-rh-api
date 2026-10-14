@@ -1,7 +1,5 @@
 # Prueba manual — Declarar el uso de equipo propio con su cuota
 
-**Estado: entregado el 13 de octubre de 2026 para su recorrido manual; el recorrido y las casillas del checklist quedan pendientes.**
-
 **Problema:** la NOM-037 permite que la empresa cubra una categoría de insumos con el **equipo propio** del colaborador en lugar de entregarle un activo, y que le pague una **cuota mensual** por usarlo. La matriz **Insumos de teletrabajo** de la ficha solo sabía de activos entregados o en camino: si una persona ponía su propia silla, la categoría seguía marcada como **Sin cubrir** y no había dónde registrar la cuota que se le paga por usarla.
 
 **Solución:** los renglones de la matriz que la empresa todavía no cubre ganan la acción **Declarar equipo propio**. Al declararla se captura la **descripción** del equipo, las **condiciones** pactadas, la **fecha de inicio** y la **cuota mensual**; al guardar, la categoría pasa a **Equipo propio declarado** con esos datos —**Desde el …** y **$… al mes**—, la acción desaparece de ese renglón y el resumen del bloque deja de contar ese pendiente. Lo declarado nunca se pinta como **Entregado**, porque no es un bien que la empresa haya entregado.
@@ -23,10 +21,6 @@ Ejemplo: es como la lista de lo que hay que llevar a un campamento. Si a alguien
 
 Prerrequisito: esta rama del API y la del backoffice están levantadas, y la base ya trae los módulos **Empleados** y **Activos e insumos**.
 
-Este manual se entrega para que una persona lo recorra en el navegador; el agente que lo escribió no lo camina.
-
-Aviso: el archivo que siembra los datos es temporal y **no está versionado** en el repositorio, así que hay que tenerlo presente al armar el ambiente.
-
 Ejecuta una vez el sembrador de QA compartido:
 
 ```bash
@@ -42,7 +36,7 @@ Qué deja listo para esta prueba:
 - La silla **`QA-TEL-ACT-SILLA-05`**, del tipo **Silla QA Insumos**, **en almacén**: sin resguardo. Se usa una sola vez, en el Escenario 4.4, para cubrir una categoría mientras hay un alta empezada.
 - Las **dos cuentas** de la §2.
 
-**Señal para reconocer lo nuestro:** los colaboradores de esta prueba tienen código de nómina `QA-TEL-…`; los activos de esta prueba tienen folio `QA-TEL-ACT-…`; el tipo de la silla termina en `QA Insumos`. Cualquier otro colaborador, activo o tipo de la empresa es de otra historia y no se toca.
+**Señal para reconocer lo nuestro:** los colaboradores de esta prueba son `QA-TEL-02`, `QA-TEL-03`, `QA-TEL-04` y `QA-TEL-05`; cualquier otro colaborador con código `QA-TEL-` es de otra historia y no se toca. Los activos de esta prueba llevan folio `QA-TEL-ACT-…`: la silla `QA-TEL-ACT-SILLA-05` (Escenario 4.4) y la laptop `QA-TEL-ACT-LAP-02` del cómputo de `QA-TEL-05` (Escenario 4.6); cualquier otro activo de la empresa es de otra historia. El tipo de la silla termina en `QA Insumos`.
 
 Estado de cada colaborador (lo que deja el sembrador):
 
@@ -80,7 +74,7 @@ La sección es **Activos**: está en el submenú lateral de la ficha, **al final
 
 Cómo se lee la matriz, de arriba a abajo: el título; la leyenda que dice si el registro es obligatorio o preventivo; los chips de resumen; y las tres categorías de la norma, **cada una en su renglón** —el rótulo de la categoría, su chip de estado al extremo derecho y, debajo, lo que la cubre: los activos con su folio y sus chips, o la **declaración de equipo propio** (su descripción, sus condiciones si las hay y la línea con **Desde el …** y **$… al mes**), o la acción **Declarar equipo propio** cuando la categoría está pendiente y la cuenta puede escribir. Las tres categorías salen siempre en el mismo orden: silla, cómputo, aditamento.
 
-URL directa de la sección: `http://127.0.0.1:3000/employees/<slug-o-token-del-colaborador>/assets` (la dirección **no** lleva `/es`).
+URL directa de la sección: `http://127.0.0.1:3000/employees/` seguida del identificador propio de la ficha abierta y de `/assets`; la dirección **no** lleva `/es`.
 
 Para el **Escenario 4.4**, la pantalla del catálogo de activos: menú lateral, grupo **Empresa** → **Activos e insumos**; ahí está el buscador **Buscar activo** y el filtro de **Estado**. URL directa: `http://127.0.0.1:3000/supplies`.
 
@@ -99,7 +93,7 @@ Objetivo: comprobar que en una categoría pendiente se puede declarar el equipo 
 3. Pulsa **Declarar equipo propio** en el renglón **Silla ergonómica**. Se abre por la derecha un cajón titulado **Declarar equipo propio: Silla ergonómica**, con los campos **Descripción del equipo**, **Condiciones pactadas**, **Fecha de inicio** y **Cuota mensual (MXN)**, y los botones **Cancelar** y **Guardar**.
 4. Llena **Descripción del equipo** con `Silla de oficina con respaldo ajustable` y **Condiciones pactadas** con `Buen estado; uso exclusivo para trabajo`.
 5. En **Fecha de inicio** elige el 1 de noviembre de 2026 (el campo queda como `2026-11-01`).
-6. En **Cuota mensual (MXN)** captura `350`. Antes de guardar, mira el campo de la cuota: muestra el importe capturado en formato de pesos, con dos decimales.
+6. En **Cuota mensual (MXN)** captura `350`: el campo acepta el importe tal como se teclea, sin ceros ni decimales forzados. El formato con dos decimales y el símbolo de peso aparecen en la etiqueta ya guardada.
 7. Pulsa **Guardar**.
 
 **Qué debe verse:**
@@ -115,8 +109,7 @@ Objetivo: comprobar que en una categoría pendiente se puede declarar el equipo 
 - **Insumos de teletrabajo**: el nombre de la tarjeta; agrupa las tres categorías que la norma obliga a vigilar.
 - **Obligatorio: este colaborador está en el listado de teletrabajadores (NOM-037 5.7, LFT 330-E)**: el registro es exigible; la persona teletrabaja el 40% o más de su jornada y por eso aparece en el listado obligatorio.
 - **Silla ergonómica / Equipo de cómputo o impresión / Aditamento**: las tres categorías de la norma, siempre en este orden.
-- **Estado de la categoría** (el chip de cada renglón): puede valer **Entregado** (la empresa ya le entregó cuando menos un activo de esa categoría), **En envío** (lo tiene en camino, todavía no en sus manos), **Equipo propio declarado** (la cubre con su propio equipo porque la empresa así lo registró), **Sin cubrir** (falta y así cuenta como pendiente) o **Sin entregar** (no se le ha entregado; solo aplica al Aditamento, que la norma no exige cubrir).
-- **Equipo propio declarado**: no es un bien entregado por la empresa; es el registro de que la persona pone su equipo y de la cuota que se le paga por usarlo.
+- **Estado de la categoría** (el chip de cada renglón): puede valer **Entregado** (la empresa ya le entregó cuando menos un activo de esa categoría), **En envío** (lo tiene en camino, todavía no en sus manos), **Equipo propio declarado** (no es un bien entregado por la empresa: registra que la persona pone su equipo y la cuota que se le paga por usarlo), **Sin cubrir** (falta y así cuenta como pendiente) o **Sin entregar** (no se le ha entregado; solo aplica al Aditamento, que la norma no exige cubrir).
 - **Declaración guardada.**: el aviso de que el alta se registró; arriba aparece el nombre de la categoría declarada.
 - **Desde el 01/11/2026**: la fecha desde la que rige el uso del equipo propio y su cuota.
 - **$350.00 al mes**: la cuota mensual capturada, en pesos y con dos decimales.
@@ -131,7 +124,7 @@ Objetivo: comprobar que una cuota de `0` es válida —el equipo propio puede de
 2. En el renglón **Equipo de cómputo o impresión** (chip **Sin cubrir**) pulsa **Declarar equipo propio**.
 3. Llena **Descripción del equipo** con `Laptop propia` y deja **Condiciones pactadas** vacío.
 4. En **Fecha de inicio** elige el 1 de noviembre de 2026.
-5. En **Cuota mensual (MXN)** captura `0`. Mira el campo antes de guardar: muestra el importe en formato de pesos con dos decimales; no se queda en blanco ni en un `0` a secas.
+5. En **Cuota mensual (MXN)** captura `0`: el campo acepta el cero tal como se teclea, sin forzarle decimales.
 6. Pulsa **Guardar**.
 7. **Negativo a comprobar a propósito:** abre otra vez un cajón del alta (el del renglón **Aditamento**, que sigue pendiente) y pulsa **Guardar** con todo vacío: los tres campos obligatorios marcan su aviso y no se guarda nada. Cierra ese cajón con **Cancelar**.
 
@@ -157,7 +150,7 @@ Objetivo: comprobar que la categoría del aditamento —la única que la norma n
 3. Pulsa **Declarar equipo propio** en el renglón **Aditamento**.
 4. Llena **Descripción del equipo** con `Monitor propio de 27 pulgadas`.
 5. En **Fecha de inicio** elige el 15 de noviembre de 2026.
-6. En **Cuota mensual (MXN)** captura `0.29`. Mira el campo antes de guardar: muestra el importe en formato de pesos con dos decimales.
+6. En **Cuota mensual (MXN)** captura `0.29`: el campo acepta la cantidad con centavos tal como se teclea.
 7. Pulsa **Guardar**.
 
 **Qué debe verse:**
@@ -225,17 +218,23 @@ Objetivo: comprobar que una categoría admite una sola declaración vigente: si 
 
 ### 4.6 Sin el permiso de escribir la declaración, la acción no aparece
 
-Objetivo: comprobar que con una cuenta que ve la matriz pero no puede administrar los suministros del colaborador, la acción **Declarar equipo propio** no aparece en ninguna categoría, ni siquiera en las que están pendientes.
+Objetivo: comprobar que con una cuenta que puede ver la matriz de insumos pero no administrar los suministros del colaborador, la acción para declarar equipo propio no se ofrece en ninguna categoría, ni siquiera en las que están pendientes.
 
 1. Cierra la sesión y entra con el **Usuario B** (`qa-own-equipment-readonly@gsti-tests.local`). Elige la empresa **QA Fundadora**.
 2. Abre la ficha de **Ximena Sosa Pena** (`QA-TEL-05`, Home Office 100%) y entra a **Activos**.
-3. La tarjeta **Insumos de teletrabajo** carga completa: leyenda de **Obligatorio**, chips de resumen **1 sin cubrir** y **1 en envío**, y sus tres renglones con su estado —**Silla ergonómica** en **Sin cubrir**, **Equipo de cómputo o impresión** en **En envío** con la laptop `QA-TEL-ACT-LAP-02` y su chip **En envío**, y **Aditamento** en **Sin entregar**—.
-4. **Negativo a comprobar a propósito:** en ningún renglón está el botón **Declarar equipo propio**; no aparece deshabilitado, ni gris, ni con candado: simplemente no está.
+3. Deja cargar la tarjeta **Insumos de teletrabajo** y revisa, uno por uno, sus tres renglones.
+
+**Qué debe verse:**
+
+- La tarjeta carga completa, con la leyenda **Obligatorio: este colaborador está en el listado de teletrabajadores (NOM-037 5.7, LFT 330-E)** y los chips de resumen **1 sin cubrir** y **1 en envío**.
+- El renglón **Silla ergonómica** en **Sin cubrir**.
+- El renglón **Equipo de cómputo o impresión** en **En envío**, con la laptop `QA-TEL-ACT-LAP-02` y su chip **En envío**.
+- El renglón **Aditamento** en **Sin entregar**.
+- **Negativo a comprobar a propósito:** en ningún renglón está el botón **Declarar equipo propio**; no aparece deshabilitado, ni gris, ni con candado: simplemente no está.
 
 **Qué significa lo nuevo aquí:**
 
 - Que falte la acción no es un fallo de la pantalla: a esta cuenta le falta el permiso con el que se administran los suministros del colaborador, así que la matriz se ve entera pero no ofrece declarar. La falta del permiso no se avisa en pantalla: la acción no se pinta.
-- **1 sin cubrir** y **1 en envío** juntos: una categoría obligatoria está pendiente porque falta (la silla) y otra porque depende de un activo que va en camino (el cómputo).
 
 ### 4.7 Anchos de pantalla
 
@@ -248,20 +247,19 @@ Objetivo: comprobar que el renglón con su declaración y el cajón del alta se 
 5. Abre un cajón del alta (por ejemplo, con el Usuario A en la ficha de **Walter Rivas Mota**, **Silla ergonómica** → **Declarar equipo propio**): el cajón ocupa **todo el ancho de la pantalla** y sus botones **Cancelar** y **Guardar** van apilados a lo ancho, uno debajo del otro. Ciérralo con **Cancelar**.
 6. Vuelve a la ficha de **Vera Quintero Lira** (la de los pasos 2 a 4) y ensancha la ventana a un ancho intermedio, **entre tableta y escritorio** (unos **850 px**): el renglón **sigue apilado en una sola columna** (el chip de estado viaja junto al rótulo) y la declaración se sigue leyendo en una sola columna. Es a propósito: entre tableta y escritorio la ficha deja al bloque un carril angosto.
 7. Pon la ventana a **ancho de escritorio** (desde unos **1024 px**), en esa misma ficha: ahí sí el renglón se abre —el rótulo de la categoría a la izquierda y el chip de estado al extremo derecho— y la declaración ocupa el ancho completo del renglón, debajo, sin desbordarse.
-8. Con sus tres categorías declaradas y **ningún activo** en la ficha, mira en cualquiera de los tres renglones la **separación entre el rótulo de la categoría y su declaración**: es la misma que separa los demás elementos del bloque; no queda una franja vacía de más entre el rótulo y los datos.
+8. Con sus tres categorías declaradas y **ningún activo** en la ficha, observa en cualquiera de los tres renglones el espacio entre el rótulo de la categoría y su declaración y compáralo con el de los demás renglones: reporta si se ve igual o si queda un hueco más grande.
 
 **Qué debe verse:**
 
 - A 360 px: sin desplazamiento horizontal, los renglones en una sola columna y el cajón a todo lo ancho con sus botones apilados.
 - A unos 850 px: los renglones **siguen** en una sola columna, con el chip de estado junto al rótulo.
 - Desde unos 1024 px: el renglón se abre con el rótulo a la izquierda y el chip de estado al extremo derecho, y la declaración queda debajo a todo lo ancho.
-- En la categoría sin activos: la declaración queda pegada a su rótulo con la separación del bloque, sin una franja vacía en medio.
 
 **Qué significa lo nuevo aquí:**
 
 - **Que a 850 px los renglones sigan en una columna**: dentro de la ficha el bloque vive en un carril más angosto que la ventana; con dos columnas el rótulo y los datos se apretarían, así que el renglón solo se abre cuando la ventana es de escritorio.
 - **Que el cajón ocupe todo el ancho en el teléfono**: en un panel lateral angosto la fecha y la cuota no caben sin apretarse.
-- **La separación sin activos**: una categoría sin activos tiene un renglón menos que mostrar, y la declaración debe quedar pegada a su rótulo con la misma separación del resto, sin dejar un hueco de más.
+- **La categoría sin activos**: cuando la categoría no tiene ningún activo, su renglón muestra un elemento menos que los demás; por eso conviene fijarse en si el espacio entre el rótulo y la declaración se ve igual que en el resto y reportarlo.
 
 ## 5. Escenarios que resuelven las pruebas automatizadas
 
@@ -334,7 +332,7 @@ Cada casilla se marca **contra el objetivo de su escenario**, no contra «se hic
 - [ ] 4.4 Con la categoría cubierta por un activo mientras el cajón está abierto, el servidor rechaza el alta con **El colaborador tiene un activo asignado o en envío en esta categoría; no se puede declarar equipo propio.**, el cajón no se cierra y no se guarda nada
 - [ ] 4.5 La segunda declaración de la misma categoría se rechaza con **El colaborador ya tiene una declaración de equipo propio vigente en esta categoría.**, el cajón no se cierra y la categoría queda con una sola declaración
 - [ ] 4.6 Con el Usuario B la matriz se ve completa y la acción **Declarar equipo propio** no está en ninguna categoría
-- [ ] 4.7 A 360 px no hay desplazamiento horizontal y el cajón va a todo lo ancho con los botones apilados; a unos 850 px los renglones siguen en una columna; desde unos 1024 px el renglón se abre con el chip de estado al extremo derecho y la declaración debajo a todo lo ancho, sin franja vacía en la categoría sin activos
+- [ ] 4.7 A 360 px no hay desplazamiento horizontal y el cajón va a todo lo ancho con los botones apilados; a unos 850 px los renglones siguen en una columna; desde unos 1024 px el renglón se abre con el chip de estado al extremo derecho y la declaración debajo a todo lo ancho
 
 ## 7. Hallazgos de otras historias
 
