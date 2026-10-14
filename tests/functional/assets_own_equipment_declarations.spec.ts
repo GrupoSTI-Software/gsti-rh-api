@@ -4,12 +4,14 @@ import db from '@adonisjs/lucid/services/db'
 import type User from '#models/user'
 import { AssetError } from '#modules/assets/assets.error'
 import OwnEquipmentDeclarationsRepositoryMysql from '#modules/assets/own_equipment_declarations.repository.mysql'
+import { makeTeleworkSuppliesService } from '#modules/assets/telework_supplies.service'
 import {
   cleanupEmployeeFixture,
   createEmployeeFixture,
   type EmployeeFixture,
 } from '#tests/helpers/employee_fixture'
 import {
+  addRoleModulePermissions,
   assertModuleEnforced,
   assertPermissionDenied,
   cleanupTenantActor,
@@ -633,6 +635,68 @@ test.group('Declaraciones de equipo propio — endpoint HTTP', (group) => {
       .update({ employee_telework_percentage: percentage })
   }
 
+  // ── Parte 3: la matriz y el resumen por lote (reutiliza los actores y helpers
+  //    HTTP de la parte 2 sobre este mismo grupo). ──────────────────────────────
+
+  const buIdB = () => required(actorB, 'el actor B').businessUnit.businessUnitId
+
+  /** Categoría de insumos tal como sale por HTTP, con su declaración adjunta (§11). */
+  interface MatrixCategoryResponse {
+    category: OwnEquipmentCategory
+    status: 'delivered' | 'shipping' | 'own_equipment' | 'uncovered' | 'not_delivered'
+    assets: Array<{ employeeSupplyId: number; assignmentStatus: string }>
+    ownEquipment: {
+      declarationId: number
+      employeeId: number
+      category: OwnEquipmentCategory
+      description: string
+      conditions: string | null
+      startDate: string
+      monthlyFee: number
+      status: string
+      createdAt: string
+    } | null
+  }
+
+  /** Cuerpo de la matriz de insumos que consume la parte 3. */
+  interface MatrixResponse {
+    employeeId: number
+    applies: boolean
+    isLegallyRequired: boolean
+    teleworkPercentage: number
+    legalThresholdPercent: number
+    categories: MatrixCategoryResponse[]
+    teleworkSuppliesSummary: {
+      applies: boolean
+      isLegallyRequired: boolean
+      deliveredCount: number
+      shippingCount: number
+      ownEquipmentCount: number
+      uncoveredCount: number
+      unsignedCustodyCount: number
+    }
+  }
+
+  /** GET de la matriz como el actor A (gate `supplies:read`, CA-1/CA-10/CA-11). */
+  async function matrixBody(client: ApiClient, employeeId: number): Promise<MatrixResponse> {
+    const response = await client
+      .get(`/api/employees/${employeeId}/telework-supplies`)
+      .loginAs(actorAUser())
+      .headers({ 'X-Business-Unit-Id': buPublicIdA() })
+    response.assertStatus(200)
+    return response.body().data as MatrixResponse
+  }
+
+  /** Categoría de la matriz por nombre; falla si el API no la trae. */
+  function matrixCategoryOf(
+    body: MatrixResponse,
+    category: OwnEquipmentCategory
+  ): MatrixCategoryResponse {
+    const found = body.categories.find((item) => item.category === category)
+    if (found === undefined) throw new Error(`Falta la categoría ${category} en la matriz.`)
+    return found
+  }
+
   group.setup(async () => {
     // La exigencia del módulo `employees` nace apagada (estado de entrega):
     // se enciende solo para este grupo y se repone en el teardown.
@@ -641,6 +705,9 @@ test.group('Declaraciones de equipo propio — endpoint HTTP', (group) => {
 
     actorA = await createTenantActor('equipo-propio-http-a')
     await grantModulePermissions(actorA, 'employees', ['manage-employee-supplies'])
+    // La parte 3 lee la matriz (gate `supplies:read`): se SUMA a la concesión de
+    // Empleados, porque `grantModulePermissions` la reemplazaría por completo.
+    await addRoleModulePermissions(actorA.role, 'supplies', ['read'])
     actorB = await createTenantActor('equipo-propio-http-b')
     owner = await createBypassUserInBusinessUnit(
       'owner',
@@ -655,6 +722,11 @@ test.group('Declaraciones de equipo propio — endpoint HTTP', (group) => {
     employeeA = await createEmployeeFixture(actorA.businessUnit.businessUnitId, `empA-${RUN.slice(-6)}`)
     employeeB = await createEmployeeFixture(actorB.businessUnit.businessUnitId, `empB-${RUN.slice(-6)}`)
     await setTelework(employeeA.employee.employeeId, 100)
+    // La matriz (parte 3) exige modalidad Remote/Hybrid y el fixture nace Onsite.
+    await db
+      .from('employees')
+      .where('employee_id', employeeA.employee.employeeId)
+      .update({ employee_work_schedule: 'Remote' })
   })
 
   // Cada caso parte de un colaborador A en teletrabajo y vivo: los que bajan el
@@ -1029,6 +1101,140 @@ test.group('Declaraciones de equipo propio — endpoint HTTP', (group) => {
       response.assertStatus(201)
       createdDeclarationIds.push(response.body().data.declarationId)
     }
+  })
+
+  // ── Parte 3: la matriz de insumos y el resumen por lote (CA-1, CA-10, CA-11,
+  //    CA-13). Reutiliza el POST de la parte 2 y los actores de este grupo. ──────
+
+  test('CA-1: la matriz muestra la declaración y el resumen baja un pendiente', async ({
+    client,
+    assert,
+  }) => {
+    const before = await matrixBody(client, employeeIdA())
+    assert.equal(matrixCategoryOf(before, 'ergonomic_chair').status, 'uncovered')
+    assert.isNull(matrixCategoryOf(before, 'ergonomic_chair').ownEquipment)
+
+    const created = await postAsA(client, employeeIdA(), {
+      ...BASE_PAYLOAD,
+      category: 'ergonomic_chair',
+    })
+    created.assertStatus(201)
+    const declarationId = created.body().data.declarationId
+    createdDeclarationIds.push(declarationId)
+
+    const after = await matrixBody(client, employeeIdA())
+    const chair = matrixCategoryOf(after, 'ergonomic_chair')
+    assert.equal(chair.status, 'own_equipment')
+    assert.isEmpty(chair.assets)
+    assert.equal(chair.ownEquipment?.declarationId, declarationId)
+    assert.equal(chair.ownEquipment?.category, 'ergonomic_chair')
+    assert.equal(chair.ownEquipment?.monthlyFee, 350)
+
+    assert.equal(
+      after.teleworkSuppliesSummary.ownEquipmentCount,
+      before.teleworkSuppliesSummary.ownEquipmentCount + 1
+    )
+    assert.equal(
+      after.teleworkSuppliesSummary.uncoveredCount,
+      before.teleworkSuppliesSummary.uncoveredCount - 1
+    )
+  })
+
+  test('CA-10: el aditamento declarado pasa a own_equipment', async ({ client, assert }) => {
+    const before = await matrixBody(client, employeeIdA())
+    assert.equal(matrixCategoryOf(before, 'accessory').status, 'not_delivered')
+
+    const created = await postAsA(client, employeeIdA(), {
+      ...BASE_PAYLOAD,
+      category: 'accessory',
+    })
+    created.assertStatus(201)
+    const declarationId = created.body().data.declarationId
+    createdDeclarationIds.push(declarationId)
+
+    const after = await matrixBody(client, employeeIdA())
+    const accessory = matrixCategoryOf(after, 'accessory')
+    assert.equal(accessory.status, 'own_equipment')
+    assert.equal(accessory.ownEquipment?.declarationId, declarationId)
+    assert.equal(after.teleworkSuppliesSummary.ownEquipmentCount, 1)
+  })
+
+  test('CA-11: asignar después un activo manda sobre la declaración, que sigue vigente', async ({
+    client,
+    assert,
+  }) => {
+    const created = await postAsA(client, employeeIdA(), {
+      ...BASE_PAYLOAD,
+      category: 'ergonomic_chair',
+    })
+    created.assertStatus(201)
+    const declarationId = created.body().data.declarationId
+    createdDeclarationIds.push(declarationId)
+
+    const declared = await matrixBody(client, employeeIdA())
+    assert.equal(matrixCategoryOf(declared, 'ergonomic_chair').status, 'own_equipment')
+    assert.equal(declared.teleworkSuppliesSummary.ownEquipmentCount, 1)
+
+    // La asignación por tabla (como la ruta legacy de Activos) no cierra la declaración.
+    await createTeleworkSupply({ category: 'ergonomic_chair', status: 'active' })
+
+    const after = await matrixBody(client, employeeIdA())
+    const chair = matrixCategoryOf(after, 'ergonomic_chair')
+    assert.equal(chair.status, 'delivered')
+    assert.isNotEmpty(chair.assets)
+    assert.equal(chair.ownEquipment?.declarationId, declarationId)
+    assert.equal(
+      after.teleworkSuppliesSummary.ownEquipmentCount,
+      declared.teleworkSuppliesSummary.ownEquipmentCount - 1
+    )
+    assert.equal(after.teleworkSuppliesSummary.deliveredCount, 1)
+
+    // La declaración sigue vigente aunque el activo mande en el estado (regla 7).
+    const stored: { status: string } = await db
+      .from('employee_own_equipment_declarations')
+      .where('employee_own_equipment_declaration_id', declarationId)
+      .select('employee_own_equipment_declaration_status as status')
+      .firstOrFail()
+    assert.equal(stored.status, 'active')
+  })
+
+  test('CA-13: el resumen por lote solo cuenta el alcance y corre sin contexto', async ({
+    client,
+    assert,
+  }) => {
+    const created = await postAsA(client, employeeIdA(), {
+      ...BASE_PAYLOAD,
+      category: 'ergonomic_chair',
+    })
+    created.assertStatus(201)
+    createdDeclarationIds.push(created.body().data.declarationId)
+
+    // Declaración vigente del colaborador de E2, por tabla (el actor B no tiene el permiso).
+    const [declarationBId] = await db.table('employee_own_equipment_declarations').insert({
+      employee_id: employeeIdB(),
+      business_unit_id: buIdB(),
+      employee_own_equipment_declaration_category: 'ergonomic_chair',
+      employee_own_equipment_declaration_description: `Equipo propio B ${RUN}`,
+      employee_own_equipment_declaration_start_date: '2026-11-01',
+      employee_own_equipment_declaration_monthly_fee: 350,
+      employee_own_equipment_declaration_fee_source: 'adjusted',
+      employee_own_equipment_declaration_status: 'active',
+      employee_own_equipment_declaration_created_by_user_id: actorAUser().userId,
+      employee_own_equipment_declaration_created_at: new Date(),
+    })
+    createdDeclarationIds.push(Number(declarationBId))
+
+    // Sin petición HTTP ni TenantContext: la factoría y el alcance posicional bastan.
+    const summary = await makeTeleworkSuppliesService().summarizeForEmployees(
+      [buIdA()],
+      [employeeIdA(), employeeIdB()]
+    )
+
+    assert.equal(summary.size, 1)
+    assert.isTrue(summary.has(employeeIdA()))
+    // Ausencia ≠ ceros: el colaborador fuera de alcance no aparece.
+    assert.isFalse(summary.has(employeeIdB()))
+    assert.equal(required(summary.get(employeeIdA()), 'el resumen de A').ownEquipmentCount, 1)
   })
 })
 
