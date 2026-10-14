@@ -315,24 +315,24 @@ Objetivo: comprobar que el bloque de la matriz, la declaración vigente y el caj
 
 **Checklist de los escenarios automatizados** (una casilla por escenario: se marca si su prueba pasó):
 
-- [ ] 5.1 Dos altas simultáneas de la misma categoría dejan una sola declaración vigente
-- [ ] 5.2 Colaborador de otra empresa, inexistente y dado de baja responden el mismo «no encontrado», sin crear declaración
-- [ ] 5.3 Sin el permiso de administrar los suministros del colaborador el servidor rechaza el alta, y los superusuarios pasan
-- [ ] 5.4 Los campos de más de la captura se ignoran; el identificador de empresa de otra empresa se cubre con el caso del Escenario 5.2
-- [ ] 5.5 El borrado en duro del colaborador con declaraciones se rechaza
-- [ ] 5.6 Los textos en inglés del bloque y del cajón están completos y no falta ninguna clave
+- [x] 5.1 Dos altas simultáneas de la misma categoría dejan una sola declaración vigente
+- [x] 5.2 Colaborador de otra empresa, inexistente y dado de baja responden el mismo «no encontrado», sin crear declaración
+- [x] 5.3 Sin el permiso de administrar los suministros del colaborador el servidor rechaza el alta, y los superusuarios pasan
+- [x] 5.4 Los campos de más de la captura se ignoran; el identificador de empresa de otra empresa se cubre con el caso del Escenario 5.2
+- [x] 5.5 El borrado en duro del colaborador con declaraciones se rechaza
+- [x] 5.6 Los textos en inglés del bloque y del cajón están completos y no falta ninguna clave
 
 ## 6. Checklist del recorrido manual
 
 Cada casilla se marca **contra el objetivo de su escenario**, no contra «se hicieron los pasos»:
 
-- [ ] 4.1 En la ficha de `QA-TEL-03`, declarar la silla con cuota `350` deja la categoría **Equipo propio declarado** con su descripción, sus condiciones, **Desde el 01/11/2026** y **$350.00 al mes**, sin el botón, y el resumen pasa de **2 sin cubrir** a **1 sin cubrir**
-- [ ] 4.2 Declarar el cómputo con cuota `0` se guarda tal cual (**$0.00 al mes**), el resumen queda en **Completo**, y con el cajón vacío los campos obligatorios marcan **Este campo es obligatorio.** sin guardar
-- [ ] 4.3 El aditamento que estaba **Sin entregar** se declara como equipo propio con **$0.29 al mes**, sin redondear la cuota y sin cambiar el resumen **Completo**
-- [ ] 4.4 Con la categoría cubierta por un activo mientras el cajón está abierto, el servidor rechaza el alta con **El colaborador tiene un activo asignado o en envío en esta categoría; no se puede declarar equipo propio.**, el cajón no se cierra y no se guarda nada
-- [ ] 4.5 La segunda declaración de la misma categoría se rechaza con **El colaborador ya tiene una declaración de equipo propio vigente en esta categoría.**, el cajón no se cierra y la categoría queda con una sola declaración
-- [ ] 4.6 Con el Usuario B la matriz se ve completa y la acción **Declarar equipo propio** no está en ninguna categoría
-- [ ] 4.7 A 360 px no hay desplazamiento horizontal y el cajón va a todo lo ancho con los botones apilados; a unos 850 px los renglones siguen en una columna; desde unos 1024 px el renglón se abre con el chip de estado al extremo derecho y la declaración debajo a todo lo ancho
+- [x] 4.1 En la ficha de `QA-TEL-03`, declarar la silla con cuota `350` deja la categoría **Equipo propio declarado** con su descripción, sus condiciones, **Desde el 01/11/2026** y **$350.00 al mes**, sin el botón, y el resumen pasa de **2 sin cubrir** a **1 sin cubrir**
+- [x] 4.2 Declarar el cómputo con cuota `0` se guarda tal cual (**$0.00 al mes**), el resumen queda en **Completo**, y con el cajón vacío los campos obligatorios marcan **Este campo es obligatorio.** sin guardar
+- [x] 4.3 El aditamento que estaba **Sin entregar** se declara como equipo propio con **$0.29 al mes**, sin redondear la cuota y sin cambiar el resumen **Completo**
+- [x] 4.4 Con la categoría cubierta por un activo mientras el cajón está abierto, el servidor rechaza el alta con **El colaborador tiene un activo asignado o en envío en esta categoría; no se puede declarar equipo propio.**, el cajón no se cierra y no se guarda nada
+- [x] 4.5 La segunda declaración de la misma categoría se rechaza con **El colaborador ya tiene una declaración de equipo propio vigente en esta categoría.**, el cajón no se cierra y la categoría queda con una sola declaración
+- [x] 4.6 Con el Usuario B la matriz se ve completa y la acción **Declarar equipo propio** no está en ninguna categoría
+- [x] 4.7 A 360 px no hay desplazamiento horizontal y el cajón va a todo lo ancho con los botones apilados; a unos 850 px los renglones siguen en una columna; desde unos 1024 px el renglón se abre con el chip de estado al extremo derecho y la declaración debajo a todo lo ancho
 
 ## 7. Hallazgos de otras historias
 
