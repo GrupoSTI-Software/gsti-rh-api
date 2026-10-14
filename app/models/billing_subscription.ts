@@ -189,6 +189,12 @@ export default class BillingSubscription extends compose(BaseModel, SoftDeletes)
   declare billingSubscriptionLastPaymentFailureReason: string | null
 
   @column({ serializeAs: null })
+  declare billingSubscriptionLastPaymentFailureCode: string | null
+
+  @column({ serializeAs: null })
+  declare billingSubscriptionLastPaymentFailureDeclineCode: string | null
+
+  @column({ serializeAs: null })
   declare billingSubscriptionLastPaymentFailureInvoiceRef: string | null
 
   @column.dateTime({ autoCreate: true })
