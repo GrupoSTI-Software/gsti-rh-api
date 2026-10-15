@@ -1,4 +1,5 @@
 import db from '@adonisjs/lucid/services/db'
+import logger from '@adonisjs/core/services/logger'
 import PlatformTenantGroup from '#models/platform_tenant_group'
 import { PLATFORM_TENANT_GROUP_ERROR_CODES } from '../constants/platform_tenant_group_error_codes.js'
 import { PlatformTenantGroupServiceError } from '../exceptions/platform_tenant_group_service_error.js'
@@ -335,8 +336,33 @@ export default class PlatformTenantGroupService {
     }
 
     // Despues del commit: el aviso se calcula con las membresias ya movidas.
-    const warnings = await this.shares.warningsForGroupExit(liberadosIds)
+    const warnings = await this.safeWarnings(liberadosIds, id)
     return { platformTenantGroupId: id, tenantsLiberados: liberadosIds.length, warnings }
+  }
+
+  /**
+   * Avisos de invitaciones fuera del grupo, sin tumbar la operacion: corre
+   * DESPUES del commit, asi que un fallo aqui no puede revertir nada y
+   * responder 500 haria creer que el cambio no se guardo. Se degrada a sin
+   * avisos y queda en el log; la discrepancia del inventario la sigue mostrando.
+   */
+  private async safeWarnings(
+    businessUnitIds: number[],
+    platformTenantGroupId: number
+  ): Promise<ShareGroupWarning[]> {
+    try {
+      return await this.shares.warningsForGroupExit(businessUnitIds)
+    } catch (error) {
+      logger.warn(
+        {
+          platformTenantGroupId,
+          businessUnitIds,
+          error: (error as Error).message.slice(0, 200),
+        },
+        'grupos: no se pudieron calcular los avisos de invitaciones fuera del grupo'
+      )
+      return []
+    }
   }
 
   /**
@@ -582,7 +608,7 @@ export default class PlatformTenantGroupService {
     }
 
     // Despues del commit: el aviso se calcula con las membresias ya movidas (D5).
-    const warnings = await this.shares.warningsForGroupExit(salientes)
+    const warnings = await this.safeWarnings(salientes, id)
     return { platformTenantGroupId: id, asignados: buIds.length, liberados, movidos, warnings }
   }
 }

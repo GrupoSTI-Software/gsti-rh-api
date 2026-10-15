@@ -20,6 +20,10 @@ import { PlatformDeviceServiceError } from '#exceptions/platform_device_service_
 import { PLATFORM_DEVICE_ERROR_CODES } from '#constants/platform_device_error_codes'
 import PlatformDeviceAssignment from '#models/platform_device_assignment'
 import PlatformTenantGroup from '#models/platform_tenant_group'
+import PlatformTenantGroupService from '#services/platform_tenant_group_service'
+import AccessPointShareService, {
+  type ShareGroupWarning,
+} from '#modules/access-point/sharing/access_point_share.service'
 import PlatformDeviceAccessPointService, {
   type AccessPointDeactivateOutcome,
 } from '#services/platform_device_access_point_service'
@@ -570,5 +574,27 @@ test.group('Checador compartido: landlord', (group) => {
         .firstOrFail()
     )
     assert.isNull(live.accessPointShareRevokedAt)
+  })
+
+  test('si los avisos fallan, dar de baja el grupo responde sin avisos y no se revierte', async ({
+    assert,
+  }) => {
+    const own = await ownFixture()
+    class FailingShares extends AccessPointShareService {
+      async warningsForGroupExit(): Promise<ShareGroupWarning[]> {
+        throw new Error('falla forzada al calcular avisos')
+      }
+    }
+    const result = await new PlatformTenantGroupService(new FailingShares()).deleteGroup(
+      own.groupId
+    )
+    assert.deepEqual(result.warnings, [])
+    // La baja quedo hecha: el grupo ya no esta vivo.
+    const live = await db
+      .from('platform_tenant_groups')
+      .where('platform_tenant_group_id', own.groupId)
+      .whereNull('platform_tenant_group_deleted_at')
+      .first()
+    assert.isNull(live ?? null)
   })
 })
