@@ -25,6 +25,7 @@ export const TENANT_UNSCOPED_REASON = {
   ADMS_PHOTO_TOKEN: 'adms-photo-token',
   BIOMETRIC_VAULT_REPLICATION: 'biometric-vault-replication',
   PLATFORM_DEVICES: 'platform-devices',
+  ACCESS_POINT_SHARING: 'access-point-sharing',
   PLATFORM_QUARANTINE_CLAIM: 'platform-quarantine-claim',
   PLATFORM_BILLING_PROFILE: 'platform-billing-profile',
   ASSIST_SYNC_ON_DEMAND: 'assist-sync-on-demand',
@@ -157,6 +158,11 @@ export const TENANT_UNSCOPED_REASON_POLICY: Record<TenantUnscopedReason, TenantU
     origin: 'PLATFORM_HTTP',
     logLevel: 'debug',
     description: 'Equipos, puntos de acceso y discrepancias en la consola',
+  },
+  'access-point-sharing': {
+    origin: 'PLATFORM_HTTP',
+    logLevel: 'info',
+    description: 'Invitaciones de checadores compartidos entre empresas del grupo (VLRH-P0065)',
   },
   'platform-quarantine-claim': {
     origin: 'PLATFORM_HTTP',
