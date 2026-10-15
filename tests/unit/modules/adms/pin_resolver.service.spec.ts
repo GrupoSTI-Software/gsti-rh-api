@@ -27,7 +27,7 @@ function makeService(options: Options = {}) {
   return { service: new PinResolverService(repository), created }
 }
 
-const INPUT = { accessPointId: 12, businessUnitId: 1, pin: '9999' }
+const INPUT = { accessPointId: 12, businessUnitId: 1, pin: '9999', shared: false }
 
 test.group('ADMS pin resolver', () => {
   test('el pivote manda: resuelve sin tocar el codigo del colaborador', async ({ assert }) => {
@@ -104,5 +104,27 @@ test.group('ADMS pin resolver', () => {
     const { service } = makeService()
     const result = await service.resolve(INPUT)
     assert.deepEqual(result, { kind: 'held', reason: 'unknown_pin' })
+  })
+
+  test('en checador compartido, sin pivote no infiere por codigo: retiene', async ({ assert }) => {
+    const { service, created } = makeService({
+      employees: [{ employeeId: 99, employeeCode: '9999', terminated: false }],
+    })
+    const result = await service.resolve({ ...INPUT, shared: true })
+    assert.deepEqual(result, { kind: 'held', reason: 'shared_device_no_pivot' })
+    assert.lengthOf(created, 0)
+  })
+
+  test('en checador compartido, el pivote sigue resolviendo', async ({ assert }) => {
+    const { service } = makeService({
+      pivot: {
+        accessPointEmployeeId: 5,
+        employeeId: 77,
+        employeeCode: 'EMP-77',
+        syncStatus: 'confirmed',
+      },
+    })
+    const result = await service.resolve({ ...INPUT, shared: true })
+    assert.equal(result.kind, 'employee')
   })
 })

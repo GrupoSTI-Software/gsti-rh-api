@@ -152,6 +152,7 @@ export default class BiometricUploadService {
         accessPointId: context.device.accessPointId,
         businessUnitId: context.device.businessUnitId,
         pin: user.pin,
+        shared: context.device.shared,
       })
       if (resolution.kind === 'employee') continue
       await this.heldPunches.touchUnmappedPin({
@@ -213,6 +214,7 @@ export default class BiometricUploadService {
         accessPointId: device.accessPointId,
         businessUnitId: device.businessUnitId,
         pin: row.pin,
+        shared: device.shared,
       })
 
       if (resolution.kind !== 'employee') {

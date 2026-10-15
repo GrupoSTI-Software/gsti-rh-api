@@ -11,6 +11,8 @@ export interface PinResolverInput {
   accessPointId: number
   businessUnitId: number
   pin: string
+  /** El aparato tiene invitadas: el codigo de colaborador choca entre empresas (VLRH-P0065, D7). */
+  shared: boolean
 }
 
 /**
@@ -45,6 +47,14 @@ export default class PinResolverService {
         employeeCode: pivot.employeeCode,
         pinInferred: false,
       }
+    }
+
+    /**
+     * En checador compartido el codigo de colaborador no identifica: dos empresas
+     * pueden tener el mismo. Sin pivote la checada se retiene, no se infiere.
+     */
+    if (input.shared) {
+      return { kind: 'held', reason: ADMS_HELD_PUNCH_REASON.SHARED_DEVICE_NO_PIVOT }
     }
 
     const candidates = await this.repository.findEmployeesByCode(input.businessUnitId, input.pin)
