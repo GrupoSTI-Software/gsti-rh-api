@@ -13,6 +13,8 @@ import PhotoPublicationService from '#modules/biometric-vault/photo/photo_public
 import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import type { CommandInsert } from '#modules/device-commands/device_command.repository'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { admsChannelPost } from '#tests/helpers/adms_channel_request'
 import {
@@ -169,6 +171,61 @@ test.group('Checador compartido: canal ADMS', (group) => {
         )
       )
     }, /no pertenece/)
+  })
+
+  /**
+   * Dentro de la transaccion del aparato (`outerTrx`), la participacion de la
+   * invitada se pregunta en esa misma conexion: pedir otra mientras se
+   * retiene la del candado es lo que agotaba el pool.
+   */
+  test('encolar dentro de la transaccion del aparato revalida la participacion en ella', async ({
+    assert,
+  }) => {
+    const clients: unknown[] = []
+    const real = new AccessPointScopeRepositoryMysql()
+    const spy = Object.assign(Object.create(real) as AccessPointScopePort, {
+      isParticipant: (accessPointId: number, businessUnitId: number, client?: unknown) => {
+        clients.push(client)
+        return real.isParticipant(
+          accessPointId,
+          businessUnitId,
+          client as Parameters<AccessPointScopePort['isParticipant']>[2]
+        )
+      },
+    })
+    const repo = new DeviceCommandRepositoryMysql(spy)
+    const stamp = Date.now()
+    const outerTrx = await db.transaction()
+    try {
+      const result = await TenantContext.run([fx.ownerBu, fx.guestBu], () =>
+        repo.enqueueIdempotent(
+          {
+            accessPointId: fx.accessPoint.accessPointId,
+            businessUnitId: fx.guestBu,
+            kind: DEVICE_COMMAND_KIND.USER_UPSERT,
+            payload: `DATA UPDATE USERINFO PIN=${fx.guestPin}`,
+            pin: fx.guestPin,
+            bioNo: null,
+            priority: 0,
+            maxAttempts: null,
+            employeeId: fx.guestEmployee.employeeId,
+            accessPointEmployeeId: null,
+            correlationKey: `test-share-trx-${stamp}`,
+            requestedByUserId: null,
+            biometricTemplateId: null,
+            biometricPhotoPublicationId: null,
+          },
+          [stamp * 10 + 3],
+          outerTrx
+        )
+      )
+      assert.isTrue(result?.created)
+      assert.lengthOf(clients, 1)
+      assert.strictEqual(clients[0], outerTrx)
+    } finally {
+      // Nada se confirma: el comando de la prueba no queda en la BD.
+      await outerTrx.rollback()
+    }
   })
 
   test('el padron no trata como ajenos a los de la invitada', async ({ assert }) => {

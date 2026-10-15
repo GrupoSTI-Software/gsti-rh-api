@@ -64,8 +64,16 @@ export interface AccessPointScopePort {
    */
   channelParticipants(accessPointId: number, ownerBusinessUnitId: number): Promise<number[]>
 
-  /** El scope del canal y si el aparato se compartio alguna vez, en una consulta. */
-  channelScope(accessPointId: number, ownerBusinessUnitId: number): Promise<ChannelScope>
+  /**
+   * El scope del canal y si el aparato se compartio alguna vez, en una
+   * consulta. Con `client`, lee en esa conexion (p. ej. la transaccion que
+   * tiene el aparato bloqueado) en vez de pedir otra al pool.
+   */
+  channelScope(
+    accessPointId: number,
+    ownerBusinessUnitId: number,
+    client?: QueryClientContract
+  ): Promise<ChannelScope>
 
   /** Empresa responsable del aparato, o `null` si no existe o esta borrado. */
   ownerOf(accessPointId: number): Promise<number | null>

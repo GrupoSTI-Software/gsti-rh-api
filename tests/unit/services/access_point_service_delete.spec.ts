@@ -21,8 +21,8 @@ const deviceTrx = { fake: 'trx-del-aparato' } as unknown as TransactionClientCon
 /** Puerto falso: solo responde el scope del canal que pide el borrado. */
 function scopeWith(channel: ChannelScope): AccessPointScopePort {
   return {
-    channelScope: async () => {
-      steps.push('channel-scope')
+    channelScope: async (_accessPointId: number, _owner: number, client?: unknown) => {
+      steps.push(client === deviceTrx ? 'channel-scope-en-trx' : 'channel-scope-fuera')
       return channel
     },
   } as unknown as AccessPointScopePort
@@ -116,7 +116,7 @@ test.group('AccessPointService.delete', (group) => {
       deviceLock
     )
     await service.delete(accessPoint)
-    assert.deepEqual(steps, ['lock:10', 'channel-scope', 'delete-en-trx'])
+    assert.deepEqual(steps, ['lock:10', 'channel-scope-en-trx', 'delete-en-trx'])
   })
 
   test('el 409 tambien se decide con el aparato bloqueado', async ({ assert }) => {
@@ -127,6 +127,6 @@ test.group('AccessPointService.delete', (group) => {
       deviceLock
     )
     await assert.rejects(() => service.delete(accessPoint))
-    assert.deepEqual(steps, ['lock:10', 'channel-scope'])
+    assert.deepEqual(steps, ['lock:10', 'channel-scope-en-trx'])
   })
 })

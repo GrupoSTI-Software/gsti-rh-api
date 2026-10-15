@@ -284,7 +284,7 @@ export default class UnmappedPinsService {
     trx: TransactionClientContract
   ): Promise<void> {
     const businessUnitId = requireStoredEmployeeBusinessUnitId(employee)
-    if (!(await this.scope.isParticipant(row.accessPointId, businessUnitId))) {
+    if (!(await this.scope.isParticipant(row.accessPointId, businessUnitId, trx))) {
       throw new EmployeeOutOfScopeError()
     }
 

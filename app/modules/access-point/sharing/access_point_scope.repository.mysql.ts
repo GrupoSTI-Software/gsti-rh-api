@@ -79,9 +79,10 @@ export default class AccessPointScopeRepositoryMysql implements AccessPointScope
    */
   async channelScope(
     accessPointId: number,
-    ownerBusinessUnitId: number
+    ownerBusinessUnitId: number,
+    client: QueryClientContract = db.connection()
   ): Promise<ChannelScope> {
-    const result = (await db.rawQuery(
+    const result = (await client.rawQuery(
       `SELECT 'ever' AS src, NULL AS business_unit_id, 0 AS ord,
               EXISTS(SELECT 1 FROM access_point_shares WHERE access_point_id = ?) AS ever_shared
        UNION ALL
@@ -143,8 +144,14 @@ export default class AccessPointScopeRepositoryMysql implements AccessPointScope
   }
 
   /**
-   * La empresa es la responsable del aparato vivo o tiene invitacion viva. Lee
-   * con `db` (otra conexion): no espera candados de una transaccion en curso.
+   * La empresa es la responsable del aparato vivo o tiene invitacion viva.
+   *
+   * Sin `client` lee con una conexion del pool, en lectura consistente: no
+   * espera candados de otra transaccion. Dentro de la transaccion del aparato
+   * (`inDeviceTransaction`, `enqueueIdempotent` con `outerTrx`) se pasa esa
+   * `trx`: la operacion no pide otra conexion mientras retiene la suya, y como
+   * la lectura ocurre despues del `FOR UPDATE`, ve lo que confirmo quien tenia
+   * el candado antes.
    */
   async isParticipant(
     accessPointId: number,

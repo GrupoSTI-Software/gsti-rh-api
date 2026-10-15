@@ -86,7 +86,8 @@ export default class DeviceCommandRepositoryMysql
       const participant =
         owner !== null &&
         (owner === input.businessUnitId ||
-          (await this.scope.isParticipant(input.accessPointId, input.businessUnitId)))
+          // En la transaccion que ya bloqueo el equipo: sin pedir otra conexion.
+          (await this.scope.isParticipant(input.accessPointId, input.businessUnitId, trx)))
       if (!participant) {
         throw new DeviceCommandError(
           'El checador no pertenece a esa empresa',

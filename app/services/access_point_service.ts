@@ -174,7 +174,8 @@ export default class AccessPointService {
     return this.deviceLock.inDeviceTransaction(currentAccessPoint.accessPointId, async (trx) => {
       const { participantBusinessUnitIds, everShared } = await this.scope.channelScope(
         currentAccessPoint.accessPointId,
-        currentAccessPoint.businessUnitId
+        currentAccessPoint.businessUnitId,
+        trx
       )
       if (everShared && participantBusinessUnitIds.length > 1) {
         throw new AdmsError(

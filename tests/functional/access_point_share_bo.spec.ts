@@ -32,6 +32,9 @@ import {
 import { lockHolderOf, waitForLockWaitOn } from '#tests/helpers/lock_wait'
 import AccessPointShareRepositoryMysql from '#modules/access-point/sharing/access_point_share.repository.mysql'
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import UnmappedPinsService from '#modules/access-point/unmapped-pins/unmapped_pins.service'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { AdmsError } from '#exceptions/adms_error'
 
@@ -573,6 +576,59 @@ test.group('Checador compartido: Backoffice', (group) => {
       await own.cleanup()
     }
   }).timeout(90000)
+
+  /** La revalidacion del reclamo pregunta en la transaccion del aparato, sin otra conexion. */
+  test('el reclamo de un PIN no mapeado revalida la participacion en la transaccion del aparato', async ({
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    try {
+      const pending = await seedUnmappedPin(own, '9141')
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+
+      const clients: unknown[] = []
+      const real = new AccessPointScopeRepositoryMysql()
+      const scope = Object.assign(Object.create(real) as AccessPointScopePort, {
+        isParticipant: (accessPointId: number, businessUnitId: number, client?: unknown) => {
+          clients.push(client)
+          return real.isParticipant(
+            accessPointId,
+            businessUnitId,
+            client as Parameters<AccessPointScopePort['isParticipant']>[2]
+          )
+        },
+      })
+      const lockTrx: TransactionClientContract[] = []
+      const repository = new EmployeeSyncRepositoryMysql()
+      const deviceLock = {
+        inDeviceTransaction: <T,>(
+          accessPointId: number,
+          fn: (trx: TransactionClientContract) => Promise<T>
+        ) =>
+          repository.inDeviceTransaction(accessPointId, (trx) => {
+            lockTrx.push(trx)
+            return fn(trx)
+          }),
+      }
+
+      // Como el controlador: la peticion corre con el alcance de la invitada.
+      await TenantContext.run([own.guestBu], () =>
+        new UnmappedPinsService(undefined, undefined, scope, deviceLock).link({
+          unmappedPinId: pending.admsUnmappedPinId,
+          employeeId: extra.employeeId,
+          businessUnitIds: [own.guestBu],
+          userId: null,
+        })
+      )
+
+      // La primera pregunta es la de la autorizacion (sin candado); la segunda, bajo el candado.
+      assert.lengthOf(lockTrx, 1)
+      assert.lengthOf(clients, 2)
+      assert.strictEqual(clients[1], lockTrx[0])
+    } finally {
+      await own.cleanup()
+    }
+  })
 
   test('la invitada solo ve a su personal en el padron del checador', async ({
     client,
