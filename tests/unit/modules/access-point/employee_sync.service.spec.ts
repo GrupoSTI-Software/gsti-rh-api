@@ -37,6 +37,8 @@ interface Options {
   live?: AccessPointEmployee[]
   enqueueThrows?: boolean
   withdrawThrows?: boolean
+  /** La empresa sigue participando del aparato al tomar su candado (default: si). */
+  participant?: boolean
 }
 
 function makeService(options: Options = {}) {
@@ -53,6 +55,10 @@ function makeService(options: Options = {}) {
   const deviceTrx = { fake: 'trx-del-aparato' } as unknown as TransactionClientContract
   const lockedDevices: number[] = []
   const trxSeen: Array<{ step: string; trx: TransactionClientContract | undefined }> = []
+  /** Orden de candados, revalidacion y escrituras del alta. */
+  const steps: string[] = []
+  /** Transaccion con la que se guardo cada pivote. */
+  const saveTrx: Array<TransactionClientContract | undefined> = []
 
   const repository: EmployeeSyncRepository = {
     async withDeviceLock(_id, fn) {
@@ -60,6 +66,7 @@ function makeService(options: Options = {}) {
     },
     async inDeviceTransaction(accessPointId, fn) {
       lockedDevices.push(accessPointId)
+      steps.push('lock-aparato')
       return fn(deviceTrx)
     },
     async findPivot(_accessPointId, _employeeId, trx) {
@@ -85,7 +92,9 @@ function makeService(options: Options = {}) {
     async listLiveByEmployee() {
       return options.live ?? []
     },
-    async save(pivot) {
+    async save(pivot, trx) {
+      saveTrx.push(trx)
+      steps.push('save')
       saved.push(pivot)
     },
     async recordEvent(input, trx) {
@@ -147,8 +156,17 @@ function makeService(options: Options = {}) {
     },
   } as unknown as PhotoPublicationService
 
+  const scope = {
+    async isParticipant(accessPointId: number, businessUnitId: number) {
+      steps.push(`participa:${accessPointId}:${businessUnitId}`)
+      return options.participant ?? true
+    },
+  }
+
   return {
-    service: new EmployeeSyncService(repository, commands, publications),
+    service: new EmployeeSyncService(repository, commands, publications, scope),
+    steps,
+    saveTrx,
     saved,
     events,
     enqueued,
@@ -459,6 +477,50 @@ test.group('Baja del colaborador', () => {
     assert.lengthOf(results, 1)
     assert.isTrue(results[0].ok)
     assert.lengthOf(enqueued, 1)
+  })
+})
+
+test.group('Alta con la participacion revalidada bajo el candado del aparato (A2-14)', () => {
+  test('bloquea el aparato, vuelve a preguntar si la empresa participa y escribe en esa transaccion', async ({
+    assert,
+  }) => {
+    const { service, steps, trxSeen, saveTrx, deviceTrx, lockedDevices } = makeService({
+      withTrashed: null,
+      pivot: null,
+      takenPins: [],
+    })
+    await service.assign({ accessPointId: 12, businessUnitId: 2, employeeId: 77, actor: ACTOR })
+
+    assert.deepEqual(lockedDevices, [12])
+    assert.deepEqual(steps.slice(0, 2), ['lock-aparato', 'participa:12:2'])
+    const events = trxSeen.filter((seen) => seen.step === 'recordEvent')
+    assert.isAbove(saveTrx.length, 0)
+    assert.isAbove(events.length, 0)
+    for (const trx of saveTrx) assert.strictEqual(trx, deviceTrx, 'save')
+    for (const event of events) assert.strictEqual(event.trx, deviceTrx, 'recordEvent')
+  })
+
+  test('si la empresa dejo de participar es 404 del checador y no escribe nada', async ({
+    assert,
+  }) => {
+    const { service, saved, events } = makeService({
+      withTrashed: null,
+      pivot: null,
+      takenPins: [],
+      participant: false,
+    })
+    let capturado: unknown = null
+    try {
+      await service.assign({ accessPointId: 12, businessUnitId: 2, employeeId: 77, actor: ACTOR })
+    } catch (error) {
+      capturado = error
+    }
+
+    assert.instanceOf(capturado, AdmsError)
+    assert.equal((capturado as AdmsError).httpStatus, 404)
+    assert.equal((capturado as AdmsError).key, 'punto-acceso-no-encontrado')
+    assert.lengthOf(saved, 0)
+    assert.lengthOf(events, 0)
   })
 })
 

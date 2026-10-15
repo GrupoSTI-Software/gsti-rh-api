@@ -48,9 +48,11 @@ export async function waitForLockWaitOn(
   timeoutMs = 5000
 ): Promise<void> {
   let settled = false
-  void pending.finally(() => {
+  const done = () => {
     settled = true
-  })
+  }
+  // Con los dos ramales: un `pending` que falla lo atiende quien lo espera, no aqui.
+  pending.then(done, done)
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline && !settled) {
     const [rows] = (await db.rawQuery(

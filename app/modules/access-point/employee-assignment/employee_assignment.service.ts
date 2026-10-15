@@ -7,7 +7,11 @@ import {
   type AccessPointEmployeeDto,
 } from './dto/employee_assignment.dto.js'
 import EmployeeAssignmentRepositoryMysql from './employee_assignment.repository.mysql.js'
-import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
+import EmployeeSyncService, {
+  type AssignInput,
+} from '#modules/access-point/employee-sync/employee_sync.service'
+import { AdmsError } from '#exceptions/adms_error'
+import type AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import { canDetachAssignment } from '#modules/access-point/employee-sync/employee_sync_state'
 import Employee from '#models/employee'
@@ -190,12 +194,7 @@ export default class EmployeeAssignmentService {
     const businessUnitId = requireEmployeeBusinessUnitId(employee)
     const actor = { userId: actorUserId }
 
-    const pivot = await this.sync.assign({
-      accessPointId,
-      businessUnitId,
-      employeeId,
-      actor,
-    })
+    const pivot = await this.assignPivot({ accessPointId, businessUnitId, employeeId, actor })
 
     const pin = pivot.accessPointEmployeePin
     if (!pin || pin.length === 0) return toAccessPointEmployeeDto(pivot)
@@ -220,6 +219,27 @@ export default class EmployeeAssignmentService {
       ...toAccessPointEmployeeDto(sent),
       queuedBiometrics: copies.queued,
       fingerprintVersionMismatch: copies.fingerprintVersionMismatch,
+    }
+  }
+
+  /**
+   * Alta del vinculo en el aparato. El modulo de sincronizacion revalida la
+   * participacion de la empresa con el aparato bloqueado: si una revocacion
+   * la saco mientras tanto, para ella el checador ya no existe y se responde
+   * el mismo 404 que la autorizacion (A2-14).
+   */
+  private async assignPivot(input: AssignInput): Promise<AccessPointEmployee> {
+    try {
+      return await this.sync.assign(input)
+    } catch (error) {
+      if (
+        error instanceof AdmsError &&
+        error.httpStatus === 404 &&
+        error.key === 'punto-acceso-no-encontrado'
+      ) {
+        throw this.accessPointNotFound()
+      }
+      throw error
     }
   }
 

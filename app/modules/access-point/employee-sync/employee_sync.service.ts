@@ -19,6 +19,8 @@ import {
   REVOKING_STATUSES,
 } from './employee_sync_state.js'
 import type { EmployeeSyncRepository } from './employee_sync.repository.js'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
 
 /**
  * Tope del correlativo: nueve digitos es lo que acepta el patron del PIN, y
@@ -61,7 +63,9 @@ export default class EmployeeSyncService {
   constructor(
     private readonly repository: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
     private readonly commands: DeviceCommandPort = new DeviceCommandService(),
-    private readonly publications: PhotoPublicationService = new PhotoPublicationService()
+    private readonly publications: PhotoPublicationService = new PhotoPublicationService(),
+    private readonly scope: Pick<AccessPointScopePort, 'isParticipant'> =
+      new AccessPointScopeRepositoryMysql()
   ) {}
 
   /**
@@ -71,37 +75,68 @@ export default class EmployeeSyncService {
    * ese par no se parte en dos. Sale por dos caminos distintos -- el borrado
    * logico de la asignacion vieja y el `revoked` que deja una baja confirmada
    * por el aparato -- y los dos vuelven aqui.
+   *
+   * Dos candados, siempre en este orden: el cerrojo con nombre (unicidad del
+   * PIN frente a `setPin`) y despues la fila del aparato (`FOR UPDATE`), la
+   * misma que la revocacion de una invitacion toma primero. Con el aparato
+   * bloqueado se vuelve a preguntar si la empresa participa: la autorizacion
+   * lo valido antes, sin candado, y una revocacion en curso dejaria un vinculo
+   * de una ex-invitada que nadie puede cerrar (A2-14). Todo lo que escribe va
+   * por esa transaccion: escrito desde otra conexion, el insert del pivote
+   * esperaria por la llave foranea el candado que tiene esta misma operacion.
+   * Nadie toma el aparato y despues el cerrojo con nombre: no hay ciclo.
+   *
+   * @throws AdmsError 404 `punto-acceso-no-encontrado` si la empresa ya no participa.
    */
   async assign(input: AssignInput): Promise<AccessPointEmployee> {
-    return this.repository.withDeviceLock(input.accessPointId, async () => {
-      const existing = await this.repository.findPivotWithTrashed(
-        input.accessPointId,
-        input.employeeId
+    return this.repository.withDeviceLock(input.accessPointId, () =>
+      this.repository.inDeviceTransaction(input.accessPointId, (trx) => this.assignIn(input, trx))
+    )
+  }
+
+  /** `assign` con el aparato bloqueado en `trx`. */
+  private async assignIn(
+    input: AssignInput,
+    trx: TransactionClientContract
+  ): Promise<AccessPointEmployee> {
+    if (!(await this.scope.isParticipant(input.accessPointId, input.businessUnitId))) {
+      throw new AdmsError(
+        'El checador no existe para la empresa del colaborador',
+        ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+        404,
+        'punto-acceso-no-encontrado'
       )
+    }
 
-      const proposedPin = await this.proposePin(
-        input.accessPointId,
-        input.pin,
-        existing?.accessPointEmployeePin ?? null,
-        existing?.accessPointEmployeeId
-      )
-      if (proposedPin !== null) {
-        await this.assertPinFree(input.accessPointId, proposedPin, existing?.accessPointEmployeeId)
-      }
+    const existing = await this.repository.findPivotWithTrashed(
+      input.accessPointId,
+      input.employeeId
+    )
 
-      const salioDelEquipo =
-        existing !== null &&
-        (existing.deletedAt !== null ||
-          existing.accessPointEmployeeSyncStatus ===
-            ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+    const proposedPin = await this.proposePin(
+      input.accessPointId,
+      input.pin,
+      existing?.accessPointEmployeePin ?? null,
+      existing?.accessPointEmployeeId
+    )
+    if (proposedPin !== null) {
+      await this.assertPinFree(input.accessPointId, proposedPin, existing?.accessPointEmployeeId)
+    }
 
-      if (existing && salioDelEquipo) {
-        existing.deletedAt = null
-        existing.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN
-        existing.accessPointEmployeePin = proposedPin ?? ''
-        existing.accessPointEmployeePinSource = ACCESS_POINT_EMPLOYEE_PIN_SOURCE.ASSIGNED
-        await this.repository.save(existing)
-        await this.repository.recordEvent({
+    const salioDelEquipo =
+      existing !== null &&
+      (existing.deletedAt !== null ||
+        existing.accessPointEmployeeSyncStatus ===
+          ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+
+    if (existing && salioDelEquipo) {
+      existing.deletedAt = null
+      existing.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN
+      existing.accessPointEmployeePin = proposedPin ?? ''
+      existing.accessPointEmployeePinSource = ACCESS_POINT_EMPLOYEE_PIN_SOURCE.ASSIGNED
+      await this.repository.save(existing, trx)
+      await this.repository.recordEvent(
+        {
           accessPointEmployeeId: existing.accessPointEmployeeId,
           businessUnitId: input.businessUnitId,
           kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.REASSIGNED,
@@ -109,23 +144,24 @@ export default class EmployeeSyncService {
           toPin: proposedPin,
           actorUserId: input.actor.userId,
           detail: 'El colaborador vuelve a este equipo tras una revocacion',
-        })
-        return this.applyProposedPin(existing, proposedPin, input)
-      }
+        },
+        trx
+      )
+      return this.applyProposedPin(existing, proposedPin, input, trx)
+    }
 
-      if (existing) return existing
+    if (existing) return existing
 
-      const pivot = new AccessPointEmployee()
-      pivot.accessPointId = input.accessPointId
-      pivot.businessUnitId = input.businessUnitId
-      pivot.employeeId = input.employeeId
-      pivot.accessPointEmployeePin = proposedPin ?? ''
-      pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN
-      pivot.accessPointEmployeePinSource = ACCESS_POINT_EMPLOYEE_PIN_SOURCE.ASSIGNED
-      await this.repository.save(pivot)
+    const pivot = new AccessPointEmployee()
+    pivot.accessPointId = input.accessPointId
+    pivot.businessUnitId = input.businessUnitId
+    pivot.employeeId = input.employeeId
+    pivot.accessPointEmployeePin = proposedPin ?? ''
+    pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN
+    pivot.accessPointEmployeePinSource = ACCESS_POINT_EMPLOYEE_PIN_SOURCE.ASSIGNED
+    await this.repository.save(pivot, trx)
 
-      return this.applyProposedPin(pivot, proposedPin, input)
-    })
+    return this.applyProposedPin(pivot, proposedPin, input, trx)
   }
 
   /** Fija o cambia el PIN. Un cambio borra el registro anterior del equipo. */
@@ -561,22 +597,26 @@ export default class EmployeeSyncService {
   private async applyProposedPin(
     pivot: AccessPointEmployee,
     proposedPin: string | null,
-    input: AssignInput
+    input: AssignInput,
+    trx: TransactionClientContract
   ): Promise<AccessPointEmployee> {
     if (proposedPin === null) return pivot
 
     pivot.accessPointEmployeePin = proposedPin
     pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING
-    await this.repository.save(pivot)
-    await this.repository.recordEvent({
-      accessPointEmployeeId: pivot.accessPointEmployeeId,
-      businessUnitId: input.businessUnitId,
-      kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.PIN_ASSIGNED,
-      toPin: proposedPin,
-      toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING,
-      actorUserId: input.actor.userId,
-      detail: input.pin ? null : 'PIN correlativo del equipo',
-    })
+    await this.repository.save(pivot, trx)
+    await this.repository.recordEvent(
+      {
+        accessPointEmployeeId: pivot.accessPointEmployeeId,
+        businessUnitId: input.businessUnitId,
+        kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.PIN_ASSIGNED,
+        toPin: proposedPin,
+        toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING,
+        actorUserId: input.actor.userId,
+        detail: input.pin ? null : 'PIN correlativo del equipo',
+      },
+      trx
+    )
     return pivot
   }
 

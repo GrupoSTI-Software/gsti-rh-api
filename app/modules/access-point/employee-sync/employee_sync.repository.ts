@@ -72,7 +72,8 @@ export interface EmployeeSyncRepository {
    * podia estar contada.
    */
   countConfirmedBefore(accessPointId: number, at: DateTime): Promise<number>
-  save(pivot: AccessPointEmployee): Promise<void>
+  /** Con `trx`, el pivote se escribe en esa transaccion (p. ej. la del aparato bloqueado). */
+  save(pivot: AccessPointEmployee, trx?: TransactionClientContract): Promise<void>
   recordEvent(input: SyncEventInput, trx?: TransactionClientContract): Promise<void>
   /** Baja logica del vinculo (conserva su historial). */
   detach(pivot: AccessPointEmployee): Promise<void>

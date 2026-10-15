@@ -27,6 +27,8 @@ import {
   seedUnmappedPin,
   type SharedFixture,
 } from '#tests/helpers/shared_access_point_fixture'
+import { lockHolderOf, waitForLockWaitOn } from '#tests/helpers/lock_wait'
+import AccessPointShareRepositoryMysql from '#modules/access-point/sharing/access_point_share.repository.mysql'
 
 const unscoped = <T>(fn: () => Promise<T>) =>
   TenantContext.runUnscoped(async () => await fn(), TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
@@ -254,6 +256,62 @@ test.group('Checador compartido: Backoffice', (group) => {
     res.assertStatus(404)
     // Criterio 7: el colaborador ajeno se comporta como inexistente, no el checador.
     res.assertBodyContains({ key: 'colaborador-no-encontrado' })
+  })
+
+  /**
+   * A2-14: la participacion de la invitada se valida al autorizar, sin
+   * candado. Si la revocacion (que bloquea `access_points` antes de cerrar la
+   * invitacion) esta en curso, el alta tiene que esperar ese candado y volver
+   * a preguntar: ya revocada, es 404 sin crear el vinculo. Antes el pivote
+   * esperaba la llave foranea y se escribia en cuanto la revocacion confirmaba,
+   * dejando un `pending_pin` de una ex-invitada que bloqueaba el borrado.
+   */
+  test('una revocacion concurrente no deja a la ex-invitada un vinculo en el aparato', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    const revokeTrx = await db.transaction()
+    let assigning: Promise<{ status: number; body: unknown }> | null = null
+    try {
+      const actor = await actorFor(own.guestBu)
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+      const holder = await lockHolderOf(revokeTrx)
+      // La revocacion: el aparato primero, despues la invitacion (el mismo orden del servicio).
+      await new AccessPointShareRepositoryMysql().lockAccessPoint(apId, revokeTrx)
+      await revokeTrx
+        .from('access_point_shares')
+        .where('access_point_share_id', own.share.accessPointShareId)
+        .update({ access_point_share_revoked_at: new Date() })
+
+      assigning = client
+        .post(`/api/access-points/${apId}/employee/${extra.employeeId}`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+        .then(
+          (res) => ({ status: res.status(), body: res.body() as unknown }),
+          // El cliente rechaza un 5xx: se conserva como respuesta para afirmar sobre ella.
+          (error: unknown) => ({ status: 500, body: { error: String(error) } as unknown })
+        )
+      await waitForLockWaitOn(holder, 'access_points', assigning)
+      await revokeTrx.commit()
+
+      const res = await assigning
+      assert.equal(res.status, 404, JSON.stringify(res.body))
+      assert.containsSubset(res.body, { key: 'punto-acceso-no-encontrado' })
+      const pivots = await unscoped(() =>
+        AccessPointEmployee.query()
+          .withTrashed()
+          .where('access_point_id', apId)
+          .where('employee_id', extra.employeeId)
+      )
+      assert.lengthOf(pivots, 0)
+    } finally {
+      if (!revokeTrx.isCompleted) await revokeTrx.rollback()
+      if (assigning) await assigning.catch(() => null)
+      await own.cleanup()
+    }
   })
 
   test('la invitada solo ve a su personal en el padron del checador', async ({

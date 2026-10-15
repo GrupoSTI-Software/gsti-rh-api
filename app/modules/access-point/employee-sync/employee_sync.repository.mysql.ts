@@ -194,7 +194,8 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     return AccessPointEmployee.query().where('employee_id', employeeId)
   }
 
-  async save(pivot: AccessPointEmployee): Promise<void> {
+  async save(pivot: AccessPointEmployee, trx?: TransactionClientContract): Promise<void> {
+    if (trx) pivot.useTransaction(trx)
     try {
       await pivot.save()
       return
