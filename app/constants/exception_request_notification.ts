@@ -24,12 +24,15 @@ export type ExceptionRequestApproverLink =
   (typeof EXCEPTION_REQUEST_APPROVER_LINK)[keyof typeof EXCEPTION_REQUEST_APPROVER_LINK]
 
 /**
- * Slugs de rol de Recursos Humanos, segundo eslabon.
+ * Permiso que acompaña a la marca de Recursos Humanos en solicitudes de permiso.
  *
- * La comparacion se hace en minusculas y sin espacios extremos porque el slug
- * lo captura cada cliente al crear sus roles.
+ * La marca dice quién cumple la función. Este permiso dice quién puede enterarse
+ * de una ausencia. Las dos hacen falta: ninguna de las dos alcanza sola.
  */
-export const EXCEPTION_REQUEST_HR_ROLE_SLUGS: readonly string[] = ['rh-manager', 'recursos-humanos']
+export const EXCEPTION_REQUEST_HR_REQUIRED_PERMISSION = {
+  moduleSlug: 'exception-requests',
+  permissionSlug: 'read',
+} as const
 
 /** Slugs de rol de administracion, tercer eslabon. */
 export const EXCEPTION_REQUEST_ADMIN_ROLE_SLUGS: readonly string[] = ['admin', 'administrador']
@@ -43,7 +46,24 @@ export const EXCEPTION_REQUEST_ADMIN_ROLE_SLUGS: readonly string[] = ['admin', '
 export const EXCEPTION_REQUEST_OWNER_ROLE_SLUGS: readonly string[] = ['owner', 'root']
 
 /**
- * Eslabones por rol, EN ORDEN, para cuando el colaborador no tiene jefe directo
+ * Eslabón de la cadena cuando el colaborador no tiene jefe directo.
+ *
+ * Recursos Humanos no se reconoce por el nombre del rol: se reconoce por la
+ * marca y por el permiso de acceso al módulo. Administración y dueño siguen
+ * por el nombre interno de su rol.
+ */
+export type ExceptionRequestRoleChainLink =
+  | { link: typeof EXCEPTION_REQUEST_APPROVER_LINK.HR; source: 'human-capital' }
+  | {
+      link:
+        | typeof EXCEPTION_REQUEST_APPROVER_LINK.ADMIN
+        | typeof EXCEPTION_REQUEST_APPROVER_LINK.OWNER
+      source: 'role-slugs'
+      slugs: readonly string[]
+    }
+
+/**
+ * Eslabones, EN ORDEN, para cuando el colaborador no tiene jefe directo
  * asignado.
  *
  * El orden es la regla de negocio, no un detalle de implementacion: el aviso
@@ -54,13 +74,18 @@ export const EXCEPTION_REQUEST_OWNER_ROLE_SLUGS: readonly string[] = ['owner', '
  * El jefe directo no aparece aqui porque no se resuelve por rol: se resuelve por
  * la asignacion en `user_responsible_employee`.
  */
-export const EXCEPTION_REQUEST_ROLE_CHAIN: ReadonlyArray<{
-  link: ExceptionRequestApproverLink
-  slugs: readonly string[]
-}> = [
-  { link: EXCEPTION_REQUEST_APPROVER_LINK.HR, slugs: EXCEPTION_REQUEST_HR_ROLE_SLUGS },
-  { link: EXCEPTION_REQUEST_APPROVER_LINK.ADMIN, slugs: EXCEPTION_REQUEST_ADMIN_ROLE_SLUGS },
-  { link: EXCEPTION_REQUEST_APPROVER_LINK.OWNER, slugs: EXCEPTION_REQUEST_OWNER_ROLE_SLUGS },
+export const EXCEPTION_REQUEST_ROLE_CHAIN: readonly ExceptionRequestRoleChainLink[] = [
+  { link: EXCEPTION_REQUEST_APPROVER_LINK.HR, source: 'human-capital' },
+  {
+    link: EXCEPTION_REQUEST_APPROVER_LINK.ADMIN,
+    source: 'role-slugs',
+    slugs: EXCEPTION_REQUEST_ADMIN_ROLE_SLUGS,
+  },
+  {
+    link: EXCEPTION_REQUEST_APPROVER_LINK.OWNER,
+    source: 'role-slugs',
+    slugs: EXCEPTION_REQUEST_OWNER_ROLE_SLUGS,
+  },
 ]
 
 /** Ruta del modulo de solicitudes en el backoffice, para el enlace del correo. */
