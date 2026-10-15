@@ -11,9 +11,10 @@ import {
   ensureAccessPointPermission,
   readScopeOf,
   resolveParticipantAccessPoint,
-  resolveParticipantEmployee,
+  resolveParticipantPair,
   resolveScopedEmployee,
 } from '#modules/access-point/access_point_authorization'
+import { requireEmployeeBusinessUnitId } from '#modules/access-point/employee_business_unit'
 import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import Employee from '#models/employee'
@@ -102,21 +103,20 @@ export default class EmployeeSyncController {
       const payload = await request.validateUsing(pinValidator, {
         data: { params: request.params(), pin: request.input('pin') },
       })
-      const participant = await resolveParticipantAccessPoint(ctx, payload.params.accessPointId)
-      const employee = await resolveParticipantEmployee(
+      const pair = await resolveParticipantPair(
         ctx,
-        participant,
+        payload.params.accessPointId,
         payload.params.employeeId
       )
 
       // Dentro del scope del aparato: el PIN se compara contra los de todos
       // los participantes, no solo contra los de la empresa que pide.
       const service = new EmployeeSyncService()
-      const pivot = await TenantContext.run(participant.deviceScope, () =>
+      const pivot = await TenantContext.run(pair.deviceScope, () =>
         service.setPin({
-          accessPointId: participant.accessPoint.accessPointId,
-          businessUnitId: employee.businessUnitId as number,
-          employeeId: employee.employeeId,
+          accessPointId: pair.accessPoint.accessPointId,
+          businessUnitId: pair.employeeBusinessUnitId,
+          employeeId: pair.employee.employeeId,
           pin: payload.pin,
           actor: { userId: auth.user?.userId ?? null },
         })
@@ -230,7 +230,7 @@ export default class EmployeeSyncController {
         data: { params: request.params() },
       })
       const employee = await resolveScopedEmployee(ctx, params.employeeId)
-      const employeeScope = await this.scope.forEmployee(employee.businessUnitId as number)
+      const employeeScope = await this.scope.forEmployee(requireEmployeeBusinessUnitId(employee))
 
       /**
        * Los checadores compartidos con la empresa del colaborador son de otra
@@ -335,7 +335,7 @@ export default class EmployeeSyncController {
       available: await availableFor(
         this.scope,
         ctx.businessUnitScope ?? [],
-        employee.businessUnitId as number,
+        requireEmployeeBusinessUnitId(employee),
         new Set(rows.map((row) => row.accessPointId)),
         now
       ),
@@ -376,16 +376,15 @@ export default class EmployeeSyncController {
       const { params } = await request.validateUsing(pairValidator, {
         data: { params: request.params() },
       })
-      const participant = await resolveParticipantAccessPoint(ctx, params.accessPointId)
-      const employee = await resolveParticipantEmployee(ctx, participant, params.employeeId)
+      const pair = await resolveParticipantPair(ctx, params.accessPointId, params.employeeId)
 
       const service = new EmployeeSyncService()
-      const pivot = await TenantContext.run(participant.deviceScope, () =>
+      const pivot = await TenantContext.run(pair.deviceScope, () =>
         service.send({
-          accessPointId: participant.accessPoint.accessPointId,
-          businessUnitId: employee.businessUnitId as number,
-          employeeId: employee.employeeId,
-          employeeName: nameOf(employee),
+          accessPointId: pair.accessPoint.accessPointId,
+          businessUnitId: pair.employeeBusinessUnitId,
+          employeeId: pair.employee.employeeId,
+          employeeName: nameOf(pair.employee),
           actor: { userId: auth.user?.userId ?? null },
         })
       )
@@ -428,15 +427,14 @@ export default class EmployeeSyncController {
       const { params } = await request.validateUsing(pairValidator, {
         data: { params: request.params() },
       })
-      const participant = await resolveParticipantAccessPoint(ctx, params.accessPointId)
-      const employee = await resolveParticipantEmployee(ctx, participant, params.employeeId)
+      const pair = await resolveParticipantPair(ctx, params.accessPointId, params.employeeId)
 
       const service = new EmployeeSyncService()
-      const pivot = await TenantContext.run(participant.deviceScope, () =>
+      const pivot = await TenantContext.run(pair.deviceScope, () =>
         service.revoke({
-          accessPointId: participant.accessPoint.accessPointId,
-          businessUnitId: employee.businessUnitId as number,
-          employeeId: employee.employeeId,
+          accessPointId: pair.accessPoint.accessPointId,
+          businessUnitId: pair.employeeBusinessUnitId,
+          employeeId: pair.employee.employeeId,
           actor: { userId: auth.user?.userId ?? null },
         })
       )
@@ -478,19 +476,18 @@ export default class EmployeeSyncController {
        * La ex-invitada puede cerrar a mano los vinculos que el aparato no
        * confirmo: sin esto quedarian en baja para siempre si el equipo murio.
        */
-      const participant = await resolveParticipantAccessPoint(ctx, params.accessPointId, {
+      const pair = await resolveParticipantPair(ctx, params.accessPointId, params.employeeId, {
         includeLingering: true,
       })
-      const employee = await resolveParticipantEmployee(ctx, participant, params.employeeId)
 
       const reason = String(request.input('reason') ?? '').trim()
 
       const service = new EmployeeSyncService()
-      const pivot = await TenantContext.run(participant.deviceScope, () =>
+      const pivot = await TenantContext.run(pair.deviceScope, () =>
         service.forceRevoke({
-          accessPointId: participant.accessPoint.accessPointId,
-          businessUnitId: employee.businessUnitId as number,
-          employeeId: employee.employeeId,
+          accessPointId: pair.accessPoint.accessPointId,
+          businessUnitId: pair.employeeBusinessUnitId,
+          employeeId: pair.employee.employeeId,
           reason: reason.length > 0 ? reason.slice(0, 200) : 'el equipo no responde',
           actor: { userId: auth.user?.userId ?? null },
         })

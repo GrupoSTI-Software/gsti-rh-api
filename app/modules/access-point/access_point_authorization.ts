@@ -9,12 +9,21 @@ import { AccessPointScope } from '#modules/access-point/sharing/access_point_sco
 import type {
   AccessPointRole,
   AccessPointVisibility,
+  VisibilityOptions,
 } from '#modules/access-point/sharing/access_point_scope.port'
+import { requireEmployeeBusinessUnitId } from '#modules/access-point/employee_business_unit'
 
 export type { AccessPointRole }
 
 /** El checador que la peticion opera, con su papel y su scope (`visibleTo`). */
 export type ParticipantAccessPoint = AccessPointVisibility
+
+/** Checador y colaborador de una operacion del Backoffice, ya autorizados juntos. */
+export interface ParticipantPair extends ParticipantAccessPoint {
+  employee: Employee
+  /** Empresa del colaborador (no la del aparato): a su nombre va la operacion. */
+  employeeBusinessUnitId: number
+}
 
 /**
  * Autorizacion unica de las rutas del canal ADMS hacia el Backoffice
@@ -100,7 +109,7 @@ function accessPointNotFound(ctx: HttpContext): AdmsError {
 export async function resolveParticipantAccessPoint(
   ctx: HttpContext,
   accessPointId: number,
-  options: { includeLingering?: boolean } = {}
+  options: VisibilityOptions = {}
 ): Promise<ParticipantAccessPoint> {
   /**
    * La regla vive en `AccessPointScopePort.visibleTo`; aqui solo se traduce
@@ -170,8 +179,29 @@ export async function resolveParticipantEmployee(
   employeeId: number
 ): Promise<Employee> {
   const employee = await resolveScopedEmployee(ctx, employeeId)
-  if (participant.deviceScope.includes(employee.businessUnitId as number)) return employee
+  if (participant.deviceScope.includes(requireEmployeeBusinessUnitId(employee))) return employee
   throw accessPointNotFound(ctx)
+}
+
+/**
+ * Checador y colaborador de una operacion en un solo paso: el checador como
+ * participante (`resolveParticipantAccessPoint`) y el colaborador en el
+ * alcance de la peticion y de una empresa que participa del aparato
+ * (`resolveParticipantEmployee`). La operacion va a nombre de
+ * `employeeBusinessUnitId`, nunca de la empresa del aparato, y corre dentro de
+ * `deviceScope`.
+ *
+ * @throws AdmsError 404 si el checador o el colaborador no estan al alcance.
+ */
+export async function resolveParticipantPair(
+  ctx: HttpContext,
+  accessPointId: number,
+  employeeId: number,
+  options: VisibilityOptions = {}
+): Promise<ParticipantPair> {
+  const participant = await resolveParticipantAccessPoint(ctx, accessPointId, options)
+  const employee = await resolveParticipantEmployee(ctx, participant, employeeId)
+  return { ...participant, employee, employeeBusinessUnitId: requireEmployeeBusinessUnitId(employee) }
 }
 
 /**
