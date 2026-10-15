@@ -977,6 +977,68 @@ test.group('Checador compartido: Backoffice', (group) => {
     }
   })
 
+  /**
+   * El 409 protege el personal de invitadas y ex-invitadas. Un aparato que
+   * nunca se compartio pero carga el vinculo de otra empresa (heredado de
+   * antes de la HU) no tiene invitada que proteger: se borra como siempre.
+   */
+  test('la responsable borra un checador nunca compartido aunque tenga un vinculo de otra empresa', async ({
+    client,
+    assert,
+  }) => {
+    const owner = await actorFor(fx.ownerBu)
+    const serial = `TEST-NEVERSHARED-${Date.now()}`
+    const accessPoint = await unscoped(async () => {
+      const created = new AccessPoint()
+      created.accessPointName = `Checador nunca compartido ${serial}`
+      created.businessUnitId = fx.ownerBu
+      created.accessPointActive = 1
+      created.accessPointSerialNumber = serial
+      created.accessPointStatus = 0
+      await created.save()
+      const pivot = new AccessPointEmployee()
+      pivot.accessPointId = created.accessPointId
+      pivot.employeeId = fx.guestEmployee.employeeId
+      pivot.businessUnitId = fx.guestBu
+      pivot.accessPointEmployeePin = '7'
+      pivot.accessPointEmployeeSyncStatus = 'confirmed'
+      await pivot.save()
+      return created
+    })
+    const apId = accessPoint.accessPointId
+    try {
+      const res = await client
+        .delete(`/api/access-points/${apId}`)
+        .loginAs(owner.user.user)
+        .header('X-Business-Unit-Id', owner.publicId)
+      res.assertStatus(201)
+      const alive = await unscoped(() =>
+        AccessPoint.query()
+          .where('access_point_id', apId)
+          .whereNull('access_point_deleted_at')
+          .first()
+      )
+      assert.isNull(alive)
+    } finally {
+      await unscoped(async () => {
+        await db.from('device_commands').where('access_point_id', apId).delete()
+        await db
+          .from('access_point_employee_events')
+          .whereIn(
+            'access_point_employee_id',
+            db
+              .from('access_point_employees')
+              .where('access_point_id', apId)
+              .select('access_point_employee_id')
+          )
+          .delete()
+        await db.from('access_point_employees').where('access_point_id', apId).delete()
+        await db.from('access_point_profiles').where('access_point_id', apId).delete()
+        await db.from('access_points').where('access_point_id', apId).delete()
+      })
+    }
+  })
+
   test('una empresa ajena sigue recibiendo 404 al consultar o editar el checador', async ({
     client,
   }) => {

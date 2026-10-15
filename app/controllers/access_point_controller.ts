@@ -457,13 +457,15 @@ export default class AccessPointController {
        * landlord, que encola sus bajas (VLRH-P0065, 3.2). Tampoco con una
        * ex-invitada cuyas bajas el aparato no ha confirmado (vinculos sin
        * revocar o comandos vivos): borrado el aparato, su cierre a mano ya no
-       * lo encontraria. Es el alcance del canal, no el del Backoffice.
+       * lo encontraria. Es el alcance del canal, no el del Backoffice, y solo
+       * cuenta si el aparato se compartio alguna vez: el vinculo de otra
+       * empresa en un aparato nunca compartido no es de ninguna invitada.
        */
-      const participants = await AccessPointScope.channelParticipants(
+      const { participantBusinessUnitIds, everShared } = await AccessPointScope.channelScope(
         currentAccessPoint.accessPointId,
         currentAccessPoint.businessUnitId
       )
-      if (participants.length > 1) {
+      if (everShared && participantBusinessUnitIds.length > 1) {
         throw new AdmsError(
           t('access_point_shared_live_title'),
           ADMS_ERROR_CODES.DEV_SHARED_LIVE,
