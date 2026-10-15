@@ -1,4 +1,5 @@
 import type { I18n } from '@adonisjs/i18n'
+import { requireEmployeeBusinessUnitId } from '#modules/access-point/employee_business_unit'
 import { ACCESS_POINT_EMPLOYEE_ERROR_CODES } from '#constants/access_point_employee_error_codes'
 import AccessPointEmployeeServiceError from '#exceptions/access_point_employee_service_error'
 import {
@@ -186,7 +187,7 @@ export default class EmployeeAssignmentService {
     }
 
     const employee = await Employee.query().where('employee_id', employeeId).firstOrFail()
-    const businessUnitId = employee.businessUnitId as number
+    const businessUnitId = requireEmployeeBusinessUnitId(employee)
     const actor = { userId: actorUserId }
 
     const pivot = await this.sync.assign({
