@@ -2,6 +2,14 @@ import db from '@adonisjs/lucid/services/db'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import { DEVICE_COMMAND_STATUS } from '#modules/device-commands/device_command.constants'
 
+/** Fila de la consulta unica del scope del canal. */
+interface ChannelScopeRow {
+  src: 'ever' | 'live' | 'lingering'
+  business_unit_id: number | null
+  ord: number
+  ever_shared: number
+}
+
 /**
  * Scope de un checador: la responsable y sus invitadas vivas (VLRH-P0065, 3.4).
  *
@@ -36,37 +44,72 @@ export const AccessPointScope = {
    * `participants`.
    */
   async channelParticipants(accessPointId: number, ownerBusinessUnitId: number): Promise<number[]> {
-    const live = await AccessPointScope.participants(accessPointId, ownerBusinessUnitId)
-    const pivotRows = (await db
-      .from('access_point_employees')
-      .where('access_point_id', accessPointId)
-      .whereNull('access_point_employee_deleted_at')
-      .whereNot('access_point_employee_sync_status', ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
-      .distinct('business_unit_id')) as Array<{ business_unit_id: number }>
-    const commandRows = (await db
-      .from('device_commands')
-      .where('access_point_id', accessPointId)
-      .whereIn('device_command_status', [DEVICE_COMMAND_STATUS.PENDING, DEVICE_COMMAND_STATUS.SENT])
-      .distinct('business_unit_id')) as Array<{ business_unit_id: number }>
-    const lingering = [...pivotRows, ...commandRows]
-      .map((row) => Number(row.business_unit_id))
-      .filter((id) => !live.includes(id))
-      .sort((a, b) => a - b)
-    return [...live, ...new Set(lingering)]
+    const scope = await AccessPointScope.channelScope(accessPointId, ownerBusinessUnitId)
+    return scope.participantBusinessUnitIds
   },
 
   /**
-   * El aparato tiene o tuvo invitadas. Basta una fila de invitacion, viva o
-   * revocada: el personal de una ex-invitada puede seguir en el aparato y su
-   * codigo de colaborador no identifica dentro de la responsable (D7).
+   * El scope del canal (`channelParticipants`) y si el aparato tiene o tuvo
+   * invitadas, en UNA consulta: corre en cada peticion del aparato, incluido
+   * cada `getrequest`. Cada rama filtra por `access_point_id`, que es el
+   * primer campo de un indice en las tres tablas.
+   *
+   * `everShared`: basta una fila de invitacion, viva o revocada; el personal
+   * de una ex-invitada puede seguir en el aparato y su codigo de colaborador
+   * no identifica dentro de la responsable (D7).
+   *
+   * `participantBusinessUnitIds`: la responsable primero, luego las invitadas
+   * vivas por antiguedad de la invitacion y al final, ascendentes, las
+   * empresas con vinculos no revocados o comandos vivos. Sin duplicados.
    */
-  async everShared(accessPointId: number): Promise<boolean> {
-    const row = await db
-      .from('access_point_shares')
-      .where('access_point_id', accessPointId)
-      .select('access_point_share_id')
-      .first()
-    return Boolean(row)
+  async channelScope(
+    accessPointId: number,
+    ownerBusinessUnitId: number
+  ): Promise<{ participantBusinessUnitIds: number[]; everShared: boolean }> {
+    const result = (await db.rawQuery(
+      `SELECT 'ever' AS src, NULL AS business_unit_id, 0 AS ord,
+              EXISTS(SELECT 1 FROM access_point_shares WHERE access_point_id = ?) AS ever_shared
+       UNION ALL
+       SELECT 'live', s.business_unit_id, s.access_point_share_id, 0
+         FROM access_point_shares s
+        WHERE s.access_point_id = ? AND s.access_point_share_revoked_at IS NULL
+       UNION ALL
+       SELECT DISTINCT 'lingering', p.business_unit_id, 0, 0
+         FROM access_point_employees p
+        WHERE p.access_point_id = ?
+          AND p.access_point_employee_deleted_at IS NULL
+          AND p.access_point_employee_sync_status <> ?
+       UNION ALL
+       SELECT DISTINCT 'lingering', c.business_unit_id, 0, 0
+         FROM device_commands c
+        WHERE c.access_point_id = ? AND c.device_command_status IN (?, ?)`,
+      [
+        accessPointId,
+        accessPointId,
+        accessPointId,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+        accessPointId,
+        DEVICE_COMMAND_STATUS.PENDING,
+        DEVICE_COMMAND_STATUS.SENT,
+      ]
+    )) as [ChannelScopeRow[], unknown]
+    const rows = result[0]
+
+    const live = rows
+      .filter((row) => row.src === 'live')
+      .sort((a, b) => Number(a.ord) - Number(b.ord))
+      .map((row) => Number(row.business_unit_id))
+      .filter((id) => id !== ownerBusinessUnitId)
+    const participants = [ownerBusinessUnitId, ...new Set(live)]
+    const lingering = rows
+      .filter((row) => row.src === 'lingering')
+      .map((row) => Number(row.business_unit_id))
+      .filter((id) => !participants.includes(id))
+      .sort((a, b) => a - b)
+    return {
+      participantBusinessUnitIds: [...participants, ...new Set(lingering)],
+      everShared: rows.some((row) => row.src === 'ever' && Number(row.ever_shared) === 1),
+    }
   },
 
   /**

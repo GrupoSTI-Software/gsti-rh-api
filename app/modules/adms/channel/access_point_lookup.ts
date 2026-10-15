@@ -114,11 +114,11 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
       .first()
     if (!row) return null
     const typed = row as AccessPointRawRow
-    const participantBusinessUnitIds = await AccessPointScope.channelParticipants(
+    // Scope del canal y `everShared` en una sola consulta: corre en cada peticion del aparato.
+    const { participantBusinessUnitIds, everShared } = await AccessPointScope.channelScope(
       typed.access_point_id,
       typed.business_unit_id
     )
-    const everShared = await AccessPointScope.everShared(typed.access_point_id)
     return {
       accessPointId: typed.access_point_id,
       businessUnitId: typed.business_unit_id,

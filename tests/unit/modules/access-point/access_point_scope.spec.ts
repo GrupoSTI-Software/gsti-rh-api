@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
 import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 import {
   createSharedAccessPointFixture,
@@ -33,5 +34,64 @@ test.group('AccessPointScope', (group) => {
   test('sharedWith devuelve los checadores ajenos compartidos', async ({ assert }) => {
     assert.deepEqual(await AccessPointScope.sharedWith(fx.guestBu), [fx.accessPoint.accessPointId])
     assert.deepEqual(await AccessPointScope.sharedWith(fx.outsiderBu), [])
+  })
+
+  /** Cuenta las consultas que salen por el servicio de base de datos durante `fn`. */
+  const countQueries = async <T>(fn: () => Promise<T>): Promise<{ result: T; queries: number }> => {
+    let queries = 0
+    const target = db as unknown as Record<string, (...args: unknown[]) => unknown>
+    const originals = new Map<string, (...args: unknown[]) => unknown>()
+    for (const name of ['from', 'rawQuery', 'query']) {
+      const original = target[name]
+      originals.set(name, original)
+      target[name] = (...args: unknown[]) => {
+        queries += 1
+        return original.apply(db, args)
+      }
+    }
+    try {
+      return { result: await fn(), queries }
+    } finally {
+      for (const [name, original] of originals) target[name] = original
+    }
+  }
+
+  test('el alcance del canal sale de una sola consulta: responsable e invitada viva', async ({
+    assert,
+  }) => {
+    const { result, queries } = await countQueries(() =>
+      AccessPointScope.channelScope(fx.accessPoint.accessPointId, fx.ownerBu)
+    )
+    assert.equal(queries, 1)
+    assert.deepEqual(result, {
+      participantBusinessUnitIds: [fx.ownerBu, fx.guestBu],
+      everShared: true,
+    })
+  })
+
+  test('la ex-invitada con vinculos sin baja sigue en el canal y el aparato cuenta como compartido', async ({
+    assert,
+  }) => {
+    await fx.share.merge({ accessPointShareRevokedAt: DateTime.utc() }).save()
+    try {
+      const scope = await AccessPointScope.channelScope(fx.accessPoint.accessPointId, fx.ownerBu)
+      assert.deepEqual(scope, {
+        participantBusinessUnitIds: [fx.ownerBu, fx.guestBu],
+        everShared: true,
+      })
+      assert.deepEqual(
+        await AccessPointScope.channelParticipants(fx.accessPoint.accessPointId, fx.ownerBu),
+        [fx.ownerBu, fx.guestBu]
+      )
+    } finally {
+      await fx.share.merge({ accessPointShareRevokedAt: null }).save()
+    }
+  })
+
+  test('un aparato sin invitaciones ni vinculos ajenos es solo de la responsable', async ({
+    assert,
+  }) => {
+    const scope = await AccessPointScope.channelScope(0, fx.ownerBu)
+    assert.deepEqual(scope, { participantBusinessUnitIds: [fx.ownerBu], everShared: false })
   })
 })
