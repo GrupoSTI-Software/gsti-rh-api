@@ -454,7 +454,7 @@ export default class EmployeeSyncService {
       detail: string
     },
     trx?: TransactionClientContract
-  ): Promise<void> {
+  ): Promise<AccessPointEmployee> {
     const pivot = await this.requirePivot(input.accessPointId, input.employeeId, trx)
     if (!canDetachAssignment(pivot.accessPointEmployeeSyncStatus)) {
       // Mismo codigo que `assertTransition` para un cambio de estado no admitido.
@@ -478,7 +478,8 @@ export default class EmployeeSyncService {
       },
       trx
     )
-    await this.repository.detach(pivot)
+    await this.repository.detach(pivot, trx)
+    return pivot
   }
 
   /**
@@ -513,16 +514,26 @@ export default class EmployeeSyncService {
      * esperar. Se desprende con su evento y sin encolar nada, por el mismo
      * camino que la revocacion de una invitacion. Sin esto, el `pending_pin`
      * de una ex-invitada quedaba huerfano y bloqueaba el borrado del checador.
+     *
+     * Con el aparato bloqueado y relectura en su transaccion: un `setPin` y un
+     * envio concurrentes esperan ese candado, asi que o terminaron antes (y el
+     * vinculo ya no es `pending_pin`: aqui se rechaza) o llegan despues y ya
+     * no encuentran el vinculo. Nunca queda un alta en cola para un vinculo
+     * retirado. Se devuelve el vinculo ya desprendido.
      */
     if (from === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN) {
-      await this.detachUnsent({
-        accessPointId: input.accessPointId,
-        businessUnitId: input.businessUnitId,
-        employeeId: input.employeeId,
-        actor: input.actor,
-        detail: `Vinculo sin PIN retirado a mano: ${input.reason}`,
-      })
-      return pivot
+      return this.repository.inDeviceTransaction(input.accessPointId, (trx) =>
+        this.detachUnsent(
+          {
+            accessPointId: input.accessPointId,
+            businessUnitId: input.businessUnitId,
+            employeeId: input.employeeId,
+            actor: input.actor,
+            detail: `Vinculo sin PIN retirado a mano: ${input.reason}`,
+          },
+          trx
+        )
+      )
     }
 
     if (!REVOKING_STATUSES.includes(from)) {

@@ -109,7 +109,9 @@ function makeService(options: Options = {}) {
       trxSeen.push({ step: 'recordEvent', trx })
       events.push(input)
     },
-    async detach(pivot) {
+    async detach(pivot, trx) {
+      trxSeen.push({ step: 'detach', trx })
+      pivot.deletedAt = { toISO: () => '2026-10-15' } as never
       detached.push(pivot)
     },
     async findByCommandTarget() {
@@ -782,14 +784,15 @@ test.group('Cerrar a mano una baja que el equipo no confirma', () => {
 
   test('un vinculo sin PIN se desprende con su evento y sin encolar nada', async ({ assert }) => {
     // Nunca llego al aparato: no hay baja que pedir ni que esperar.
-    const { service, detached, events, enqueued, cancelledFor, saved } = makeService({
-      pivot: pivotOf({
-        accessPointEmployeePin: '',
-        accessPointEmployeeSyncStatus: 'pending_pin' as AccessPointEmployeeSyncStatus,
-      }),
-    })
+    const { service, detached, events, enqueued, cancelledFor, saved, lockedDevices, trxSeen, deviceTrx } =
+      makeService({
+        pivot: pivotOf({
+          accessPointEmployeePin: '',
+          accessPointEmployeeSyncStatus: 'pending_pin' as AccessPointEmployeeSyncStatus,
+        }),
+      })
 
-    await service.forceRevoke({
+    const returned = await service.forceRevoke({
       accessPointId: 12,
       businessUnitId: 2,
       employeeId: 77,
@@ -806,6 +809,20 @@ test.group('Cerrar a mano una baja que el equipo no confirma', () => {
     assert.isNull(events[0].toStatus ?? null)
     assert.equal(events[0].actorUserId, ACTOR.userId)
     assert.include(events[0].detail ?? '', 'la invitacion se revoco')
+
+    // Con el aparato bloqueado y todo en su transaccion: un setPin + send
+    // concurrente no puede dejar un alta en cola para un vinculo ya retirado.
+    // La primera lectura solo elige el camino; se relee ya con el aparato bloqueado.
+    assert.deepEqual(lockedDevices, [12])
+    const locked = trxSeen.filter((seen) => seen.trx === deviceTrx).map((seen) => seen.step)
+    assert.deepEqual(locked, ['findPivot', 'recordEvent', 'detach'])
+    assert.isTrue(
+      trxSeen
+        .filter((seen) => seen.step !== 'findPivot')
+        .every((seen) => seen.trx === deviceTrx)
+    )
+    // La respuesta es el vinculo ya desprendido.
+    assert.isNotNull(returned.deletedAt)
   })
 
   test('no cierra una baja que nadie ha pedido', async ({ assert }) => {

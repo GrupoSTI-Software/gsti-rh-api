@@ -81,8 +81,8 @@ export interface EmployeeSyncRepository {
   /** Con `trx`, el pivote se escribe en esa transaccion (p. ej. la del aparato bloqueado). */
   save(pivot: AccessPointEmployee, trx?: TransactionClientContract): Promise<void>
   recordEvent(input: SyncEventInput, trx?: TransactionClientContract): Promise<void>
-  /** Baja logica del vinculo (conserva su historial). */
-  detach(pivot: AccessPointEmployee): Promise<void>
+  /** Baja logica del vinculo (conserva su historial). Con `trx`, en esa transaccion. */
+  detach(pivot: AccessPointEmployee, trx?: TransactionClientContract): Promise<void>
   findByCommandTarget(accessPointEmployeeId: number): Promise<AccessPointEmployee | null>
   updateStatus(
     accessPointEmployeeId: number,

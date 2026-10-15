@@ -198,8 +198,9 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     await event.save()
   }
 
-  async detach(pivot: AccessPointEmployee): Promise<void> {
-    // SoftDeletes: conserva el historial. Si se leyo con `trx`, borra en ella.
+  async detach(pivot: AccessPointEmployee, trx?: TransactionClientContract): Promise<void> {
+    // SoftDeletes: conserva el historial. Con `trx` (o si se leyo con ella), borra en ella.
+    if (trx) pivot.useTransaction(trx)
     await pivot.delete()
   }
 

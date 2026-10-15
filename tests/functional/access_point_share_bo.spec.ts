@@ -1589,6 +1589,8 @@ test.group('Checador compartido: Backoffice', (group) => {
         .header('X-Business-Unit-Id', guest.publicId)
         .json({ reason: 'la invitacion se revoco' })
       forced.assertStatus(200)
+      // La respuesta refleja el vinculo ya desprendido.
+      forced.assertBodyContains({ data: { accessPointEmployee: { detached: true } } })
 
       const pivot = await unscoped(() =>
         AccessPointEmployee.query()

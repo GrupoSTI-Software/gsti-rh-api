@@ -19,6 +19,11 @@ export interface EmployeeSyncDto {
   syncStatus: AccessPointEmployeeSyncStatus
   /** La baja va en camino: el numero sigue reservado para esta persona. */
   pinQuarantined: boolean
+  /**
+   * El vinculo se retiro (baja logica) sin pasar por el aparato: p. ej. un
+   * `pending_pin` cerrado a mano, que nunca llego al equipo.
+   */
+  detached: boolean
   syncRequestedAt: string | null
   syncSentAt: string | null
   syncConfirmedAt: string | null
@@ -35,6 +40,7 @@ export function toEmployeeSyncDto(pivot: AccessPointEmployee): EmployeeSyncDto {
     hasPin: Boolean(pin && pin.length > 0),
     syncStatus: pivot.accessPointEmployeeSyncStatus,
     pinQuarantined: isPinQuarantined(pivot.accessPointEmployeeSyncStatus),
+    detached: pivot.deletedAt !== null && pivot.deletedAt !== undefined,
     syncRequestedAt: pivot.accessPointEmployeeSyncRequestedAt?.toISO() ?? null,
     syncSentAt: pivot.accessPointEmployeeSyncSentAt?.toISO() ?? null,
     syncConfirmedAt: pivot.accessPointEmployeeSyncConfirmedAt?.toISO() ?? null,
