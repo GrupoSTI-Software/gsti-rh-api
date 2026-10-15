@@ -10,12 +10,37 @@ import { middleware } from '../kernel.js'
  *   POST /api/platform/devices/assignments  → store (asignar aparato a tenant)
  *   GET  /api/platform/devices/assignments  → index (listar asignaciones del tenant)
  *
- * Ref: USRH1787189981876.
+ * Invitaciones de empresas del grupo al checador de la entrega (VLRH-P0065, 5).
+ * Solo el landlord otorga y revoca (D3):
+ *   GET    /api/platform/devices/assignments/:assignmentId/shares          → historial + candidatas
+ *   POST   /api/platform/devices/assignments/:assignmentId/shares          → otorgar
+ *   DELETE /api/platform/devices/assignments/:assignmentId/shares/:shareId → revocar
+ *
+ * Ref: USRH1787189981876, VLRH-H1792078645307.
  */
 router
   .group(() => {
     router.post('/', '#controllers/platform_device_assignment_controller.store')
     router.get('/', '#controllers/platform_device_assignment_controller.index')
+    router
+      .get(
+        '/:assignmentId/shares',
+        '#modules/access-point/sharing/access_point_share.controller.index'
+      )
+      .where('assignmentId', router.matchers.number())
+    router
+      .post(
+        '/:assignmentId/shares',
+        '#modules/access-point/sharing/access_point_share.controller.store'
+      )
+      .where('assignmentId', router.matchers.number())
+    router
+      .delete(
+        '/:assignmentId/shares/:shareId',
+        '#modules/access-point/sharing/access_point_share.controller.destroy'
+      )
+      .where('assignmentId', router.matchers.number())
+      .where('shareId', router.matchers.number())
   })
   .prefix('/api/platform/devices/assignments')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])

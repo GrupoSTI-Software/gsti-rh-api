@@ -35,7 +35,7 @@ export default class AccessPointShareController {
 
   /**
    * @swagger
-   * /api/platform/device-assignments/{assignmentId}/shares:
+   * /api/platform/devices/assignments/{assignmentId}/shares:
    *   get:
    *     tags:
    *       - Platform Device Assignments
@@ -67,7 +67,7 @@ export default class AccessPointShareController {
 
   /**
    * @swagger
-   * /api/platform/device-assignments/{assignmentId}/shares:
+   * /api/platform/devices/assignments/{assignmentId}/shares:
    *   post:
    *     tags:
    *       - Platform Device Assignments
@@ -112,7 +112,7 @@ export default class AccessPointShareController {
 
   /**
    * @swagger
-   * /api/platform/device-assignments/{assignmentId}/shares/{shareId}:
+   * /api/platform/devices/assignments/{assignmentId}/shares/{shareId}:
    *   delete:
    *     tags:
    *       - Platform Device Assignments
