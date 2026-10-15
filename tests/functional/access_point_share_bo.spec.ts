@@ -1035,12 +1035,12 @@ test.group('Checador compartido: Backoffice', (group) => {
       'foreign',
       'employeeId',
       'fullName',
-      'pin',
       'photoUrl',
       'businessUnitName',
       'syncStatus',
     ])
-    assert.equal(foreign?.pin, fx.guestPin)
+    // El PIN es credencial de marcaje: no viaja para el personal ajeno.
+    assert.notProperty(foreign ?? {}, 'pin')
     assert.isString(foreign?.fullName)
     // Nunca la llave cruda del bucket: una foto privada sale null.
     assert.isNull(foreign?.photoUrl)

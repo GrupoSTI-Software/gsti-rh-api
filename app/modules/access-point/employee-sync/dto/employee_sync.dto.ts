@@ -10,10 +10,10 @@ export interface EmployeeSyncDto {
    * Si ya tiene numero en ese equipo, no cual.
    *
    * El PIN es la credencial con la que se marca: quien lo conoce puede
-   * teclearlo en el aparato y checar por otro. Esta respuesta no lo lleva;
-   * para operar basta saber si el alta puede salir. La unica excepcion es el
-   * padron del checador compartido, que se lo muestra a la responsable para
-   * el personal de la invitada (`ForeignEmployeeSyncDto`, decision D6).
+   * teclearlo en el aparato y checar por otro. Ninguna respuesta lo lleva:
+   * para operar basta saber si el alta puede salir. Tampoco el padron del
+   * checador compartido para el personal de otra empresa
+   * (`ForeignEmployeeSyncDto`).
    */
   hasPin: boolean
   syncStatus: AccessPointEmployeeSyncStatus
@@ -43,13 +43,15 @@ export function toEmployeeSyncDto(pivot: AccessPointEmployee): EmployeeSyncDto {
   }
 }
 
-/** Persona de otra empresa en el padron: solo lo necesario para identificarla. */
+/**
+ * Persona de otra empresa en el padron: solo lo necesario para identificarla.
+ * Sin PIN: es la credencial con la que se marca, y quien la conoce puede
+ * checar por otro.
+ */
 export interface ForeignEmployeeSyncDto {
   foreign: true
   employeeId: number
   fullName: string
-  /** La responsable necesita el numero para reconocer a quien marca en su aparato. */
-  pin: string
   /** Solo una URL publica; una foto privada sale `null` (nunca la llave del bucket). */
   photoUrl: string | null
   businessUnitName: string
@@ -87,7 +89,6 @@ export function toRosterEntryDto(
     foreign: true,
     employeeId: pivot.employeeId,
     fullName: identity?.fullName ?? '',
-    pin: pivot.accessPointEmployeePin,
     photoUrl: identity?.photoUrl ?? null,
     businessUnitName,
     syncStatus: pivot.accessPointEmployeeSyncStatus,
