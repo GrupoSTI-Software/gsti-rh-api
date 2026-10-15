@@ -15,6 +15,7 @@ import BillingProviderPaymentMisalignedMail from '#mails/billing_provider_paymen
 import BillingProviderSubscriptionStateMail, {
   PROVIDER_SUBSCRIPTION_STATE_ALERT_LABELS,
 } from '#mails/billing_provider_subscription_state_mail'
+import BillingProviderAccountIssueMail from '#mails/billing_provider_account_issue_mail'
 import type { SubscriptionChangeRecord } from '#services/billing_subscription_change_service'
 
 /**
@@ -605,6 +606,82 @@ test.group('BillingInternalNotificationService - notifyProviderSubscriptionState
                 providerStatus: 'paused',
                 localStatus: 'active',
                 alert: 'unexpected-status',
+              })
+            })
+          }
+        )
+      })
+    } finally {
+      ;(mail as unknown as { send: typeof mail.send }).send = originalSend
+      mail.restore()
+    }
+  })
+})
+
+test.group('BillingInternalNotificationService - notifyProviderAccountIssue (2373)', () => {
+  test('envía correo con lista blanca y enlace landlord', async () => {
+    const fake = mail.fake()
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          {
+            // Fuera de production solo se envía real a DEVELOPMENT_EMAIL_LIST (gate del servicio).
+            BILLING_INTERNAL_NOTIFICATION_EMAILS: `${INTERNAL_RECIPIENT_A},${DEV_GATE_RECIPIENT_A}`,
+            LANDLORD_URL: 'https://landlord.test/',
+          },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await service.notifyProviderAccountIssue({
+              billingSubscriptionId: 501,
+              businessUnitId: 1,
+              invoiceRef: 'in_fixtureMail',
+              eventRef: 'evt_fixtureMail',
+              failedAt: '2026-10-15T18:00:00.000Z',
+              code: 'charge_exceeds_transaction_limit',
+              declineCode: null,
+              catalogKey: 'cobro-restringido-por-el-procesador',
+              resolvedByStripeSupport: true,
+            })
+          }
+        )
+      })
+
+      fake.mails.assertSentCount(BillingProviderAccountIssueMail, 1)
+      fake.mails.assertSent(BillingProviderAccountIssueMail, ({ message }) => {
+        message.assertHtmlIncludes('in_fixtureMail')
+        message.assertHtmlIncludes('https://landlord.test/subscriptions/501')
+        message.assertHtmlIncludes('Se resuelve con soporte de Stripe')
+        return message.hasTo(DEV_GATE_RECIPIENT_A)
+      })
+    } finally {
+      mail.restore()
+    }
+  })
+
+  test('fallo SMTP no lanza', async ({ assert }) => {
+    mail.fake()
+    const originalSend = mail.send.bind(mail)
+    ;(mail as unknown as { send: typeof mail.send }).send = async () => {
+      throw new Error('SMTP caído (simulado)')
+    }
+
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await assert.doesNotReject(async () => {
+              await service.notifyProviderAccountIssue({
+                billingSubscriptionId: 501,
+                businessUnitId: 1,
+                invoiceRef: 'in_x',
+                eventRef: 'evt_x',
+                failedAt: '2026-10-15T18:00:00.000Z',
+                code: 'account_invalid',
+                declineCode: null,
+                catalogKey: 'cobro-restringido-por-el-procesador',
+                resolvedByStripeSupport: false,
               })
             })
           }

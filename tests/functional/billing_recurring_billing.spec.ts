@@ -272,6 +272,43 @@ test.group('GET /api/billing/subscription/recurring-billing — USRH179070850778
     }
   })
 
+  test('CA-2373-1: lastFailure con catálogo y sin códigos crudos', async ({ client, assert }) => {
+    const actor = await createTenantActor({ emailPrefix: 'rec-catalog', roleSlug: 'owner' })
+    const planId = await createPublishedPlan()
+
+    try {
+      const subscription = await createLiveSubscription(actor.businessUnit, planId, 'stripe')
+      subscription.billingSubscriptionStatus = 'past_due'
+      subscription.billingSubscriptionLastPaymentFailedAt = DateTime.fromISO(
+        '2026-10-14T04:10:00Z'
+      )
+      subscription.billingSubscriptionLastPaymentFailureReason = 'card_declined'
+      subscription.billingSubscriptionLastPaymentFailureCode = 'card_declined'
+      subscription.billingSubscriptionLastPaymentFailureDeclineCode = 'card_velocity_exceeded'
+      await subscription.save()
+
+      const response = await client
+        .get('/api/billing/subscription/recurring-billing')
+        .loginAs(actor.user)
+        .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+      response.assertStatus(200)
+      const data = response.body().data
+      assert.equal(data.lastFailure.reason, 'card_declined')
+      assert.equal(data.lastFailure.action, 'tenant')
+      assert.equal(
+        data.lastFailure.title,
+        'La tarjeta no tiene fondos suficientes'
+      )
+      const serialized = JSON.stringify(data)
+      assert.notInclude(serialized, 'card_velocity_exceeded')
+      assert.notInclude(serialized, 'declineCode')
+    } finally {
+      await cleanupTenantActor(actor)
+      await cleanupPlan(planId)
+    }
+  })
+
   test('CA-4 y CA-8: fallo vigente con fecha civil CDMX', async ({ client, assert }) => {
     const actor = await createTenantActor({ emailPrefix: 'rec-failure', roleSlug: 'owner' })
     const planId = await createPublishedPlan()

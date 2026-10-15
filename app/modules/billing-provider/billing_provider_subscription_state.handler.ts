@@ -26,8 +26,16 @@ import type {
   BillingProviderEventOutcome,
   BillingProviderEventHandler,
 } from '#modules/billing-provider/billing_provider_event_handlers'
+import {
+  resolvePaymentFailureMessage,
+  shouldNotifyAccountIssue,
+  type LastPaymentFailureOutcome,
+} from '#helpers/billing_payment_failure_message'
 import BillingInternalNotificationService from '#services/billing_internal_notification_service'
-import type { NotifyProviderSubscriptionStateUnexpectedParams } from '#services/billing_internal_notification_service'
+import type {
+  NotifyProviderAccountIssueParams,
+  NotifyProviderSubscriptionStateUnexpectedParams,
+} from '#services/billing_internal_notification_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import { getBusinessTimeZone } from '#utils/business_date'
 
@@ -170,15 +178,26 @@ function assertFailureLinksSubscription(
   }
 }
 
-async function applyLastPaymentFailureIfNewer(
+export type { LastPaymentFailureOutcome } from '#helpers/billing_payment_failure_message'
+
+export async function applyLastPaymentFailureIfNewer(
   sub: BillingSubscription,
   eventCreatedAt: number,
   failure: ProviderPaymentFailure
-): Promise<void> {
+): Promise<LastPaymentFailureOutcome> {
   const existing = sub.billingSubscriptionLastPaymentFailedAt
   if (existing !== null && eventCreatedAt <= (existing as DateTime).toSeconds()) {
-    return
+    return { applied: false, previous: null }
   }
+
+  const previous: LastPaymentFailureOutcome['previous'] =
+    sub.billingSubscriptionLastPaymentFailedAt !== null
+      ? {
+          invoiceRef: sub.billingSubscriptionLastPaymentFailureInvoiceRef,
+          code: sub.billingSubscriptionLastPaymentFailureCode,
+        }
+      : null
+
   sub.billingSubscriptionLastPaymentFailedAt = DateTime.fromSeconds(eventCreatedAt)
   sub.billingSubscriptionLastPaymentFailureReason = normalizePaymentFailure({
     code: failure.errorCode,
@@ -189,6 +208,7 @@ async function applyLastPaymentFailureIfNewer(
   sub.billingSubscriptionLastPaymentFailureDeclineCode = failure.declineCode ?? null
   sub.billingSubscriptionLastPaymentFailureInvoiceRef = failure.invoiceRef
   await sub.save()
+  return { applied: true, previous }
 }
 
 export default class BillingProviderSubscriptionStateHandler
@@ -225,6 +245,7 @@ export default class BillingProviderSubscriptionStateHandler
     const stateProvider = provider as BillingSubscriptionStateProviderPort
 
     let pendingAlert: NotifyProviderSubscriptionStateUnexpectedParams | null = null
+    let pendingAccountIssue: NotifyProviderAccountIssueParams | null = null
     let outcome: BillingProviderEventOutcome = { status: 'processed' }
     let logPayload: {
       billingSubscriptionId: number
@@ -288,7 +309,44 @@ export default class BillingProviderSubscriptionStateHandler
           failure !== null &&
           localStatus !== 'canceled'
         ) {
-          await applyLastPaymentFailureIfNewer(sub, event.createdAt, failure)
+          const failureOutcome = await applyLastPaymentFailureIfNewer(
+            sub,
+            event.createdAt,
+            failure
+          )
+          const resolution = resolvePaymentFailureMessage({
+            code: failure.errorCode,
+            declineCode: failure.declineCode,
+          })
+          if (resolution?.catalogMiss) {
+            logger.warn(
+              {
+                billingSubscriptionId: sub.billingSubscriptionId,
+                code: failure.errorCode,
+                declineCode: failure.declineCode,
+                catalogMiss: true,
+              },
+              'Código de fallo recurrente no catalogado; se trata como rechazo de tarjeta'
+            )
+          }
+          if (
+            shouldNotifyAccountIssue(failureOutcome, {
+              invoiceRef: failure.invoiceRef,
+              code: failure.errorCode,
+            }, resolution)
+          ) {
+            pendingAccountIssue = {
+              billingSubscriptionId: sub.billingSubscriptionId,
+              businessUnitId: sub.businessUnitId,
+              invoiceRef: failure.invoiceRef,
+              eventRef: event.id,
+              failedAt: DateTime.fromSeconds(event.createdAt).toUTC().toISO()!,
+              code: failure.errorCode,
+              declineCode: failure.declineCode,
+              catalogKey: resolution!.key,
+              resolvedByStripeSupport: resolution!.resolvedByStripeSupport,
+            }
+          }
         }
 
         if (decision.kind === 'alert' && decision.alert === 'unexpected-status') {
@@ -353,6 +411,10 @@ export default class BillingProviderSubscriptionStateHandler
 
     if (pendingAlert !== null) {
       await this.notifications.notifyProviderSubscriptionStateUnexpected(pendingAlert)
+    }
+
+    if (pendingAccountIssue !== null) {
+      await this.notifications.notifyProviderAccountIssue(pendingAccountIssue)
     }
 
     if (logPayload !== null) {

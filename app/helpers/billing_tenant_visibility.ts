@@ -16,6 +16,8 @@ export interface MySubscriptionRestrictedResult {
   /** Cobro automático stripe; no es dato financiero detallado. */
   automaticBilling: boolean
   minimumContractedEmployees: number | null
+  /** Siempre null: el motivo legible del fallo es solo del dueño. */
+  paymentFailureMessage: null
 }
 
 /**
@@ -44,5 +46,6 @@ export function restrictMySubscription(
     accountStatus: result.accountStatus,
     automaticBilling: result.automaticBilling,
     minimumContractedEmployees: result.minimumContractedEmployees,
+    paymentFailureMessage: null,
   }
 }
