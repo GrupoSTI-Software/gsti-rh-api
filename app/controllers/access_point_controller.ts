@@ -52,7 +52,13 @@ export default class AccessPointController {
    *           type: integer
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: >
+   *           Propios mas los compartidos con la empresa (VLRH-P0065, 6). Cada fila
+   *           trae `sharedRole` (`owner`, `guest` o `null` si no se comparte),
+   *           `sharedWith` (nombres de las invitadas vivas, solo para la
+   *           responsable) y `sharedBy` (nombre de la responsable, solo para la
+   *           invitada). A la invitada le llegan en null la IP, la MAC, los CIDR
+   *           y el id de la responsable; de su ficha solo el nombre.
    *       default:
    *         description: Unexpected error
    */
@@ -269,6 +275,12 @@ export default class AccessPointController {
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '403':
+   *         description: >
+   *           La empresa es invitada de un checador compartido: lo ve pero no lo
+   *           edita (key solo-lectura-checador-compartido).
+   *       '404':
+   *         description: El checador no existe o no es de la empresa
    *       default:
    *         description: Unexpected error
    */
@@ -413,6 +425,17 @@ export default class AccessPointController {
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '403':
+   *         description: >
+   *           La empresa es invitada de un checador compartido (key
+   *           solo-lectura-checador-compartido).
+   *       '404':
+   *         description: El checador no existe o no es de la empresa
+   *       '409':
+   *         description: >
+   *           El checador se compartio y tiene invitadas vivas, o personal de una
+   *           ex-invitada sin baja confirmada: primero se revocan desde el
+   *           landlord (key checador-con-invitaciones-vivas).
    *       default:
    *         description: Unexpected error
    */
@@ -503,7 +526,11 @@ export default class AccessPointController {
    *         required: true
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: >
+   *           El propio o el compartido con la empresa, con `sharedRole`,
+   *           `sharedWith` y `sharedBy` igual que en el listado.
+   *       '404':
+   *         description: El checador no existe, es ajeno o no se comparte con la empresa
    *       default:
    *         description: Unexpected error
    */
