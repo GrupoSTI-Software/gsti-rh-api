@@ -6,9 +6,6 @@ import { createAccessPointValidator, updateAccessPointValidator } from '#validat
 import { DateTime } from 'luxon'
 import EmployeeService from '#services/employee_service'
 import { AdmsError } from '#exceptions/adms_error'
-import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
-import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
-import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { rejectSharedGuest } from '#modules/access-point/access_point_authorization'
 import {
@@ -17,9 +14,6 @@ import {
 } from '#modules/access-point/sharing/access_point_sharing_view'
 
 export default class AccessPointController {
-  /** Scope del checador: puerto con su adaptador por defecto, reemplazable en pruebas. */
-  private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
-
   /**
    * @swagger
    * /api/access-points:
@@ -455,29 +449,7 @@ export default class AccessPointController {
           data: { accessPointId },
         }
       }
-      /**
-       * Con invitadas vivas no se borra: su personal quedaria en un aparato que
-       * nadie administra y la invitacion colgando. Primero se revocan desde el
-       * landlord, que encola sus bajas (VLRH-P0065, 3.2). Tampoco con una
-       * ex-invitada cuyas bajas el aparato no ha confirmado (vinculos sin
-       * revocar o comandos vivos): borrado el aparato, su cierre a mano ya no
-       * lo encontraria. Es el alcance del canal, no el del Backoffice, y solo
-       * cuenta si el aparato se compartio alguna vez: el vinculo de otra
-       * empresa en un aparato nunca compartido no es de ninguna invitada.
-       */
-      const { participantBusinessUnitIds, everShared } = await this.scope.channelScope(
-        currentAccessPoint.accessPointId,
-        currentAccessPoint.businessUnitId
-      )
-      if (everShared && participantBusinessUnitIds.length > 1) {
-        throw new AdmsError(
-          t('access_point_shared_live_title'),
-          ADMS_ERROR_CODES.DEV_SHARED_LIVE,
-          409,
-          'checador-con-invitaciones-vivas',
-          t('access_point_shared_live_message')
-        )
-      }
+      // El 409 de checador compartido lo decide el servicio (`AccessPointService.delete`).
       const accessPointService = new AccessPointService(i18n)
       const deletedAccessPoint = await accessPointService.delete(currentAccessPoint)
       const userId = auth.user?.userId
