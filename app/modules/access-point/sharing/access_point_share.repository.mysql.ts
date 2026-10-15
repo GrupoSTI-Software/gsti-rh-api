@@ -89,6 +89,20 @@ export default class AccessPointShareRepositoryMysql implements AccessPointShare
     }
   }
 
+  async lockOpenAssignment(
+    platformDeviceAssignmentId: number,
+    trx: TransactionClientContract
+  ): Promise<boolean> {
+    const row = (await trx
+      .from('platform_device_assignments')
+      .where('platform_device_assignment_id', platformDeviceAssignmentId)
+      .whereNull('platform_device_assignment_deleted_at')
+      .select('platform_device_assignment_released_at')
+      .forUpdate()
+      .first()) as { platform_device_assignment_released_at: Date | string | null } | null
+    return row !== null && row.platform_device_assignment_released_at === null
+  }
+
   async findBusinessUnitByPublicId(publicId: string): Promise<ShareBusinessUnit | null> {
     const row = (await db
       .from('business_units')

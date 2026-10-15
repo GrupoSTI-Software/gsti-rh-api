@@ -158,8 +158,18 @@ export default class AccessPointShareService {
 
       let shareId: number
       try {
-        shareId = await db.transaction((trx) =>
-          this.repository.insert(
+        shareId = await db.transaction(async (trx) => {
+          /**
+           * La entrega se valido arriba sin candado: una desasignacion
+           * concurrente que ya cerro las invitaciones dejaria esta viva sobre
+           * una entrega cerrada. Releida con `FOR UPDATE`, o la desasignacion
+           * ya termino y se ve cerrada, o espera a que este insert confirme y
+           * lo revoca con las demas.
+           */
+          if (!(await this.repository.lockOpenAssignment(input.platformDeviceAssignmentId, trx))) {
+            throw AccessPointShareErrors.noAssignment()
+          }
+          return this.repository.insert(
             {
               accessPointId,
               businessUnitId: guest.businessUnitId,
@@ -169,7 +179,7 @@ export default class AccessPointShareService {
             },
             trx
           )
-        )
+        })
       } catch (error) {
         // Dos otorgamientos simultaneos: el indice unico de invitaciones vivas manda.
         if (isDuplicateEntry(error)) throw AccessPointShareErrors.duplicate()

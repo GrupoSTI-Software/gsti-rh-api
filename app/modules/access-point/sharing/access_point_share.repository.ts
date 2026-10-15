@@ -65,6 +65,15 @@ export interface ShareRevocation {
  */
 export interface AccessPointShareRepository {
   findAssignment(platformDeviceAssignmentId: number): Promise<ShareAssignment | null>
+  /**
+   * Relee la entrega con `FOR UPDATE` dentro de la transaccion y dice si sigue
+   * abierta. Desasignar cierra la entrega con esa fila bloqueada: otorgar ya
+   * no puede colarse entre la validacion y el insert.
+   */
+  lockOpenAssignment(
+    platformDeviceAssignmentId: number,
+    trx: TransactionClientContract
+  ): Promise<boolean>
   findBusinessUnitByPublicId(publicId: string): Promise<ShareBusinessUnit | null>
   findBusinessUnits(businessUnitIds: number[]): Promise<ShareBusinessUnit[]>
   /** Grupo vivo de cada empresa que tenga uno (una empresa esta en un solo grupo). */

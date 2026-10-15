@@ -15,6 +15,8 @@ const SHARE_ID = 7
 
 interface Options {
   assignment?: ShareAssignment
+  /** La entrega sigue abierta al releerla con candado dentro de la transaccion. */
+  openUnderLock?: boolean
   groupActive?: boolean
 }
 
@@ -44,6 +46,10 @@ function makeService(options: Options = {}) {
     async findAssignment() {
       calls.push('findAssignment')
       return assignment
+    },
+    async lockOpenAssignment() {
+      calls.push('lockOpenAssignment')
+      return options.openUnderLock ?? true
     },
     async lockAccessPoint() {
       calls.push('lockAccessPoint')
@@ -138,5 +144,34 @@ test.group('AccessPointShareService: candados', () => {
     assert.isAtLeast(locked, 0)
     assert.isBelow(locked, calls.indexOf('lockLiveByAccessPoint'))
     assert.isBelow(locked, calls.indexOf('listLiveGuestPivots'))
+  })
+})
+
+test.group('AccessPointShareService: otorgar contra desasignar', () => {
+  test('otorgar relee la entrega con candado antes de insertar', async ({ assert }) => {
+    const { service, calls } = makeService()
+    await service.grant({ platformDeviceAssignmentId: 50, businessUnitPublicId: 'guest-public', userId: 4 })
+    assert.isBelow(calls.indexOf('lockOpenAssignment'), calls.indexOf('insert'))
+    assert.isAtLeast(calls.indexOf('lockOpenAssignment'), 0)
+  })
+
+  test('si la entrega se cerro entre la validacion y el insert, 409 y no inserta', async ({
+    assert,
+  }) => {
+    const { service, calls } = makeService({ openUnderLock: false })
+    let captured: unknown = null
+    try {
+      await service.grant({
+        platformDeviceAssignmentId: 50,
+        businessUnitPublicId: 'guest-public',
+        userId: 4,
+      })
+    } catch (error) {
+      captured = error
+    }
+    const err = captured as { httpStatus?: number; key?: string } | null
+    assert.equal(err?.httpStatus, 409)
+    assert.equal(err?.key, 'unidad-sin-asignacion')
+    assert.notInclude(calls, 'insert')
   })
 })
