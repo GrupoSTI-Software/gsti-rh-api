@@ -1,7 +1,16 @@
 import db from '@adonisjs/lucid/services/db'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import { DEVICE_COMMAND_STATUS } from '#modules/device-commands/device_command.constants'
-import type { AccessPointScopePort, ChannelScope } from './access_point_scope.port.js'
+import AccessPoint from '#models/access_point'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
+import type {
+  AccessPointRoleScope,
+  AccessPointScopePort,
+  AccessPointVisibility,
+  ChannelScope,
+  VisibilityOptions,
+} from './access_point_scope.port.js'
 
 /** Fila de la consulta unica del scope del canal. */
 interface ChannelScopeRow {
@@ -16,6 +25,8 @@ interface ChannelScopeRow {
  *
  * Se lee por query builder, sin modelo, igual que `access_point_lookup.ts`:
  * corre antes de que exista contexto de tenant y no debe depender del mixin.
+ * La unica lectura por modelo (`visibleTo`) corre bajo bypass declarado y se
+ * cierra dentro de el.
  */
 export default class AccessPointScopeRepositoryMysql implements AccessPointScopePort {
   /**
@@ -195,5 +206,41 @@ export default class AccessPointScopeRepositoryMysql implements AccessPointScope
       .whereNull('access_point_share_revoked_at')
       .select('access_point_id')) as Array<{ access_point_id: number }>
     return rows.map((row) => Number(row.access_point_id))
+  }
+
+  async visibleTo(
+    accessPointId: number,
+    requestScope: number[],
+    options: VisibilityOptions = {}
+  ): Promise<AccessPointVisibility | null> {
+    if (requestScope.length === 0) return null
+    // La responsable de un compartido no esta en el alcance: se lee sin el
+    // mixin y la consulta se cierra con `first()` dentro del bypass (VLRH-A0036, M12).
+    const accessPoint = await TenantContext.runUnscoped(
+      () =>
+        AccessPoint.query()
+          .where('access_point_id', accessPointId)
+          .whereNull('access_point_deleted_at')
+          .first(),
+      TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
+    )
+    if (!accessPoint) return null
+    const seen = await this.roleOf(accessPoint, requestScope, options)
+    return seen ? { accessPoint, ...seen } : null
+  }
+
+  async roleOf(
+    accessPoint: { accessPointId: number; businessUnitId: number },
+    requestScope: number[],
+    options: VisibilityOptions = {}
+  ): Promise<AccessPointRoleScope | null> {
+    if (requestScope.length === 0) return null
+    const deviceScope = options.includeLingering
+      ? await this.channelParticipants(accessPoint.accessPointId, accessPoint.businessUnitId)
+      : await this.participants(accessPoint.accessPointId, accessPoint.businessUnitId)
+    const owner = requestScope.includes(accessPoint.businessUnitId)
+    const guest = !owner && deviceScope.some((id) => requestScope.includes(id))
+    if (!owner && !guest) return null
+    return { role: owner ? 'owner' : 'guest', deviceScope }
   }
 }

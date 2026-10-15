@@ -180,13 +180,8 @@ export default class AccessPointService {
         .preload('businessUnit')
         .first()
       if (!accessPoint) return null
-      const owned = allowedBusinessUnitIds.includes(accessPoint.businessUnitId as number)
-      if (owned) return accessPoint
-      const participants = await this.scope.participants(
-        accessPoint.accessPointId,
-        accessPoint.businessUnitId as number
-      )
-      return participants.some((id) => allowedBusinessUnitIds.includes(id)) ? accessPoint : null
+      // La misma regla que `visibleTo`, sobre la lectura con las columnas de la ficha.
+      return (await this.scope.roleOf(accessPoint, allowedBusinessUnitIds)) ? accessPoint : null
     }, TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
   }
 

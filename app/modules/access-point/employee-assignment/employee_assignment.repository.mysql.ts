@@ -1,8 +1,5 @@
-import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
 import Employee from '#models/employee'
-import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
-import { TenantContext } from '#utils/tenant_context'
 import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import type EmployeeAssignmentRepository from './employee_assignment.repository.js'
@@ -32,32 +29,16 @@ export default class EmployeeAssignmentRepositoryMysql
   }
 
   /**
-   * El equipo se lee sin el mixin porque el de otra empresa compartido con la
-   * del alcance tambien cuenta; la consulta se cierra dentro del bypass
-   * (VLRH-A0036, M12). Quien lo ve lo decide el scope del checador.
-   *
-   * Sin alcance falla cerrado: el bypass quita la barrera del mixin, y un
-   * llamador sin empresa (job, otra ruta) no debe ver cualquier checador.
+   * Quien ve el checador lo decide la regla unica `visibleTo`: el de otra
+   * empresa compartido con la del alcance tambien cuenta. Sin alcance falla
+   * cerrado: un llamador sin empresa (job, otra ruta) no ve ningun checador.
    */
   async accessPointScope(
     accessPointId: number,
     scope: BusinessUnitScope
   ): Promise<number[] | null> {
-    if (!scope || scope.length === 0) return null
-    const accessPoint = await TenantContext.runUnscoped(
-      () =>
-        AccessPoint.query()
-          .where('access_point_id', accessPointId)
-          .whereNull('access_point_deleted_at')
-          .first(),
-      TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
-    )
-    if (!accessPoint) return null
-    const participants = await this.sharing.participants(
-      accessPoint.accessPointId,
-      accessPoint.businessUnitId
-    )
-    return participants.some((id) => scope.includes(id)) ? participants : null
+    const seen = await this.sharing.visibleTo(accessPointId, scope ?? [])
+    return seen ? seen.deviceScope : null
   }
 
   async employeeBusinessUnitId(

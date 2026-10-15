@@ -117,4 +117,52 @@ test.group('AccessPointScope', (group) => {
     const scope = await scopeRepository.channelScope(0, fx.ownerBu)
     assert.deepEqual(scope, { participantBusinessUnitIds: [fx.ownerBu], everShared: false })
   })
+
+  test('visibleTo: la responsable lo ve como owner con el scope del aparato', async ({
+    assert,
+  }) => {
+    const seen = await scopeRepository.visibleTo(fx.accessPoint.accessPointId, [fx.ownerBu])
+    assert.equal(seen?.accessPoint.accessPointId, fx.accessPoint.accessPointId)
+    assert.equal(seen?.role, 'owner')
+    assert.deepEqual(seen?.deviceScope, [fx.ownerBu, fx.guestBu])
+  })
+
+  test('visibleTo: la invitada viva lo ve como guest; la ajena no lo ve', async ({ assert }) => {
+    const guest = await scopeRepository.visibleTo(fx.accessPoint.accessPointId, [fx.guestBu])
+    assert.equal(guest?.role, 'guest')
+    assert.deepEqual(guest?.deviceScope, [fx.ownerBu, fx.guestBu])
+    assert.isNull(await scopeRepository.visibleTo(fx.accessPoint.accessPointId, [fx.outsiderBu]))
+  })
+
+  test('visibleTo: falla cerrado con alcance vacio o checador inexistente', async ({ assert }) => {
+    assert.isNull(await scopeRepository.visibleTo(fx.accessPoint.accessPointId, []))
+    assert.isNull(await scopeRepository.visibleTo(0, [fx.ownerBu]))
+  })
+
+  test('visibleTo: la ex-invitada con personal sin baja solo entra con includeLingering', async ({
+    assert,
+  }) => {
+    await fx.share.merge({ accessPointShareRevokedAt: DateTime.utc() }).save()
+    try {
+      const apId = fx.accessPoint.accessPointId
+      assert.isNull(await scopeRepository.visibleTo(apId, [fx.guestBu]))
+      const lingering = await scopeRepository.visibleTo(apId, [fx.guestBu], {
+        includeLingering: true,
+      })
+      assert.equal(lingering?.role, 'guest')
+      assert.deepEqual(lingering?.deviceScope, [fx.ownerBu, fx.guestBu])
+    } finally {
+      await fx.share.merge({ accessPointShareRevokedAt: null }).save()
+    }
+  })
+
+  test('roleOf decide sobre un checador ya leido con la misma regla', async ({ assert }) => {
+    const ap = { accessPointId: fx.accessPoint.accessPointId, businessUnitId: fx.ownerBu }
+    const asOwner = await scopeRepository.roleOf(ap, [fx.ownerBu])
+    const asGuest = await scopeRepository.roleOf(ap, [fx.guestBu])
+    assert.equal(asOwner?.role, 'owner')
+    assert.equal(asGuest?.role, 'guest')
+    assert.isNull(await scopeRepository.roleOf(ap, [fx.outsiderBu]))
+    assert.isNull(await scopeRepository.roleOf(ap, []))
+  })
 })

@@ -1,22 +1,20 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { PermissionGateOptions } from '#constants/permission_gate'
+import type AccessPoint from '#models/access_point'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import { AdmsError } from '#exceptions/adms_error'
-import AccessPoint from '#models/access_point'
 import PermissionGateService from '#services/permission_gate_service'
 import Employee from '#models/employee'
-import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
-import { TenantContext } from '#utils/tenant_context'
 import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type {
+  AccessPointRole,
+  AccessPointVisibility,
+} from '#modules/access-point/sharing/access_point_scope.port'
 
-export type AccessPointRole = 'owner' | 'guest'
+export type { AccessPointRole }
 
-export interface ParticipantAccessPoint {
-  accessPoint: AccessPoint
-  role: AccessPointRole
-  /** Scope del checador: responsable + invitadas vivas. */
-  deviceScope: number[]
-}
+/** El checador que la peticion opera, con su papel y su scope (`visibleTo`). */
+export type ParticipantAccessPoint = AccessPointVisibility
 
 /**
  * Autorizacion unica de las rutas del canal ADMS hacia el Backoffice
@@ -104,37 +102,19 @@ export async function resolveParticipantAccessPoint(
   accessPointId: number,
   options: { includeLingering?: boolean } = {}
 ): Promise<ParticipantAccessPoint> {
-  const scope = ctx.businessUnitScope ?? []
-  if (scope.length === 0) throw accessPointNotFound(ctx)
-
-  // La consulta se cierra con `first()` dentro del bypass: un builder devuelto
-  // sin ejecutar correria fuera del contexto y truena (VLRH-A0036, M12).
-  const accessPoint = await TenantContext.runUnscoped(
-    () =>
-      AccessPoint.query()
-        .where('access_point_id', accessPointId)
-        .whereNull('access_point_deleted_at')
-        .first(),
-    TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
-  )
-  if (!accessPoint) throw accessPointNotFound(ctx)
-
   /**
-   * `includeLingering` admite tambien a la ex-invitada que aun tiene personal
-   * en el aparato sin baja confirmada: solo para cerrar esos vinculos
-   * (`forceRevoke`), nunca para operar el aparato.
+   * La regla vive en `AccessPointScopePort.visibleTo`; aqui solo se traduce
+   * "no lo ve" (alcance vacio, inexistente o ajeno) al 404. `includeLingering`
+   * admite tambien a la ex-invitada que aun tiene personal en el aparato sin
+   * baja confirmada: solo para cerrar esos vinculos (`forceRevoke`).
    */
-  const deviceScope = options.includeLingering
-    ? await AccessPointScope.channelParticipants(
-        accessPoint.accessPointId,
-        accessPoint.businessUnitId
-      )
-    : await AccessPointScope.participants(accessPoint.accessPointId, accessPoint.businessUnitId)
-  const owner = scope.includes(accessPoint.businessUnitId)
-  const guest = !owner && deviceScope.some((id) => scope.includes(id))
-  if (!owner && !guest) throw accessPointNotFound(ctx)
-
-  return { accessPoint, role: owner ? 'owner' : 'guest', deviceScope }
+  const participant = await AccessPointScope.visibleTo(
+    accessPointId,
+    ctx.businessUnitScope ?? [],
+    options
+  )
+  if (!participant) throw accessPointNotFound(ctx)
+  return participant
 }
 
 /**

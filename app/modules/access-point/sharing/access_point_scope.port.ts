@@ -1,3 +1,5 @@
+import type AccessPoint from '#models/access_point'
+
 /** Scope del canal ADMS de un checador y si alguna vez se compartio. */
 export interface ChannelScope {
   /**
@@ -10,14 +12,42 @@ export interface ChannelScope {
   everShared: boolean
 }
 
+/** Papel de una empresa sobre un checador que ve. */
+export type AccessPointRole = 'owner' | 'guest'
+
+/** Papel y scope de una empresa sobre un checador (sin el checador). */
+export interface AccessPointRoleScope {
+  role: AccessPointRole
+  /**
+   * Scope del aparato: responsable e invitadas vivas, o el del canal con
+   * `includeLingering`. Toda operacion sobre el aparato corre dentro de el.
+   */
+  deviceScope: number[]
+}
+
+/** Un checador que la peticion puede ver, con su papel y su scope. */
+export interface AccessPointVisibility extends AccessPointRoleScope {
+  accessPoint: AccessPoint
+}
+
+/** Opciones de la regla de visibilidad. */
+export interface VisibilityOptions {
+  /**
+   * Admite tambien a la ex-invitada con personal sin baja confirmada en el
+   * aparato (scope del canal). Solo para cerrar esos vinculos, nunca para
+   * operar el aparato.
+   */
+  includeLingering?: boolean
+}
+
 /**
  * Puerto del scope de un checador: la responsable y sus invitadas vivas
  * (VLRH-P0065, 3.4).
  *
  * Punto unico de verdad de "quien participa de un aparato". Lo usan el canal,
  * el guard de comandos, la autorizacion del Backoffice, la replicacion y la
- * desasignacion. El adaptador lee sin modelo ni mixin: corre antes de que
- * exista contexto de tenant.
+ * desasignacion. El adaptador lee sin mixin: corre antes de que exista
+ * contexto de tenant o con la responsable fuera del alcance.
  */
 export interface AccessPointScopePort {
   /**
@@ -51,4 +81,26 @@ export interface AccessPointScopePort {
 
   /** Checadores ajenos con invitacion viva para la empresa. */
   sharedWith(businessUnitId: number): Promise<number[]>
+
+  /**
+   * Regla unica de "quien ve un checador" (VLRH-P0065, 6): `owner` si la
+   * responsable esta en el alcance de la peticion; `guest` si alguna empresa
+   * del alcance participa del aparato; `null` si no lo ve, si no existe o si
+   * el alcance viene vacio (falla cerrado).
+   */
+  visibleTo(
+    accessPointId: number,
+    requestScope: number[],
+    options?: VisibilityOptions
+  ): Promise<AccessPointVisibility | null>
+
+  /**
+   * La misma regla que `visibleTo` sobre un checador que el llamador ya leyo
+   * (con sus propias columnas): devuelve papel y scope, o `null`.
+   */
+  roleOf(
+    accessPoint: { accessPointId: number; businessUnitId: number },
+    requestScope: number[],
+    options?: VisibilityOptions
+  ): Promise<AccessPointRoleScope | null>
 }
