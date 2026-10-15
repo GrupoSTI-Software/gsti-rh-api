@@ -177,11 +177,13 @@ export default class AccessPointService {
   }
 
   /**
-   * `AccessPoint` ya compone `withBusinessUnitScope()` (USRH1784259058567):
-   * el `whereIn('business_unit_id', allowedBusinessUnitIds)` manual era
-   * exactamente el mismo filtro que ya aplica el mixin bajo contexto activo
-   * — se retiró. `allowedBusinessUnitIds` se conserva en la firma por
-   * compatibilidad del contrato del servicio, aunque ya no se usa aquí.
+   * Ficha de un checador para la empresa de la peticion (VLRH-P0065, 6).
+   *
+   * Se lee sin el mixin, porque la responsable de un checador compartido no
+   * esta en el alcance, y `allowedBusinessUnitIds` (el alcance de la
+   * peticion) decide si se entrega: el propio o el compartido con alguna
+   * empresa del alcance, con la regla unica `roleOf`. Alcance vacio o ajeno
+   * devuelve `null` (el controlador responde 404).
    */
   async show(accessPointId: number, allowedBusinessUnitIds: number[] = []) {
     const selectedColumns = [
