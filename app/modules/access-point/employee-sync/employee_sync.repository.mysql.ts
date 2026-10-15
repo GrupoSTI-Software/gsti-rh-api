@@ -94,20 +94,46 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
         if (isLockWaitTimeout(error)) throw new DeviceBusyError()
         throw error
       } finally {
-        await this.restoreLockWait(trx, previous)
+        await this.restoreOrDiscard(trx, previous)
       }
     })
   }
 
-  /** Devuelve a la sesion de la conexion su tiempo de espera de candado previo. */
-  private async restoreLockWait(trx: TransactionClientContract, previous: number): Promise<void> {
-    if (!Number.isFinite(previous)) return
+  /**
+   * Restaura la espera de candado de la sesion; si no puede, la conexion no
+   * vuelve al pool con los 5 s.
+   *
+   * La destruye (`destroy()` de mysql2 sobre la conexion cruda de la
+   * transaccion): knex valida cada conexion al prestarla (`validateConnection`
+   * revisa `_closing` y `stream.destroyed`) y descarta la destruida. Ademas
+   * lanza, para que la operacion no se de por confirmada: sin conexion, lo
+   * escrito en la transaccion se pierde.
+   *
+   * @throws Error si la restauracion fallo.
+   */
+  private async restoreOrDiscard(trx: TransactionClientContract, previous: number): Promise<void> {
     try {
-      await trx.rawQuery('SET SESSION innodb_lock_wait_timeout = ?', [previous])
+      if (!Number.isFinite(previous)) {
+        throw new Error('No se leyo la espera de candado previa de la sesion')
+      }
+      await this.restoreLockWait(trx, previous)
     } catch (error) {
-      // Si la conexion ya no responde, el pool la descarta; no se tapa el error original.
-      logger.warn({ err: error }, 'inDeviceTransaction: no se pudo restaurar innodb_lock_wait_timeout')
+      logger.error(
+        { err: error },
+        'inDeviceTransaction: no se pudo restaurar innodb_lock_wait_timeout; se destruye la conexion'
+      )
+      const knexTrx = trx.knexClient as unknown as {
+        client: { acquireConnection(): Promise<{ destroy(): void } | null> }
+      }
+      const connection = await knexTrx.client.acquireConnection()
+      connection?.destroy()
+      throw new Error('No se pudo restaurar la conexion del checador; la operacion no se confirmo')
     }
+  }
+
+  /** Devuelve a la sesion de la conexion su tiempo de espera de candado previo. */
+  protected async restoreLockWait(trx: TransactionClientContract, previous: number): Promise<void> {
+    await trx.rawQuery('SET SESSION innodb_lock_wait_timeout = ?', [previous])
   }
 
   async findPivot(

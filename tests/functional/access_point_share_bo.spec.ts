@@ -577,6 +577,54 @@ test.group('Checador compartido: Backoffice', (group) => {
     }
   }).timeout(90000)
 
+  /**
+   * Si no se puede restaurar el tiempo de espera de la sesion, la conexion no
+   * vuelve al pool con los 5 s: se destruye (knex la descarta al validarla) y
+   * la operacion falla en vez de confirmarse.
+   */
+  test('si no se restaura el tiempo de espera, la conexion se destruye y no vuelve al pool', async ({
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const scanned: TransactionClientContract[] = []
+    try {
+      class FailingRestore extends EmployeeSyncRepositoryMysql {
+        protected override async restoreLockWait(): Promise<void> {
+          throw new Error('restauracion forzada a fallar')
+        }
+      }
+      let raw: { _closing?: boolean; stream?: { destroyed?: boolean } } | null = null
+      const failure = await new FailingRestore()
+        .inDeviceTransaction(own.accessPoint.accessPointId, async (trx) => {
+          const knexTrx = trx.knexClient as unknown as {
+            client: { acquireConnection(): Promise<typeof raw> }
+          }
+          raw = await knexTrx.client.acquireConnection()
+          return 'hecho'
+        })
+        .catch((error: unknown) => error)
+
+      assert.instanceOf(failure, Error)
+      const connection = raw as { _closing?: boolean; stream?: { destroyed?: boolean } } | null
+      assert.isNotNull(connection)
+      assert.isTrue(Boolean(connection?._closing || connection?.stream?.destroyed))
+
+      const [globalRows] = (await db.rawQuery(
+        'SELECT @@GLOBAL.innodb_lock_wait_timeout AS timeout'
+      )) as [Array<{ timeout: number }>, unknown]
+      for (let i = 0; i < 9; i += 1) scanned.push(await db.transaction())
+      for (const trx of scanned) {
+        const [rows] = (await trx.rawQuery(
+          'SELECT @@SESSION.innodb_lock_wait_timeout AS timeout'
+        )) as [Array<{ timeout: number }>, unknown]
+        assert.equal(Number(rows[0].timeout), Number(globalRows[0].timeout))
+      }
+    } finally {
+      for (const trx of scanned) await trx.rollback()
+      await own.cleanup()
+    }
+  }).timeout(90000)
+
   /** La revalidacion del reclamo pregunta en la transaccion del aparato, sin otra conexion. */
   test('el reclamo de un PIN no mapeado revalida la participacion en la transaccion del aparato', async ({
     assert,
