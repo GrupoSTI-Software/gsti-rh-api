@@ -5,6 +5,7 @@ import type { DeviceCommandErrorCode } from '#constants/device_command_error_cod
 import { AdmsError } from '#exceptions/adms_error'
 import { EmployeeOutOfScopeError } from '#modules/access-point/employee_business_unit'
 import { AccessPointOutOfScopeError } from '#modules/access-point/access_point_out_of_scope_error'
+import { DeviceBusyError } from '#modules/access-point/device_busy_error'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { BiometricVaultError } from '#exceptions/biometric_vault_error'
 import type { BiometricVaultErrorCode } from '#constants/biometric_vault_error_codes'
@@ -68,6 +69,17 @@ export function resolveAdmsApiError(error: unknown, i18n: I18n): ResolvedAdmsApi
       detail: i18n.formatMessage('access_point_employee_employee_not_found_message'),
       key: 'colaborador-no-encontrado',
       code: ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+    }
+  }
+
+  /** Otra operacion retiene el checador mas alla del tiempo de espera del candado. */
+  if (error instanceof DeviceBusyError) {
+    return {
+      status: 409,
+      title: i18n.formatMessage('access_point_device_busy_title'),
+      detail: i18n.formatMessage('access_point_device_busy_message'),
+      key: 'equipo-ocupado',
+      code: ADMS_ERROR_CODES.SYS_INTERNAL,
     }
   }
 

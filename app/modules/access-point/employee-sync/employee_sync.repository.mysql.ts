@@ -12,6 +12,8 @@ import AccessPointEmployeeEvent from '#models/access_point_employee_event'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { canTransition, PIN_QUARANTINE_STATUSES } from './employee_sync_state.js'
+import { DeviceBusyError } from '#modules/access-point/device_busy_error'
+import logger from '@adonisjs/core/services/logger'
 import type { EmployeeSyncRepository, SyncEventInput } from './employee_sync.repository.js'
 
 /**
@@ -38,6 +40,20 @@ function isDuplicatePin(error: unknown): boolean {
   return (error as { code?: string })?.code === 'ER_DUP_ENTRY'
 }
 
+/**
+ * Espera maxima por el candado del aparato, en segundos. Una operacion sobre
+ * el aparato tarda milisegundos: esperar mas significa que algo esta atorado,
+ * no que haya cola. Sin esto rige el `innodb_lock_wait_timeout` del servidor
+ * (50 s por defecto) y quien espera recibe un 500 en vez de un 409 legible.
+ */
+const DEVICE_LOCK_WAIT_SECONDS = 5
+
+/** InnoDB vencio la espera de un candado de fila (errno 1205). */
+function isLockWaitTimeout(error: unknown): boolean {
+  const failure = error as { code?: string; errno?: number }
+  return failure?.code === 'ER_LOCK_WAIT_TIMEOUT' || failure?.errno === 1205
+}
+
 /** Adaptador Lucid del pivote empleado por dispositivo. */
 export default class EmployeeSyncRepositoryMysql implements EmployeeSyncRepository {
   /**
@@ -55,15 +71,43 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     fn: (trx: TransactionClientContract) => Promise<T>
   ): Promise<T> {
     return db.transaction(async (trx) => {
-      // Constructor crudo sobre `trx`: sin mixin, la fila se bloquea aunque sea de otra empresa.
-      await trx
-        .from('access_points')
-        .where('access_point_id', accessPointId)
-        .select('access_point_id')
-        .forUpdate()
-        .first()
-      return fn(trx)
+      /**
+       * Espera corta solo para esta transaccion: se fija en la sesion de su
+       * conexion y se restaura antes de devolverla al pool, o la siguiente
+       * peticion que reciba esa conexion heredaria los 5 s.
+       */
+      const [rows] = (await trx.rawQuery(
+        'SELECT @@SESSION.innodb_lock_wait_timeout AS previous'
+      )) as [Array<{ previous: number }>, unknown]
+      const previous = Number(rows[0]?.previous)
+      await trx.rawQuery('SET SESSION innodb_lock_wait_timeout = ?', [DEVICE_LOCK_WAIT_SECONDS])
+      try {
+        // Constructor crudo sobre `trx`: sin mixin, la fila se bloquea aunque sea de otra empresa.
+        await trx
+          .from('access_points')
+          .where('access_point_id', accessPointId)
+          .select('access_point_id')
+          .forUpdate()
+          .first()
+        return await fn(trx)
+      } catch (error) {
+        if (isLockWaitTimeout(error)) throw new DeviceBusyError()
+        throw error
+      } finally {
+        await this.restoreLockWait(trx, previous)
+      }
     })
+  }
+
+  /** Devuelve a la sesion de la conexion su tiempo de espera de candado previo. */
+  private async restoreLockWait(trx: TransactionClientContract, previous: number): Promise<void> {
+    if (!Number.isFinite(previous)) return
+    try {
+      await trx.rawQuery('SET SESSION innodb_lock_wait_timeout = ?', [previous])
+    } catch (error) {
+      // Si la conexion ya no responde, el pool la descarta; no se tapa el error original.
+      logger.warn({ err: error }, 'inDeviceTransaction: no se pudo restaurar innodb_lock_wait_timeout')
+    }
   }
 
   async findPivot(

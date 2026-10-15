@@ -3277,6 +3277,8 @@
   "adms_forbidden_message": "You do not have permission for this device operation",
   "adms_not_found_title": "Access point not found",
   "adms_not_found_message": "The access point does not exist or you cannot access it",
+  "access_point_device_busy_title": "Access point busy",
+  "access_point_device_busy_message": "Another operation on this access point is still running. Try again in a few seconds.",
   "access_point_shared_read_only_title": "Shared access point",
   "access_point_shared_read_only_message": "Another company manages this access point; you can only manage your own staff on it.",
   "access_point_shared_live_title": "Access point with active invitations",

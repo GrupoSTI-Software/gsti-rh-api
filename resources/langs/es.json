@@ -3280,6 +3280,8 @@
   "adms_forbidden_message": "No tienes permiso para esta operación sobre los checadores",
   "adms_not_found_title": "Punto de acceso no encontrado",
   "adms_not_found_message": "El punto de acceso no existe o no tienes acceso a él",
+  "access_point_device_busy_title": "Checador ocupado",
+  "access_point_device_busy_message": "Otra operación sobre este checador sigue en curso. Intenta de nuevo en unos segundos.",
   "access_point_shared_read_only_title": "Checador compartido",
   "access_point_shared_read_only_message": "Este checador lo administra otra empresa; solo puedes gestionar a tu personal en él.",
   "access_point_shared_live_title": "Checador con invitaciones vivas",

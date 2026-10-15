@@ -31,6 +31,9 @@ import {
 } from '#tests/helpers/shared_access_point_fixture'
 import { lockHolderOf, waitForLockWaitOn } from '#tests/helpers/lock_wait'
 import AccessPointShareRepositoryMysql from '#modules/access-point/sharing/access_point_share.repository.mysql'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { AdmsError } from '#exceptions/adms_error'
 
 const unscoped = <T>(fn: () => Promise<T>) =>
   TenantContext.runUnscoped(async () => await fn(), TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
@@ -491,6 +494,85 @@ test.group('Checador compartido: Backoffice', (group) => {
       await own.cleanup()
     }
   })
+
+  /**
+   * Sin el cerrojo con nombre, quien espera el candado del aparato tiene que
+   * seguir recibiendo un 409 rapido y legible (`equipo-ocupado`), no un 500
+   * tras los 50 s de `innodb_lock_wait_timeout` del servidor.
+   */
+  test('con el aparato ocupado, el alta responde 409 equipo-ocupado en unos segundos', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    const holderTrx = await db.transaction()
+    try {
+      const actor = await actorFor(own.guestBu)
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+      await new AccessPointShareRepositoryMysql().lockAccessPoint(apId, holderTrx)
+
+      const started = Date.now()
+      const res = await client
+        .post(`/api/access-points/${apId}/employee/${extra.employeeId}`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      const elapsed = Date.now() - started
+
+      res.assertStatus(409)
+      res.assertBodyContains({ key: 'equipo-ocupado', title: 'Checador ocupado' })
+      assert.isAtLeast(elapsed, 4000)
+      assert.isBelow(elapsed, 10000)
+    } finally {
+      await holderTrx.rollback()
+      await own.cleanup()
+    }
+  }).timeout(90000)
+
+  /**
+   * El tiempo de espera corto es de la transaccion del aparato, no de la
+   * conexion: al volver al pool, cada conexion tiene el valor de siempre, o
+   * contaminaria a cualquier otra peticion que la reciba despues.
+   */
+  test('la conexion vuelve al pool con su tiempo de espera de candado original', async ({
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    const holderTrx = await db.transaction()
+    const scanned: TransactionClientContract[] = []
+    try {
+      const [globalRows] = (await db.rawQuery(
+        'SELECT @@GLOBAL.innodb_lock_wait_timeout AS timeout'
+      )) as [Array<{ timeout: number }>, unknown]
+      const original = Number(globalRows[0].timeout)
+
+      await new AccessPointShareRepositoryMysql().lockAccessPoint(apId, holderTrx)
+      const busy = await new EmployeeSyncRepositoryMysql()
+        .inDeviceTransaction(apId, async () => 'no debio entrar')
+        .catch((error: unknown) => error)
+      assert.instanceOf(busy, AdmsError)
+      assert.equal((busy as AdmsError).key, 'equipo-ocupado')
+      assert.equal((busy as AdmsError).httpStatus, 409)
+      await holderTrx.rollback()
+
+      // Una vuelta exitosa tambien restaura el valor.
+      await new EmployeeSyncRepositoryMysql().inDeviceTransaction(apId, async () => null)
+
+      // Se piden todas las conexiones libres del pool a la vez: ninguna trae el valor corto.
+      for (let i = 0; i < 9; i += 1) scanned.push(await db.transaction())
+      for (const trx of scanned) {
+        const [rows] = (await trx.rawQuery(
+          'SELECT @@SESSION.innodb_lock_wait_timeout AS timeout'
+        )) as [Array<{ timeout: number }>, unknown]
+        assert.equal(Number(rows[0].timeout), original)
+      }
+    } finally {
+      for (const trx of scanned) await trx.rollback()
+      if (!holderTrx.isCompleted) await holderTrx.rollback()
+      await own.cleanup()
+    }
+  }).timeout(90000)
 
   test('la invitada solo ve a su personal en el padron del checador', async ({
     client,
