@@ -15,14 +15,18 @@ import Employee from '#models/employee'
 import AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import EmployeeSyncService from './employee_sync.service.js'
+import ResyncPendingService from './resync_pending.service.js'
 import { toEmployeeSyncDto } from './dto/employee_sync.dto.js'
 import {
   toEmployeeAccessPointDto,
+  toResyncPendingsCountDto,
+  toResyncPendingsFullDto,
   type EmployeeAccessPointDto,
   type EmployeeAvailableAccessPointDto,
   type EmployeeBiometricSummaryDto,
   type EmployeeDevicesDto,
 } from './dto/employee_access_point.dto.js'
+import PermissionGateService from '#services/permission_gate_service'
 import { statusOf } from '#modules/access-point/health/health.service'
 import { TenantContext } from '#utils/tenant_context'
 import db from '@adonisjs/lucid/services/db'
@@ -447,6 +451,77 @@ export default class EmployeeSyncController {
   }
 
   /** Un colaborador de otra empresa se comporta como inexistente. */
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/access-point-resync-pendings:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Puntos de acceso]
+   *     summary: Checadores pendientes de volver a sincronizar tras deshacer la baja
+   *     description: >
+   *       Marcas abiertas que dejó la reactivación (VLRH-H1790812613831): los
+   *       checadores de los que la baja sacó a la persona y donde aún no volvió a
+   *       quedar asignada. Dos niveles decididos en el servidor: con el permiso
+   *       de ver la ficha viaja solo el conteo (`detail: count`); con el de ver
+   *       los biométricos viaja además `resyncPending` con el nombre de cada
+   *       checador, su estado actual y la acción requerida (`assign` o
+   *       `force-revoke-then-assign`), ordenado por nombre.
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       200:
+   *         description: >
+   *           data.employeeResyncPendings = { employeeId, detail: 'count', count }
+   *           o { employeeId, detail: 'full', count, resyncPending[] }
+   *       403:
+   *         description: Sin permiso de ver la ficha (key sin-permiso, code ADMS.AUTHZ.002)
+   *       404:
+   *         description: >
+   *           Colaborador inexistente, de otra empresa o dado de baja (key
+   *           colaborador-no-encontrado, code ADMS.AUTHZ.001)
+   */
+  async listResyncPendingsByEmployee(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(ctx, EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployee)
+      const { params } = await request.validateUsing(employeeValidator, {
+        data: { params: request.params() },
+      })
+      // Solo activos dentro del alcance: el dado de baja responde el 404 uniforme (regla 7)
+      const employee = await resolveScopedEmployee(ctx, params.employeeId)
+      const rows = await new ResyncPendingService().listOpenByEmployee(
+        employee.employeeId,
+        employee.businessUnitId
+      )
+
+      // El nivel lo decide el servidor con `evaluateEnforced` (regla 6), nunca el cliente
+      const gate = ctx.permissionGate ?? new PermissionGateService()
+      const decision = await gate.evaluateEnforced(
+        ctx.auth.user,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics
+      )
+      const payload =
+        decision.reason === 'granted' || decision.reason === 'bypass'
+          ? toResyncPendingsFullDto(employee.employeeId, rows)
+          : toResyncPendingsCountDto(employee.employeeId, rows.length)
+
+      return StandardResponseFormatter.success(
+        response,
+        payload,
+        i18n.formatMessage('access_point_resync_pending_title'),
+        i18n.formatMessage('access_point_resync_pending_list_message'),
+        200,
+        'employeeResyncPendings'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
 }
 
 /** Nombre para la pantalla del equipo. El formateador lo recorta a 24. */

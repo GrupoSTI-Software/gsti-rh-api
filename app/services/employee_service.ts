@@ -121,6 +121,7 @@ import AccessPointEmployee from '#models/access_point_employee'
 import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
 import EmployeeTeleworkCalculator from './employee_telework_calculator.js'
 import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
+import ResyncPendingService from '#modules/access-point/employee-sync/resync_pending.service'
 import {
   EMPLOYEE_WORK_SCHEDULE,
   EMPLOYEE_WORK_SCHEDULE_ERROR_CODES,
@@ -1083,6 +1084,7 @@ export default class EmployeeService {
         .first()
       // Regla 1: solo se reactiva a quien sigue dado de baja
       if (!locked || locked.deletedAt === null) return null
+      const terminatedAt = locked.deletedAt
 
       // (3) Código original libre entre los vivos de la MISMA empresa (regla 4).
       // `Employee.query()` excluye a los dados de baja: "vivo" = sin
@@ -1099,7 +1101,15 @@ export default class EmployeeService {
       // [R2 de VLRH-H1791055794596], copia, [cancelación de VLRH-H1790812613830]
       await new OffboardingsService(this.i18n).onEmployeeReactivated(trx, locked, actorUserId)
 
-      // (5) [marca de checadores pendientes de VLRH-H1790812613831: aquí, antes de limpiar la fecha]
+      // (5) Checadores de los que ESTA baja sacó a la persona (VLRH-H1790812613831):
+      // la marca se decide con la fecha de baja aún en la fila, antes de limpiarla
+      await new ResyncPendingService().recordOnReactivation({
+        trx,
+        businessUnitId: locked.businessUnitId,
+        employeeId: locked.employeeId,
+        terminatedAt,
+        actorUserId,
+      })
 
       // (6) Restaurar y limpiar en una sola escritura (reglas 3 y 6)
       locked.employeeCode = originalCode
