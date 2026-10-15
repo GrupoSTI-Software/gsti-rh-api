@@ -1,4 +1,5 @@
 import type { DateTime } from 'luxon'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 import DeviceCommandRepositoryMysql from '../device_command.repository.mysql.js'
 import {
   DEVICE_COMMAND_KIND,
@@ -334,10 +335,16 @@ export default class CommandAckService {
    * solo `CHECK` en la cola, no diez.
    */
   private async askForRoster(command: DeviceCommand): Promise<void> {
-    if (!command.businessUnitId) return
+    /**
+     * El `CHECK` es del aparato y va a nombre de la responsable (VLRH-P0065,
+     * 3.3): la baja puede ser de una ex-invitada, y a su nombre la cola lo
+     * rechazaria y la baja no se cerraria nunca.
+     */
+    const owner = await AccessPointScope.ownerOf(command.accessPointId)
+    if (owner === null) return
     await this.commands.enqueue({
       accessPointId: command.accessPointId,
-      businessUnitId: command.businessUnitId,
+      businessUnitId: owner,
       kind: DEVICE_COMMAND_KIND.CHECK,
       fields: {},
       correlationKey: 'check:padron-tras-baja',

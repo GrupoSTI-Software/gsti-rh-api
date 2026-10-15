@@ -27,8 +27,13 @@ export interface AccessPointLookupRow {
    * aparato, y por eso sirve para saber si un cambio de identidad fue legitimo.
    */
   configuredAt: DateTime | null
-  /** Responsable primero y luego invitadas vivas (VLRH-P0065, 3.4). */
+  /**
+   * Scope del canal: responsable primero, luego invitadas vivas y empresas que
+   * aun tienen personal o comandos vivos en el aparato (VLRH-P0065, 3.3).
+   */
   participantBusinessUnitIds: number[]
+  /** El aparato tiene o tuvo invitadas (cualquier fila de invitacion). */
+  everShared: boolean
 }
 
 /**
@@ -109,10 +114,11 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
       .first()
     if (!row) return null
     const typed = row as AccessPointRawRow
-    const participantBusinessUnitIds = await AccessPointScope.participants(
+    const participantBusinessUnitIds = await AccessPointScope.channelParticipants(
       typed.access_point_id,
       typed.business_unit_id
     )
+    const everShared = await AccessPointScope.everShared(typed.access_point_id)
     return {
       accessPointId: typed.access_point_id,
       businessUnitId: typed.business_unit_id,
@@ -130,6 +136,7 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
           ? null
           : DateTime.fromJSDate(new Date(typed.access_point_channel_secret_set_at)),
       participantBusinessUnitIds,
+      everShared,
     }
   }
 

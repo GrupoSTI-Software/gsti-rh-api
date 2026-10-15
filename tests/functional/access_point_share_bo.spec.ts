@@ -729,4 +729,61 @@ test.group('Checador compartido: Backoffice', (group) => {
     res.assertStatus(404)
     res.assertBodyContains({ key: 'punto-acceso-no-encontrado' })
   })
+
+  test('la ex-invitada ve y cierra a mano los vinculos que el aparato no confirmo', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    try {
+      // Invitacion revocada con la baja de su empleado todavia sin confirmar.
+      await unscoped(async () => {
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', own.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: new Date() })
+        await AccessPointEmployee.query()
+          .where('access_point_id', own.accessPoint.accessPointId)
+          .where('employee_id', own.guestEmployee.employeeId)
+          .update({ access_point_employee_sync_status: 'revoking' })
+      })
+      const actor = await actorFor(own.guestBu)
+
+      const list = await client
+        .get(`/api/v1/employees/${own.guestEmployee.employeeId}/access-points`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      list.assertStatus(200)
+      const ids = (
+        list.body().data.employeeDevices.accessPoints as Array<{ accessPointId: number }>
+      ).map((row) => row.accessPointId)
+      assert.include(ids, own.accessPoint.accessPointId)
+
+      // Operar el aparato ya no: dar de alta a otro empleado es 404.
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+      const send = await client
+        .post(`/api/access-points/${own.accessPoint.accessPointId}/employee/${extra.employeeId}`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      send.assertStatus(404)
+
+      const forced = await client
+        .post(
+          `/api/access-points/${own.accessPoint.accessPointId}/employee/${own.guestEmployee.employeeId}/revoke/force`
+        )
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+        .json({ reason: 'el equipo no responde' })
+      forced.assertStatus(200)
+      const pivot = await unscoped(() =>
+        AccessPointEmployee.query()
+          .where('access_point_id', own.accessPoint.accessPointId)
+          .where('employee_id', own.guestEmployee.employeeId)
+          .firstOrFail()
+      )
+      assert.equal(pivot.accessPointEmployeeSyncStatus, 'revoked')
+    } finally {
+      await own.cleanup()
+    }
+  })
 })

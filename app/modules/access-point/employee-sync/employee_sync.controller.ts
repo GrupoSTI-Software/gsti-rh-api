@@ -468,7 +468,13 @@ export default class EmployeeSyncController {
       const { params } = await request.validateUsing(pairValidator, {
         data: { params: request.params() },
       })
-      const participant = await resolveParticipantAccessPoint(ctx, params.accessPointId)
+      /**
+       * La ex-invitada puede cerrar a mano los vinculos que el aparato no
+       * confirmo: sin esto quedarian en baja para siempre si el equipo murio.
+       */
+      const participant = await resolveParticipantAccessPoint(ctx, params.accessPointId, {
+        includeLingering: true,
+      })
       const employee = await resolveParticipantEmployee(ctx, participant, params.employeeId)
 
       const reason = String(request.input('reason') ?? '').trim()

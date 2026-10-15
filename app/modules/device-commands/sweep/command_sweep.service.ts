@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 import DeviceCommandRepositoryMysql from '../device_command.repository.mysql.js'
 import {
   DEVICE_COMMAND_ENROLL_INFLIGHT_TIMEOUT_SECONDS,
@@ -237,10 +238,16 @@ export default class CommandSweepService {
     for (const pivot of pending) {
       if (seen.has(pivot.accessPointId)) continue
       seen.add(pivot.accessPointId)
-      await TenantContext.run([pivot.businessUnitId], () =>
+      /**
+       * El `CHECK` es del aparato: va a nombre de la responsable, no de la
+       * empresa del pivote, que puede ser una ex-invitada (VLRH-P0065, 3.3).
+       */
+      const owner = await AccessPointScope.ownerOf(pivot.accessPointId)
+      if (owner === null) continue
+      await TenantContext.run([owner], () =>
         this.commands.enqueue({
           accessPointId: pivot.accessPointId,
-          businessUnitId: pivot.businessUnitId,
+          businessUnitId: owner,
           kind: DEVICE_COMMAND_KIND.CHECK,
           fields: {},
           correlationKey: 'check:padron-tras-baja',

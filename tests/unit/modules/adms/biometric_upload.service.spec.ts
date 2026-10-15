@@ -56,6 +56,7 @@ const EMPLOYEE: PinResolution = {
   kind: 'employee',
   employeeId: 77,
   employeeCode: 'EMP-77',
+  businessUnitId: 1,
   pinInferred: false,
 }
 

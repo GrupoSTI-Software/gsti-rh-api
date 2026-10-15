@@ -1,6 +1,7 @@
 import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
 import AccessPointEmployee, { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import AccessPointShare, { ACCESS_POINT_SHARE_REVOKE_REASON } from '#models/access_point_share'
 import Assist from '#models/assist'
@@ -13,7 +14,7 @@ import {
 } from '#modules/device-commands/device_command.constants'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
-import { admsChannelPost } from '#tests/helpers/adms_channel_request'
+import { admsChannelGet, admsChannelPost } from '#tests/helpers/adms_channel_request'
 import AccessPointEmployeeEvent from '#models/access_point_employee_event'
 import { PlatformDeviceServiceError } from '#exceptions/platform_device_service_error'
 import { PLATFORM_DEVICE_ERROR_CODES } from '#constants/platform_device_error_codes'
@@ -28,6 +29,7 @@ import {
   countTemplates,
   createPlatformConsoleActor,
   createSharedAccessPointFixture,
+  enqueuePendingCommandForGuest,
   enqueuePendingUpsertForGuest,
   seedPendingPinPivot,
   sharesUrl,
@@ -152,6 +154,12 @@ test.group('Checador compartido: landlord', (group) => {
     const own = await ownFixture()
     const { token, user } = await consoleToken(client)
     const upsert = await enqueuePendingUpsertForGuest(own) // alta de la invitada todavia en cola
+    // Copia de biometria de la invitada en cola: tampoco debe salir despues de la baja.
+    const biodata = await enqueuePendingCommandForGuest(
+      own,
+      DEVICE_COMMAND_KIND.BIODATA_WRITE,
+      `DATA UPDATE BIODATA Pin=${own.guestPin}\tNo=0\tIndex=0\tValid=1\tDuress=0\tType=1\tMajorVer=10\tMinorVer=0\tFormat=0\tTmp=AAAA`
+    )
     // Vinculo de la invitada que nunca llego al aparato: se desprende sin encolar.
     const unsentEmployee = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
     const unsent = await seedPendingPinPivot(own, unsentEmployee, own.guestBu)
@@ -177,6 +185,10 @@ test.group('Checador compartido: landlord', (group) => {
       DEVICE_COMMAND_STATUS.PENDING
     )
     assert.lengthOf(pendingUpserts, 0)
+    const biodataAfter = await commandsOf(own, DEVICE_COMMAND_KIND.BIODATA_WRITE)
+    assert.lengthOf(biodataAfter, 1)
+    assert.equal(biodataAfter[0].deviceCommandId, biodata.deviceCommandId)
+    assert.equal(biodataAfter[0].deviceCommandStatus, DEVICE_COMMAND_STATUS.CANCELLED)
     assert.equal(await countTemplates(own.guestEmployee.employeeId), templatesBefore)
 
     const share = await unscoped(() =>
@@ -230,6 +242,144 @@ test.group('Checador compartido: landlord', (group) => {
     const granted = (again.body() as { data: { revokedAt: string | null; grantedAt: string } })
       .data
     assert.isNull(granted.revokedAt)
+  })
+
+  test('tras revocar, el canal entrega la baja de la ex-invitada y su acuse la cierra', async ({
+    client,
+    assert,
+  }) => {
+    const own = await ownFixture()
+    const { token } = await consoleToken(client)
+    const serial = own.accessPoint.accessPointSerialNumber as string
+    const secret = own.accessPoint.accessPointChannelSecret
+    const res = await client
+      .delete(`${sharesUrl(own)}/${own.share.accessPointShareId}`)
+      .bearerToken(token)
+    res.assertStatus(200)
+
+    // (a) La cola de la ex-invitada sigue visible para el canal.
+    const poll = await admsChannelGet(`/iclock/getrequest?SN=${serial}`, secret)
+    assert.equal(poll.status, 200)
+    const line = await poll.text()
+    assert.include(line, `DATA DELETE USERINFO PIN=${own.guestPin}`)
+    const wireId = Number(line.split(':')[1])
+    const [sent] = await commandsOf(own, DEVICE_COMMAND_KIND.USER_DELETE)
+    assert.equal(sent.deviceCommandWireId, wireId)
+    assert.equal(sent.deviceCommandStatus, DEVICE_COMMAND_STATUS.SENT)
+
+    // (c) El acuse encuentra su comando y el padron sin su PIN cierra el vinculo.
+    const ack = await admsChannelPost(
+      `/iclock/devicecmd?SN=${serial}`,
+      `ID=${wireId}&Return=0&CMD=DATA`,
+      secret
+    )
+    assert.equal(await ack.text(), 'OK')
+    const [acked] = await commandsOf(own, DEVICE_COMMAND_KIND.USER_DELETE)
+    assert.equal(acked.deviceCommandStatus, DEVICE_COMMAND_STATUS.ACKED)
+    const pivotOf = () =>
+      unscoped(() =>
+        AccessPointEmployee.query()
+          .where('access_point_id', own.accessPoint.accessPointId)
+          .where('employee_id', own.guestEmployee.employeeId)
+          .firstOrFail()
+      )
+    const ackedPivot = await pivotOf()
+    assert.equal(
+      ackedPivot.accessPointEmployeeSyncStatus,
+      ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED
+    )
+    // El padron se pide a nombre de la responsable: el aparato es suyo.
+    const checks = await commandsOf(own, DEVICE_COMMAND_KIND.CHECK)
+    assert.lengthOf(checks, 1)
+    assert.equal(checks[0].businessUnitId, own.ownerBu)
+
+    const roster = await admsChannelPost(
+      `/iclock/cdata?SN=${serial}&table=OPERLOG&Stamp=9999`,
+      `USER PIN=${own.ownerPin}\tName=A\tPri=0\tVerify=-1\n`,
+      secret
+    )
+    assert.equal(roster.status, 200)
+    const closedPivot = await pivotOf()
+    assert.equal(closedPivot.accessPointEmployeeSyncStatus, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+  })
+
+  test('una checada con el PIN de la ex-invitada nunca cae en la responsable', async ({
+    client,
+    assert,
+  }) => {
+    const own = await ownFixture()
+    const { token } = await consoleToken(client)
+    const serial = own.accessPoint.accessPointSerialNumber as string
+    const secret = own.accessPoint.accessPointChannelSecret
+    // Un empleado de la responsable con codigo igual al PIN de la invitada fuerza el respaldo por codigo.
+    // Se usa el empleado de la fixture: la responsable puede no tener otro vivo.
+    const decoy = own.ownerEmployee
+    const originalCode = decoy.employeeCode
+    await unscoped(() =>
+      db
+        .from('employees')
+        .where('employee_id', decoy.employeeId)
+        .update({ employee_code: own.guestPin })
+    )
+    try {
+      const res = await client
+        .delete(`${sharesUrl(own)}/${own.share.accessPointShareId}`)
+        .bearerToken(token)
+      res.assertStatus(200)
+
+      const punch = (minutes: number) =>
+        admsChannelPost(
+          `/iclock/cdata?SN=${serial}&table=ATTLOG&Stamp=9999`,
+          `${own.guestPin}\t${DateTime.utc().minus({ minutes }).setZone(own.zone).toFormat('yyyy-MM-dd HH:mm:ss')}\t0\t1\t0\t0\n`,
+          secret
+        )
+      const decoyAssists = () =>
+        unscoped(() =>
+          Assist.query()
+            .where('assist_terminal_sn', serial)
+            .where('assist_emp_id', decoy.employeeId)
+            .exec()
+        )
+
+      // Baja sin confirmar: la checada sigue siendo de la ex-invitada.
+      const first = await punch(7)
+      assert.equal(first.status, 200)
+      const assist = await unscoped(() =>
+        Assist.query()
+          .where('assist_terminal_sn', serial)
+          .where('assist_emp_id', own.guestEmployee.employeeId)
+          .orderBy('assist_id', 'desc')
+          .firstOrFail()
+      )
+      assert.equal(assist.businessUnitId, own.guestBu)
+      assert.lengthOf(await decoyAssists(), 0)
+
+      // Baja confirmada: se retiene, no se infiere por codigo dentro de la responsable.
+      await unscoped(() =>
+        AccessPointEmployee.query()
+          .where('access_point_id', own.accessPoint.accessPointId)
+          .where('employee_id', own.guestEmployee.employeeId)
+          .update({ access_point_employee_sync_status: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED })
+      )
+      const second = await punch(6)
+      assert.equal(second.status, 200)
+      assert.lengthOf(await decoyAssists(), 0)
+      const inferred = await unscoped(() =>
+        AccessPointEmployee.query()
+          .where('access_point_id', own.accessPoint.accessPointId)
+          .where('employee_id', decoy.employeeId)
+          .where('access_point_employee_pin', own.guestPin)
+          .exec()
+      )
+      assert.lengthOf(inferred, 0)
+    } finally {
+      await unscoped(() =>
+        db
+          .from('employees')
+          .where('employee_id', decoy.employeeId)
+          .update({ employee_code: originalCode })
+      )
+    }
   })
 
   test('desasignar la unidad revoca todas las invitaciones en la misma transaccion', async ({

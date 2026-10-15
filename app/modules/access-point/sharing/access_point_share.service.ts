@@ -314,9 +314,10 @@ export default class AccessPointShareService {
    * mixin deja ver sus vinculos y su cola. La marca de la invitacion la pone
    * quien llama despues, en la misma transaccion.
    *
-   * - Un alta de la invitada que siga en cola sin amarre al vinculo no la
-   *   cierra `revoke` (cancela por vinculo); se cancela aqui antes de pedir la
-   *   baja, o el aparato la recogeria despues y la persona quedaria dentro.
+   * - Un comando pendiente de la invitada sin amarre al vinculo (alta, copia
+   *   de biometria, foto) no lo cierra `revoke` (cancela por vinculo); se
+   *   cancela aqui antes de pedir la baja, o el aparato lo recogeria despues
+   *   y la persona o su dato quedarian dentro.
    * - Un `pending_pin` nunca llego al aparato: se desprende con su evento, sin
    *   encolar nada.
    */
@@ -354,12 +355,18 @@ export default class AccessPointShareService {
           )
           continue
         }
-        const orphanUpserts = pending.filter(
+        /**
+         * Todo lo que siga en cola para esa persona en el aparato (alta, copias
+         * de biometria, fotos) se cancela: despues de la baja, cualquiera de
+         * esos comandos la volveria a meter o dejaria un dato suyo dentro.
+         * Una baja ya en cola no se toca: es justo lo que se quiere.
+         */
+        const orphans = pending.filter(
           (command) =>
-            command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_UPSERT &&
+            command.deviceCommandKind !== DEVICE_COMMAND_KIND.USER_DELETE &&
             command.employeeId === pivot.employeeId
         )
-        for (const command of orphanUpserts) {
+        for (const command of orphans) {
           await this.commands.cancel(command.deviceCommandId, userId, trx)
         }
         await this.sync.revoke(target, trx)

@@ -392,29 +392,45 @@ export async function countTemplates(employeeId: number): Promise<number> {
  * proposito: es el caso que la cancelacion por vinculo no alcanza.
  */
 export async function enqueuePendingUpsertForGuest(fx: SharedFixture): Promise<DeviceCommand> {
+  return enqueuePendingCommandForGuest(
+    fx,
+    DEVICE_COMMAND_KIND.USER_UPSERT,
+    `DATA UPDATE USERINFO PIN=${fx.guestPin}\tName=Prueba`
+  )
+}
+
+/**
+ * Comando pendiente del empleado de la invitada sin amarre al vinculo (alta,
+ * copia de biometria, foto). Lo borra el cleanup (cuelga de su checador).
+ */
+export async function enqueuePendingCommandForGuest(
+  fx: SharedFixture,
+  kind: DeviceCommandKind,
+  payload: string
+): Promise<DeviceCommand> {
   const stamp = Date.now()
   const result = await TenantContext.run([fx.ownerBu, fx.guestBu], () =>
     new DeviceCommandRepositoryMysql().enqueueIdempotent(
       {
         accessPointId: fx.accessPoint.accessPointId,
         businessUnitId: fx.guestBu,
-        kind: DEVICE_COMMAND_KIND.USER_UPSERT,
-        payload: `DATA UPDATE USERINFO PIN=${fx.guestPin}\tName=Prueba`,
+        kind,
+        payload,
         pin: fx.guestPin,
         bioNo: null,
         priority: 3,
         maxAttempts: null,
         employeeId: fx.guestEmployee.employeeId,
         accessPointEmployeeId: null,
-        correlationKey: `test-share-upsert-${stamp}`,
+        correlationKey: `test-share-${kind}-${stamp}`,
         requestedByUserId: null,
         biometricTemplateId: null,
         biometricPhotoPublicationId: null,
       },
-      [stamp % 2_000_000_000]
+      [(stamp + Math.floor(Math.random() * 1000)) % 2_000_000_000]
     )
   )
-  if (!result) throw new Error('No se pudo encolar el alta de prueba')
+  if (!result) throw new Error('No se pudo encolar el comando de prueba')
   return result.command
 }
 

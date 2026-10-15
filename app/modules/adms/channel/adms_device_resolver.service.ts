@@ -36,7 +36,10 @@ export interface ResolvedAdmsDevice {
   configuredAt: DateTime | null
   /** Empresas que operan en este aparato; la primera es la responsable. */
   participantBusinessUnitIds: number[]
-  /** Hay al menos una invitada viva. Apaga el respaldo por codigo (D7). */
+  /**
+   * Hay mas de una empresa en el canal o el aparato tuvo invitadas alguna vez.
+   * Apaga el respaldo por codigo (D7).
+   */
   shared: boolean
 }
 
@@ -185,15 +188,11 @@ export default class AdmsDeviceResolverService {
         receivedAt: input.now,
         configuredAt: row.configuredAt,
         participantBusinessUnitIds: row.participantBusinessUnitIds,
-        shared: row.participantBusinessUnitIds.length > 1,
+        shared: row.participantBusinessUnitIds.length > 1 || row.everShared,
       },
     }
   }
 
-  /**
-   * Escrituras de contacto. Corre dentro del scope del checador, que puede ser
-   * de varias empresas; sus escrituras usan `device.businessUnitId` (la responsable).
-   */
   /**
    * La direccion por la que llego tiene que ser la suya (spec autenticidad, 4.3).
    *
@@ -329,6 +328,9 @@ export default class AdmsDeviceResolverService {
    * sale de aqui: `touch` corre antes que el handler y escribe la IP de quien
    * llama, asi que preguntarlo despues devolvia siempre "caliente" --incluida
    * la primera peticion de un desconocido--. C2 no protegia de nada.
+   *
+   * Escrituras de contacto. Corre dentro del scope del checador, que puede ser
+   * de varias empresas; sus escrituras usan `device.businessUnitId` (la responsable).
    */
   async touch(device: ResolvedAdmsDevice): Promise<{ hotSession: boolean }> {
     await this.lookup.touchConnection(device.accessPointId, device.ip, device.receivedAt)

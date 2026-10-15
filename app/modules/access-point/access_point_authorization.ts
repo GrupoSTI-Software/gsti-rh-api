@@ -48,29 +48,9 @@ export async function ensureAccessPointPermission(
 }
 
 /**
- * Resuelve todo `:accessPointId` dentro del alcance de la peticion antes de
- * cualquier escritura. Un equipo de otra empresa se comporta como inexistente:
- * responder 403 revelaria que la serie existe en otra parte.
- */
-export async function resolveScopedAccessPoint(
-  ctx: HttpContext,
-  accessPointId: number
-): Promise<AccessPoint> {
-  const scope = ctx.businessUnitScope ?? []
-  const accessPoint =
-    scope.length === 0
-      ? null
-      : await AccessPoint.query()
-          .where('access_point_id', accessPointId)
-          .whereIn('business_unit_id', scope)
-          .first()
-  if (accessPoint) return accessPoint
-  throw accessPointNotFound(ctx)
-}
-
-/**
- * Lo mismo para todo `:employeeId`. Un colaborador de otra empresa se comporta
- * como inexistente por la misma razon: un 403 confirmaria que existe.
+ * Resuelve todo `:employeeId` dentro del alcance de la peticion antes de
+ * cualquier escritura. Un colaborador de otra empresa se comporta como
+ * inexistente: un 403 confirmaria que existe.
  *
  * Se lee con el scope explicito y no con el mixin: el mixin filtra lecturas,
  * pero una escritura que se apoye en el se cae en cuanto alguien la llame desde
@@ -109,8 +89,9 @@ function accessPointNotFound(ctx: HttpContext): AdmsError {
 }
 
 /**
- * Como `resolveScopedAccessPoint`, pero admite el checador ajeno compartido con
- * la empresa de la peticion (VLRH-P0065, 6). Devuelve el rol y el scope del
+ * Resuelve `:accessPointId` para la empresa de la peticion: el propio o el
+ * ajeno compartido con ella (VLRH-P0065, 6). Un equipo de otra empresa se
+ * comporta como inexistente: un 403 revelaria que la serie existe. Devuelve el rol y el scope del
  * checador: toda operacion sobre el aparato corre dentro de ese scope, porque
  * sus PIN y su cola son de todos los participantes.
  *
@@ -120,7 +101,8 @@ function accessPointNotFound(ctx: HttpContext): AdmsError {
  */
 export async function resolveParticipantAccessPoint(
   ctx: HttpContext,
-  accessPointId: number
+  accessPointId: number,
+  options: { includeLingering?: boolean } = {}
 ): Promise<ParticipantAccessPoint> {
   const scope = ctx.businessUnitScope ?? []
   if (scope.length === 0) throw accessPointNotFound(ctx)
@@ -137,10 +119,17 @@ export async function resolveParticipantAccessPoint(
   )
   if (!accessPoint) throw accessPointNotFound(ctx)
 
-  const deviceScope = await AccessPointScope.participants(
-    accessPoint.accessPointId,
-    accessPoint.businessUnitId
-  )
+  /**
+   * `includeLingering` admite tambien a la ex-invitada que aun tiene personal
+   * en el aparato sin baja confirmada: solo para cerrar esos vinculos
+   * (`forceRevoke`), nunca para operar el aparato.
+   */
+  const deviceScope = options.includeLingering
+    ? await AccessPointScope.channelParticipants(
+        accessPoint.accessPointId,
+        accessPoint.businessUnitId
+      )
+    : await AccessPointScope.participants(accessPoint.accessPointId, accessPoint.businessUnitId)
   const owner = scope.includes(accessPoint.businessUnitId)
   const guest = !owner && deviceScope.some((id) => scope.includes(id))
   if (!owner && !guest) throw accessPointNotFound(ctx)
