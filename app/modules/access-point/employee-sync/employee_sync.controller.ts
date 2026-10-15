@@ -1,4 +1,3 @@
-import { resolvePublicAssetUrl } from '#helpers/public_asset_url'
 import type { HttpContext } from '@adonisjs/core/http'
 import vine from '@vinejs/vine'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
@@ -21,11 +20,8 @@ import Employee from '#models/employee'
 import AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import EmployeeSyncService from './employee_sync.service.js'
-import {
-  toEmployeeSyncDto,
-  toRosterEntryDto,
-  type ForeignEmployeeIdentity,
-} from './dto/employee_sync.dto.js'
+import EmployeeRosterService from './employee_roster.service.js'
+import { toEmployeeSyncDto, toRosterEntryDto } from './dto/employee_sync.dto.js'
 import {
   toEmployeeAccessPointDto,
   type EmployeeAccessPointDto,
@@ -78,6 +74,9 @@ const pinValidator = vine.compile(
 export default class EmployeeSyncController {
   /** Scope del checador: puerto con su adaptador por defecto, reemplazable en pruebas. */
   private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+
+  /** Nombres de empresa e identidad del personal ajeno en el padron. */
+  private readonly roster = new EmployeeRosterService()
 
   /**
    * @swagger
@@ -177,8 +176,7 @@ export default class EmployeeSyncController {
       // Los ajenos (personal de las invitadas, visto por la responsable) salen
       // con la proyeccion de identificacion; el resto, completo.
       const viewerScope = ctx.businessUnitScope ?? []
-      const businessUnitNames = await businessUnitNamesOf(pivots)
-      const identities = await foreignIdentitiesOf(pivots, viewerScope)
+      const { businessUnitNames, identities } = await this.roster.identitiesFor(pivots, viewerScope)
 
       return StandardResponseFormatter.success(
         response,
@@ -334,6 +332,7 @@ export default class EmployeeSyncController {
       accessPoints: rows,
       available: await availableFor(
         this.scope,
+        this.roster,
         ctx.businessUnitScope ?? [],
         requireEmployeeBusinessUnitId(employee),
         new Set(rows.map((row) => row.accessPointId)),
@@ -547,6 +546,7 @@ async function countBiometrics(employeeId: number): Promise<EmployeeBiometricSum
  */
 async function availableFor(
   sharing: AccessPointScopePort,
+  roster: EmployeeRosterService,
   businessUnitIds: number[],
   employeeBusinessUnitId: number,
   taken: Set<number>,
@@ -572,7 +572,7 @@ async function availableFor(
   if (candidates.length === 0) return []
 
   const models = await modelsOf(candidates)
-  const owners = await businessUnitNamesById(
+  const owners = await roster.businessUnitNames(
     candidates
       .filter((row) => !businessUnitIds.includes(row.businessUnitId as number))
       .map((row) => row.businessUnitId as number)
@@ -587,73 +587,6 @@ async function availableFor(
     model: models.get(accessPoint.accessPointId) ?? null,
     sharedBy: owners.get(accessPoint.businessUnitId as number) ?? null,
   }))
-}
-
-/** Nombre de la empresa de cada pivote, en una sola consulta. */
-async function businessUnitNamesOf(pivots: AccessPointEmployee[]): Promise<Map<number, string>> {
-  return businessUnitNamesById(pivots.map((pivot) => pivot.businessUnitId as number))
-}
-
-/** Nombre de cada empresa por id, en una sola consulta. */
-async function businessUnitNamesById(businessUnitIds: number[]): Promise<Map<number, string>> {
-  const ids = [...new Set(businessUnitIds)]
-  if (ids.length === 0) return new Map()
-  const rows = (await db
-    .from('business_units')
-    .whereIn('business_unit_id', ids)
-    .select('business_unit_id', 'business_unit_name')) as Array<{
-    business_unit_id: number
-    business_unit_name: string
-  }>
-  return new Map(rows.map((row) => [Number(row.business_unit_id), row.business_unit_name]))
-}
-
-/**
- * Nombre completo y foto de los empleados fuera del alcance de quien mira, en
- * una sola consulta. Lectura directa: el mixin los ocultaria, y solo se piden
- * los de pivotes que ya son del aparato que la peticion puede leer.
- */
-async function foreignIdentitiesOf(
-  pivots: AccessPointEmployee[],
-  viewerBusinessUnitIds: number[]
-): Promise<Map<number, ForeignEmployeeIdentity>> {
-  const ids = pivots
-    .filter((pivot) => !viewerBusinessUnitIds.includes(pivot.businessUnitId as number))
-    .map((pivot) => pivot.employeeId)
-  if (ids.length === 0) return new Map()
-  const rows = (await db
-    .from('employees')
-    .whereIn('employee_id', ids)
-    .select(
-      'employee_id',
-      'employee_first_name',
-      'employee_last_name',
-      'employee_second_last_name',
-      'employee_photo'
-    )) as Array<{
-    employee_id: number
-    employee_first_name: string | null
-    employee_last_name: string | null
-    employee_second_last_name: string | null
-    employee_photo: string | null
-  }>
-  return new Map(
-    rows.map((row) => [
-      Number(row.employee_id),
-      {
-        fullName: [row.employee_first_name, row.employee_last_name, row.employee_second_last_name]
-          .filter((part): part is string => Boolean(part && part.trim()))
-          .join(' '),
-        /**
-         * Nunca la llave cruda del bucket: el endpoint autenticado de la foto
-         * (`/employees/:id/photo`) no sirve al empleado de otra empresa, asi que
-         * solo sale una URL que de verdad sea publica; una foto privada sale
-         * `null` y el Backoffice pinta la inicial.
-         */
-        photoUrl: resolvePublicAssetUrl(row.employee_photo),
-      },
-    ])
-  )
 }
 
 /** Modelo de catalogo por equipo, en una sola consulta. */
