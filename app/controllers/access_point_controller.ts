@@ -454,9 +454,12 @@ export default class AccessPointController {
       /**
        * Con invitadas vivas no se borra: su personal quedaria en un aparato que
        * nadie administra y la invitacion colgando. Primero se revocan desde el
-       * landlord, que encola sus bajas (VLRH-P0065, 3.2).
+       * landlord, que encola sus bajas (VLRH-P0065, 3.2). Tampoco con una
+       * ex-invitada cuyas bajas el aparato no ha confirmado (vinculos sin
+       * revocar o comandos vivos): borrado el aparato, su cierre a mano ya no
+       * lo encontraria. Es el alcance del canal, no el del Backoffice.
        */
-      const participants = await AccessPointScope.participants(
+      const participants = await AccessPointScope.channelParticipants(
         currentAccessPoint.accessPointId,
         currentAccessPoint.businessUnitId
       )

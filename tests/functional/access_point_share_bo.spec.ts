@@ -936,6 +936,47 @@ test.group('Checador compartido: Backoffice', (group) => {
     assert.isNotNull(alive)
   })
 
+  test('la responsable no puede borrar el checador con personal de una ex-invitada sin baja', async ({
+    client,
+    assert,
+  }) => {
+    const apId = fx.accessPoint.accessPointId
+    const owner = await actorFor(fx.ownerBu)
+    // Invitacion revocada; el vinculo de su colaborador sigue sin baja confirmada.
+    await unscoped(() =>
+      db
+        .from('access_point_shares')
+        .where('access_point_share_id', fx.share.accessPointShareId)
+        .update({ access_point_share_revoked_at: DateTime.utc().toSQL({ includeOffset: false }) })
+    )
+    try {
+      const res = await client
+        .delete(`/api/access-points/${apId}`)
+        .loginAs(owner.user.user)
+        .header('X-Business-Unit-Id', owner.publicId)
+      res.assertStatus(409)
+      res.assertBodyContains({ key: 'checador-con-invitaciones-vivas' })
+      const alive = await unscoped(() =>
+        AccessPoint.query()
+          .where('access_point_id', apId)
+          .whereNull('access_point_deleted_at')
+          .first()
+      )
+      assert.isNotNull(alive)
+    } finally {
+      await unscoped(async () => {
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', fx.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: null })
+        await db
+          .from('access_points')
+          .where('access_point_id', apId)
+          .update({ access_point_deleted_at: null })
+      })
+    }
+  })
+
   test('una empresa ajena sigue recibiendo 404 al consultar o editar el checador', async ({
     client,
   }) => {
