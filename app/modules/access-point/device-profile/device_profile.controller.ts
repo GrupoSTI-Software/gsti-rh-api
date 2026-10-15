@@ -43,7 +43,7 @@ export default class DeviceProfileController {
       })
       // Lectura para cualquier participante; el perfil es del aparato y se lee
       // en su scope.
-      const { accessPoint, deviceScope } = await resolveParticipantAccessPoint(
+      const { accessPoint, deviceScope, role } = await resolveParticipantAccessPoint(
         ctx,
         params.accessPointId
       )
@@ -51,9 +51,11 @@ export default class DeviceProfileController {
       const profile = await TenantContext.run(deviceScope, () =>
         repository.findByAccessPoint(accessPoint.accessPointId)
       )
+      const dto = toDeviceProfileDto(accessPoint.accessPointId, profile)
       return StandardResponseFormatter.success(
         response,
-        toDeviceProfileDto(accessPoint.accessPointId, profile),
+        // La IP desde la que reporta el aparato es de la red de la responsable.
+        role === 'guest' ? { ...dto, lastIpSeen: null, lastIpSeenAt: null } : dto,
         i18n.formatMessage('access_point_profile_title'),
         i18n.formatMessage('access_point_profile_message'),
         200,

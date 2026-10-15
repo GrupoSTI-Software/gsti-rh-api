@@ -74,8 +74,9 @@ export async function sharingViewOf(
 /**
  * Lo que la invitada no recibe del checador ajeno (VLRH-P0065, 6): de la
  * responsable solo el nombre --el Backoffice lo pinta--, nada de su ficha
- * (razon social, slug, zona); y ni IP ni MAC, que son datos de red del
- * aparato y de quien lo administra. A la responsable se le devuelve igual.
+ * (razon social, slug, zona) ni su id interno; y ni IP, ni MAC, ni los CIDR
+ * permitidos, que son la configuracion de red del aparato y de quien lo
+ * administra. A la responsable se le devuelve igual.
  */
 export function redactForViewer<T extends Record<string, unknown>>(
   serialized: T,
@@ -85,7 +86,9 @@ export function redactForViewer<T extends Record<string, unknown>>(
   return {
     ...serialized,
     businessUnit: { businessUnitName: view.sharedBy },
+    businessUnitId: null,
     accessPointIp: null,
     accessPointMac: null,
+    accessPointAllowedCidrs: null,
   }
 }

@@ -40,11 +40,27 @@ import type {
 } from './health.dto.js'
 
 /**
- * La salud del checador compartido vista por la invitada: sin IP ni MAC, que
- * son datos de red del aparato y de quien lo administra (VLRH-P0065, 6).
+ * La salud del checador compartido vista por la invitada (VLRH-P0065, 6).
+ *
+ * Sin IP, MAC ni la ultima IP desde la que reporto el aparato: son datos de
+ * red del aparato y de quien lo administra. Tampoco agregados del personal de
+ * la responsable: el padron (`enrollment`) y los avisos abiertos se calculan
+ * sobre todo el aparato y salen `null`; del ultimo fallo de la cola se quita
+ * el texto de error, que puede ser de un colaborador ajeno.
  */
 export function forGuest(row: AccessPointHealthDto): AccessPointHealthDto {
-  return { ...row, ip: null, mac: null }
+  return {
+    ...row,
+    ip: null,
+    mac: null,
+    enrollment: null,
+    openIncidents: null,
+    queue: {
+      ...row.queue,
+      lastFailure: row.queue.lastFailure ? { ...row.queue.lastFailure, error: null } : null,
+    },
+    hardening: { ...row.hardening, lastIpSeen: null, lastIpSeenAt: null },
+  }
 }
 
 /** Estados del pivote en los que el equipo todavia no confirmo el movimiento. */

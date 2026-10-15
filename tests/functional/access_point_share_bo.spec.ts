@@ -699,6 +699,130 @@ test.group('Checador compartido: Backoffice', (group) => {
     assert.equal(ownerHealth.body().data.accessPoint.ip, '10.20.30.40')
   })
 
+  test('la invitada no recibe la configuracion de red ni agregados del personal ajeno', async ({
+    client,
+    assert,
+  }) => {
+    const apId = fx.accessPoint.accessPointId
+    const guest = await actorFor(fx.guestBu)
+    const owner = await actorFor(fx.ownerBu)
+    const as = (actor: Actor, url: string, qs: Record<string, number> = {}) =>
+      client
+        .get(url)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+        .qs(qs)
+
+    // Red de la responsable: CIDR permitidos e IP desde la que reporta el aparato.
+    await unscoped(async () => {
+      await db
+        .from('access_points')
+        .where('access_point_id', apId)
+        .update({ access_point_allowed_cidrs: JSON.stringify(['10.20.30.0/24']) })
+      await db
+        .from('access_point_profiles')
+        .where('access_point_id', apId)
+        .update({
+          access_point_profile_last_ip_seen: '10.20.30.41',
+          access_point_profile_last_ip_seen_at: DateTime.utc().toSQL({ includeOffset: false }),
+        })
+    })
+    // Ultimo fallo de la cola con su texto de error.
+    const failed = await pendingCommand(fx.ownerBu, fx.ownerEmployee.employeeId, fx.ownerPin)
+    await unscoped(() =>
+      db
+        .from('device_commands')
+        .where('device_command_id', failed.deviceCommandId)
+        .update({
+          device_command_status: 'failed',
+          device_command_failed_at: DateTime.utc().toSQL({ includeOffset: false }),
+          device_command_last_error: 'error del personal de la responsable',
+        })
+    )
+
+    try {
+      // Catalogo, ficha y lista: sin CIDR ni id de la responsable.
+      const shown = await as(guest, `/api/access-points/${apId}`)
+      shown.assertStatus(200)
+      const guestRow = shown.body().data.accessPoint
+      assert.isNull(guestRow.accessPointAllowedCidrs)
+      assert.isNull(guestRow.businessUnitId)
+      const listed = await as(guest, '/api/access-points', { businessUnitId: fx.guestBu, limit: 500 })
+      listed.assertStatus(200)
+      const listedRow = findAccessPoint(listed.body(), apId)
+      assert.isDefined(listedRow)
+      assert.isNull(listedRow?.accessPointAllowedCidrs)
+      assert.isNull(listedRow?.businessUnitId)
+
+      // Salud individual y de la lista.
+      const checkGuestHealth = (row: Record<string, unknown> | undefined) => {
+        assert.isDefined(row)
+        const hardening = row?.hardening as Record<string, unknown>
+        assert.isNull(hardening.lastIpSeen)
+        assert.isNull(hardening.lastIpSeenAt)
+        assert.isNull(row?.enrollment)
+        assert.isNull(row?.openIncidents)
+        const queue = row?.queue as { lastFailure: Record<string, unknown> | null }
+        assert.isNotNull(queue.lastFailure)
+        assert.isNull(queue.lastFailure?.error)
+      }
+      const health = await as(guest, `/api/v1/access-points/${apId}/health`)
+      health.assertStatus(200)
+      checkGuestHealth(health.body().data.accessPoint)
+      const healthList = await as(guest, '/api/v1/access-points/health')
+      healthList.assertStatus(200)
+      checkGuestHealth(
+        (healthList.body().data.accessPoints as Array<Record<string, unknown>>).find(
+          (row) => row.accessPointId === apId
+        )
+      )
+
+      // Perfil del aparato.
+      const profile = await as(guest, `/api/v1/access-points/${apId}/profile`)
+      profile.assertStatus(200)
+      assert.isNull(profile.body().data.profile.lastIpSeen)
+      assert.isNull(profile.body().data.profile.lastIpSeenAt)
+
+      // La responsable si recibe todo. Los CIDR no los selecciona el catalogo
+      // para nadie (se configuran aparte); a la invitada se le anulan ademas
+      // por si una lectura completa del modelo llega a serializarse.
+      const ownerShown = await as(owner, `/api/access-points/${apId}`)
+      assert.equal(ownerShown.body().data.accessPoint.businessUnitId, fx.ownerBu)
+      const ownerListed = await as(owner, '/api/access-points', {
+        businessUnitId: fx.ownerBu,
+        limit: 500,
+      })
+      const ownerListedRow = findAccessPoint(ownerListed.body(), apId)
+      assert.equal(ownerListedRow?.businessUnitId, fx.ownerBu)
+      const ownerHealthRes = await as(owner, `/api/v1/access-points/${apId}/health`)
+      const ownerHealth = ownerHealthRes.body().data.accessPoint
+      assert.equal(ownerHealth.hardening.lastIpSeen, '10.20.30.41')
+      assert.isString(ownerHealth.hardening.lastIpSeenAt)
+      assert.isNotNull(ownerHealth.enrollment)
+      assert.isNotNull(ownerHealth.openIncidents)
+      assert.equal(ownerHealth.queue.lastFailure.error, 'error del personal de la responsable')
+      const ownerProfileRes = await as(owner, `/api/v1/access-points/${apId}/profile`)
+      const ownerProfile = ownerProfileRes.body().data.profile
+      assert.equal(ownerProfile.lastIpSeen, '10.20.30.41')
+      assert.isString(ownerProfile.lastIpSeenAt)
+    } finally {
+      await unscoped(async () => {
+        await db
+          .from('device_commands')
+          .where('device_command_id', failed.deviceCommandId)
+          .delete()
+        await db
+          .from('access_points')
+          .where('access_point_id', apId)
+          .update({ access_point_allowed_cidrs: null })
+        await db.from('access_point_profiles').where('access_point_id', apId).update({
+          access_point_profile_last_ip_seen: null,
+          access_point_profile_last_ip_seen_at: null,
+        })
+      })
+    }
+  })
+
   test('la invitada recibe 403 al editar o eliminar el checador compartido', async ({
     client,
   }) => {
