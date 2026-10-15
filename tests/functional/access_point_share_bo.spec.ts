@@ -955,4 +955,96 @@ test.group('Checador compartido: Backoffice', (group) => {
       await own.cleanup()
     }
   })
+
+  test('apagar el rostro de la ex-invitada salta el ex-compartido y llega a su checador propio', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const stamp = Date.now()
+    let ownAp: AccessPoint | null = null
+    let faceIdId: number | null = null
+    const employee = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+    try {
+      await unscoped(async () => {
+        // Checador propio de la invitada; sin perfil, se le puede mandar la foto.
+        const ap = new AccessPoint()
+        ap.accessPointName = `Propio ${stamp}`
+        ap.businessUnitId = own.guestBu
+        ap.accessPointActive = 1
+        ap.accessPointSerialNumber = `TEST-SHARE-OWN-${stamp}`
+        ap.accessPointStatus = 0
+        await ap.save()
+        ownAp = ap
+        const pivotOn = async (accessPointId: number, pin: string, status: 'confirmed' | 'revoking') => {
+          const pivot = new AccessPointEmployee()
+          pivot.accessPointId = accessPointId
+          pivot.employeeId = employee.employeeId
+          pivot.businessUnitId = own.guestBu
+          pivot.accessPointEmployeePin = pin
+          pivot.accessPointEmployeeSyncStatus = status
+          await pivot.save()
+        }
+        await pivotOn(ap.accessPointId, '1', 'confirmed')
+        // Invitacion revocada con la baja de la persona sin confirmar en el ex-compartido.
+        await pivotOn(own.accessPoint.accessPointId, '78', 'revoking')
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', own.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: new Date() })
+        const face = new EmployeeBiometricFaceId()
+        face.employeeId = employee.employeeId
+        face.businessUnitId = own.guestBu
+        face.employeeBiometricFaceIdPhotoUrl = `test/share-bo-${stamp}.jpg`
+        face.employeeBiometricFaceIdDeviceUse = true
+        face.employeeBiometricFaceIdDerivativeVersion = 0
+        await face.save()
+        faceIdId = face.employeeBiometricFaceIdId
+      })
+      const actor = await actorFor(own.guestBu)
+      const res = await client
+        .post(`/api/v1/employees/${employee.employeeId}/device-biometrics/face/disable`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      res.assertStatus(200)
+
+      const ownApId = (ownAp as AccessPoint | null)?.accessPointId
+      // Solo los dos checadores de la prueba: otras suites pueden dejar comandos del mismo empleado.
+      const deletes = await unscoped(() =>
+        DeviceCommand.query()
+          .where('employee_id', employee.employeeId)
+          .where('device_command_kind', DEVICE_COMMAND_KIND.BIOPHOTO_DELETE)
+          .whereIn('access_point_id', [ownApId as number, own.accessPoint.accessPointId])
+          .exec()
+      )
+      assert.sameMembers(
+        deletes.map((command) => command.accessPointId),
+        [ownApId as number]
+      )
+      const face = await unscoped(() =>
+        EmployeeBiometricFaceId.query()
+          .where('employee_biometric_face_id_id', faceIdId as number)
+          .firstOrFail()
+      )
+      assert.isFalse(Boolean(face.employeeBiometricFaceIdDeviceUse))
+    } finally {
+      await unscoped(async () => {
+        const created = ownAp as AccessPoint | null
+        if (created) {
+          const apId = created.accessPointId
+          await db.from('device_commands').where('access_point_id', apId).delete()
+          await db.from('biometric_photo_publications').where('access_point_id', apId).delete()
+          await db.from('access_point_employees').where('access_point_id', apId).delete()
+          await db.from('access_points').where('access_point_id', apId).delete()
+        }
+        if (faceIdId !== null) {
+          await db
+            .from('employee_biometric_face_ids')
+            .where('employee_biometric_face_id_id', faceIdId)
+            .delete()
+        }
+      })
+      await own.cleanup()
+    }
+  })
 })
