@@ -57,6 +57,14 @@ export const PLATFORM_DEVICE_ERROR_CODES = {
   RELEASE_DATE_INVALID: 'PLT.DEV.RELEASE_DATE_INVALID',
   /** Falló la desactivación del punto de acceso del cliente al cerrar la entrega; el cierre se revirtió completo (RN5 del spec 1883) */
   AP_DEACTIVATE_FAILED: 'PLT.DEV.AP_DEACTIVATE_FAILED',
+  /** Checador sin entrega vigente: no se puede compartir (VLRH-P0065, 3.2) */
+  SHARE_NO_ASSIGNMENT: 'PLT.DEV.SHARE_NO_ASSIGNMENT',
+  /** La empresa es la responsable o ya tiene invitacion viva al checador (VLRH-P0065, 3.2) */
+  SHARE_DUPLICATE: 'PLT.DEV.SHARE_DUPLICATE',
+  /** La empresa no esta en el mismo grupo vivo que la responsable (VLRH-P0065, D4) */
+  SHARE_OUTSIDE_GROUP: 'PLT.DEV.SHARE_OUTSIDE_GROUP',
+  /** La invitacion no existe o no es de ese checador */
+  SHARE_NOT_FOUND: 'PLT.DEV.SHARE_NOT_FOUND',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.DEV.SYS_UNHANDLED',
 } as const
