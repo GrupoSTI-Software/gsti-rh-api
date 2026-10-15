@@ -6,8 +6,10 @@ import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import {
   ensureAccessPointPermission,
+  resolveOwnedAccessPoint,
   resolveParticipantAccessPoint,
 } from '#modules/access-point/access_point_authorization'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 import { TenantContext } from '#utils/tenant_context'
 import HealthService from './health.service.js'
 import DeviceSyncService from './device_sync.service.js'
@@ -117,6 +119,8 @@ export default class HealthController {
    *     responses:
    *       200:
    *         description: Ficha en data.accessPoint, con outcome answered, pending o failed
+   *       403:
+   *         description: La empresa es invitada del equipo (solo lectura)
    *       404:
    *         description: El equipo no esta en el alcance
    */
@@ -127,11 +131,12 @@ export default class HealthController {
       const { params } = await request.validateUsing(idValidator, {
         data: { params: request.params() },
       })
-      // Pedir al aparato que se reporte es operacion, no configuracion: lo
-      // puede pedir cualquier participante. El comando es del aparato.
-      const { accessPoint, deviceScope } = await resolveParticipantAccessPoint(
-        ctx,
-        params.accessPointId
+      // Pedir al aparato que se reporte dispara trafico hacia el equipo: es de
+      // su responsable. La invitada lo lee (estado) pero no lo opera.
+      const accessPoint = await resolveOwnedAccessPoint(ctx, params.accessPointId)
+      const deviceScope = await AccessPointScope.participants(
+        accessPoint.accessPointId,
+        accessPoint.businessUnitId
       )
 
       const outcome = await TenantContext.run(deviceScope, () =>

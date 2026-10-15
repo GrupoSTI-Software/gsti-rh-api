@@ -159,6 +159,8 @@ export interface EmployeeAvailableAccessPointDto {
     name: string
     slug: string
   } | null
+  /** Nombre de la empresa responsable si el checador es compartido; `null` si es propio. */
+  sharedBy: string | null
 }
 
 /** Biometricos que el colaborador tiene resguardados, por modalidad. */

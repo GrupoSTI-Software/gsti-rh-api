@@ -18,7 +18,11 @@ import Employee from '#models/employee'
 import AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import EmployeeSyncService from './employee_sync.service.js'
-import { toEmployeeSyncDto } from './dto/employee_sync.dto.js'
+import {
+  toEmployeeSyncDto,
+  toRosterEntryDto,
+  type ForeignEmployeeIdentity,
+} from './dto/employee_sync.dto.js'
 import {
   toEmployeeAccessPointDto,
   type EmployeeAccessPointDto,
@@ -165,9 +169,17 @@ export default class EmployeeSyncController {
         return query.orderBy('access_point_employee_pin', 'asc').limit(500).exec()
       })
 
+      // Los ajenos (personal de las invitadas, visto por la responsable) salen
+      // con la proyeccion de identificacion; el resto, completo.
+      const viewerScope = ctx.businessUnitScope ?? []
+      const businessUnitNames = await businessUnitNamesOf(pivots)
+      const identities = await foreignIdentitiesOf(pivots, viewerScope)
+
       return StandardResponseFormatter.success(
         response,
-        pivots.map(toEmployeeSyncDto),
+        pivots.map((pivot) =>
+          toRosterEntryDto(pivot, viewerScope, businessUnitNames, identities)
+        ),
         i18n.formatMessage('access_point_employee_title'),
         i18n.formatMessage('access_point_employee_list_message'),
         200,
@@ -317,6 +329,7 @@ export default class EmployeeSyncController {
       accessPoints: rows,
       available: await availableFor(
         ctx.businessUnitScope ?? [],
+        employee.businessUnitId as number,
         new Set(rows.map((row) => row.accessPointId)),
         now
       ),
@@ -525,13 +538,23 @@ async function countBiometrics(employeeId: number): Promise<EmployeeBiometricSum
  */
 async function availableFor(
   businessUnitIds: number[],
+  employeeBusinessUnitId: number,
   taken: Set<number>,
   now: DateTime
 ): Promise<EmployeeAvailableAccessPointDto[]> {
   if (businessUnitIds.length === 0) return []
 
+  /**
+   * Tambien los checadores que otra empresa del grupo comparte con la del
+   * colaborador (VLRH-P0065, 6): son de otra responsable, asi que se piden por
+   * id y llevan `sharedBy`. Corre dentro del scope del colaborador, que ya
+   * incluye a sus responsables.
+   */
+  const sharedIds = await AccessPointScope.sharedWith(employeeBusinessUnitId)
   const accessPoints = await AccessPoint.query()
-    .whereIn('business_unit_id', businessUnitIds)
+    .where((scope) => {
+      scope.whereIn('business_unit_id', businessUnitIds).orWhereIn('access_point_id', sharedIds)
+    })
     .where('access_point_active', 1)
     .orderBy('access_point_name', 'asc')
 
@@ -539,6 +562,11 @@ async function availableFor(
   if (candidates.length === 0) return []
 
   const models = await modelsOf(candidates)
+  const owners = await businessUnitNamesById(
+    candidates
+      .filter((row) => !businessUnitIds.includes(row.businessUnitId as number))
+      .map((row) => row.businessUnitId as number)
+  )
 
   return candidates.map((accessPoint) => ({
     accessPointId: accessPoint.accessPointId,
@@ -547,7 +575,69 @@ async function availableFor(
     serialNumber: accessPoint.accessPointSerialNumber,
     connection: statusOf(accessPoint.accessPointLastConnection, now),
     model: models.get(accessPoint.accessPointId) ?? null,
+    sharedBy: owners.get(accessPoint.businessUnitId as number) ?? null,
   }))
+}
+
+/** Nombre de la empresa de cada pivote, en una sola consulta. */
+async function businessUnitNamesOf(pivots: AccessPointEmployee[]): Promise<Map<number, string>> {
+  return businessUnitNamesById(pivots.map((pivot) => pivot.businessUnitId as number))
+}
+
+/** Nombre de cada empresa por id, en una sola consulta. */
+async function businessUnitNamesById(businessUnitIds: number[]): Promise<Map<number, string>> {
+  const ids = [...new Set(businessUnitIds)]
+  if (ids.length === 0) return new Map()
+  const rows = (await db
+    .from('business_units')
+    .whereIn('business_unit_id', ids)
+    .select('business_unit_id', 'business_unit_name')) as Array<{
+    business_unit_id: number
+    business_unit_name: string
+  }>
+  return new Map(rows.map((row) => [Number(row.business_unit_id), row.business_unit_name]))
+}
+
+/**
+ * Nombre completo y foto de los empleados fuera del alcance de quien mira, en
+ * una sola consulta. Lectura directa: el mixin los ocultaria, y solo se piden
+ * los de pivotes que ya son del aparato que la peticion puede leer.
+ */
+async function foreignIdentitiesOf(
+  pivots: AccessPointEmployee[],
+  viewerBusinessUnitIds: number[]
+): Promise<Map<number, ForeignEmployeeIdentity>> {
+  const ids = pivots
+    .filter((pivot) => !viewerBusinessUnitIds.includes(pivot.businessUnitId as number))
+    .map((pivot) => pivot.employeeId)
+  if (ids.length === 0) return new Map()
+  const rows = (await db
+    .from('employees')
+    .whereIn('employee_id', ids)
+    .select(
+      'employee_id',
+      'employee_first_name',
+      'employee_last_name',
+      'employee_second_last_name',
+      'employee_photo'
+    )) as Array<{
+    employee_id: number
+    employee_first_name: string | null
+    employee_last_name: string | null
+    employee_second_last_name: string | null
+    employee_photo: string | null
+  }>
+  return new Map(
+    rows.map((row) => [
+      Number(row.employee_id),
+      {
+        fullName: [row.employee_first_name, row.employee_last_name, row.employee_second_last_name]
+          .filter((part): part is string => Boolean(part && part.trim()))
+          .join(' '),
+        photoUrl: row.employee_photo ?? null,
+      },
+    ])
+  )
 }
 
 /** Modelo de catalogo por equipo, en una sola consulta. */

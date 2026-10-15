@@ -40,3 +40,53 @@ export function toEmployeeSyncDto(pivot: AccessPointEmployee): EmployeeSyncDto {
     syncFailureReason: pivot.accessPointEmployeeSyncFailureReason ?? null,
   }
 }
+
+/** Persona de otra empresa en el padron: solo lo necesario para identificarla. */
+export interface ForeignEmployeeSyncDto {
+  foreign: true
+  employeeId: number
+  fullName: string
+  /** La responsable necesita el numero para reconocer a quien marca en su aparato. */
+  pin: string
+  photoUrl: string | null
+  businessUnitName: string
+  syncStatus: AccessPointEmployeeSyncStatus
+}
+
+export type OwnEmployeeSyncDto = EmployeeSyncDto & { foreign: false; businessUnitName: string }
+
+export type RosterEntryDto = OwnEmployeeSyncDto | ForeignEmployeeSyncDto
+
+/** Identidad minima de un empleado ajeno, resuelta por lote. */
+export interface ForeignEmployeeIdentity {
+  fullName: string
+  photoUrl: string | null
+}
+
+/**
+ * Una fila del padron del checador (VLRH-P0065, 6). Si el pivote es de una
+ * empresa fuera del alcance de quien mira (`viewerBusinessUnitIds`), solo se
+ * entrega la proyeccion de identificacion: nada de codigo de empleado,
+ * templates ni expediente.
+ */
+export function toRosterEntryDto(
+  pivot: AccessPointEmployee,
+  viewerBusinessUnitIds: number[],
+  businessUnitNames: Map<number, string>,
+  identities: Map<number, ForeignEmployeeIdentity>
+): RosterEntryDto {
+  const businessUnitName = businessUnitNames.get(pivot.businessUnitId as number) ?? ''
+  if (viewerBusinessUnitIds.includes(pivot.businessUnitId as number)) {
+    return { ...toEmployeeSyncDto(pivot), foreign: false, businessUnitName }
+  }
+  const identity = identities.get(pivot.employeeId)
+  return {
+    foreign: true,
+    employeeId: pivot.employeeId,
+    fullName: identity?.fullName ?? '',
+    pin: pivot.accessPointEmployeePin,
+    photoUrl: identity?.photoUrl ?? null,
+    businessUnitName,
+    syncStatus: pivot.accessPointEmployeeSyncStatus,
+  }
+}

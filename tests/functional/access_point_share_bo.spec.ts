@@ -3,6 +3,7 @@ import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
 import BusinessUnit from '#models/business_unit'
 import DeviceCommand from '#models/device_command'
+import Employee from '#models/employee'
 import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import db from '@adonisjs/lucid/services/db'
 import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
@@ -498,6 +499,225 @@ test.group('Checador compartido: Backoffice', (group) => {
       .loginAs(actor.user.user)
       .header('X-Business-Unit-Id', actor.publicId)
     link.assertStatus(404)
+  })
+
+  const findAccessPoint = (
+    body: { data: { accessPoints: { data: Array<Record<string, unknown>> } } },
+    accessPointId: number
+  ) => body.data.accessPoints.data.find((row) => row.accessPointId === accessPointId)
+
+  test('la invitada ve el checador compartido con su rol en el catalogo', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get('/api/access-points')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+      .qs({ businessUnitId: fx.guestBu, limit: 500 })
+    res.assertStatus(200)
+    const row = findAccessPoint(res.body(), fx.accessPoint.accessPointId)
+    assert.isDefined(row)
+    assert.equal(row?.sharedRole, 'guest')
+    assert.isString(row?.sharedBy)
+    assert.deepEqual(row?.sharedWith, [])
+  })
+
+  test('la responsable ve a la invitada en sharedWith', async ({ client, assert }) => {
+    const actor = await actorFor(fx.ownerBu)
+    const res = await client
+      .get('/api/access-points')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+      .qs({ businessUnitId: fx.ownerBu, limit: 500 })
+    res.assertStatus(200)
+    const row = findAccessPoint(res.body(), fx.accessPoint.accessPointId)
+    assert.equal(row?.sharedRole, 'owner')
+    assert.lengthOf(row?.sharedWith as string[], 1)
+    assert.isNull(row?.sharedBy)
+  })
+
+  test('una empresa ajena no ve el checador compartido en el catalogo', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await actorFor(fx.outsiderBu)
+    const res = await client
+      .get('/api/access-points')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+      .qs({ businessUnitId: fx.outsiderBu, limit: 500 })
+    res.assertStatus(200)
+    assert.isUndefined(findAccessPoint(res.body(), fx.accessPoint.accessPointId))
+  })
+
+  test('pedir el catalogo de la responsable desde la invitada no da su vista', async ({
+    client,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get('/api/access-points')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+      .qs({ businessUnitId: fx.ownerBu, limit: 500 })
+    // El alcance de la peticion es la empresa del encabezado: otra empresa es 404.
+    res.assertStatus(404)
+  })
+
+  test('la invitada consulta el checador compartido con su rol', async ({ client, assert }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const row = res.body().data.accessPoint
+    assert.equal(row.accessPointId, fx.accessPoint.accessPointId)
+    assert.equal(row.sharedRole, 'guest')
+    assert.isString(row.sharedBy)
+  })
+
+  test('la invitada recibe 403 al editar o eliminar el checador compartido', async ({
+    client,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const update = await client
+      .put(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .json({ accessPointName: 'Intento de la invitada', businessUnitId: fx.guestBu })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    update.assertStatus(403)
+    update.assertBodyContains({ key: 'solo-lectura-checador-compartido' })
+
+    const destroy = await client
+      .delete(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    destroy.assertStatus(403)
+    destroy.assertBodyContains({ key: 'solo-lectura-checador-compartido' })
+  })
+
+  test('una empresa ajena sigue recibiendo 404 al consultar o editar el checador', async ({
+    client,
+  }) => {
+    const actor = await actorFor(fx.outsiderBu)
+    const show = await client
+      .get(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    show.assertStatus(404)
+    const update = await client
+      .put(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .json({ accessPointName: 'Intento ajeno', businessUnitId: fx.outsiderBu })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    update.assertStatus(404)
+  })
+
+  test('el padron muestra al empleado ajeno solo con datos de identificacion', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await actorFor(fx.ownerBu)
+    const res = await client
+      .get(`/api/v1/access-points/${fx.accessPoint.accessPointId}/employees`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const rows = res.body().data.employees as Array<Record<string, unknown>>
+    const foreign = rows.find((row) => row.employeeId === fx.guestEmployee.employeeId)
+    assert.isDefined(foreign)
+    assert.isTrue(foreign?.foreign)
+    assert.sameMembers(Object.keys(foreign ?? {}), [
+      'foreign',
+      'employeeId',
+      'fullName',
+      'pin',
+      'photoUrl',
+      'businessUnitName',
+      'syncStatus',
+    ])
+    assert.equal(foreign?.pin, fx.guestPin)
+    assert.isString(foreign?.fullName)
+    assert.isString(foreign?.businessUnitName)
+
+    const own = rows.find((row) => row.employeeId === fx.ownerEmployee.employeeId)
+    assert.isFalse(own?.foreign)
+    assert.property(own ?? {}, 'accessPointEmployeeId')
+    assert.isString(own?.businessUnitName)
+  })
+
+  test('la ficha ofrece a la invitada el checador compartido con sharedBy', async ({
+    client,
+    assert,
+  }) => {
+    // Alguien que todavia no este en el aparato (otras pruebas del grupo lo dan de alta).
+    const inDevice = await unscoped(async () => {
+      const rows = await AccessPointEmployee.query().where(
+        'access_point_id',
+        fx.accessPoint.accessPointId
+      )
+      return rows.map((row) => row.employeeId)
+    })
+    const extra = await anotherLiveEmployee(fx.guestBu, inDevice)
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get(`/api/v1/employees/${extra.employeeId}/access-points`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const available = res.body().data.employeeDevices.available as Array<{
+      accessPointId: number
+      sharedBy: string | null
+    }>
+    const offered = available.find((row) => row.accessPointId === fx.accessPoint.accessPointId)
+    assert.isDefined(offered)
+    assert.isString(offered?.sharedBy)
+  })
+
+  test('la invitada recibe 403 al pedir sincronizacion al aparato', async ({ client }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .post(`/api/v1/access-points/${fx.accessPoint.accessPointId}/sync`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(403)
+    res.assertBodyContains({ key: 'solo-lectura-checador-compartido' })
+  })
+
+  test('los candidatos por nombre de la invitada no incluyen a la responsable', async ({
+    client,
+    assert,
+  }) => {
+    const pending = await seedUnmappedPin(fx, '9125')
+    const owner = await unscoped(() =>
+      Employee.query().where('employee_id', fx.ownerEmployee.employeeId).firstOrFail()
+    )
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/candidates`)
+      .qs({ search: owner.employeeFirstName })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const ids = (res.body().data.candidates as Array<{ employeeId: number }>).map(
+      (row) => row.employeeId
+    )
+    assert.notInclude(ids, fx.ownerEmployee.employeeId)
+  })
+
+  test('la invitada no puede vincular un PIN no mapeado a un empleado de la responsable', async ({
+    client,
+  }) => {
+    const pending = await seedUnmappedPin(fx, '9126')
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/link`)
+      .json({ employeeId: fx.ownerEmployee.employeeId })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(404)
   })
 
   test('una empresa ajena recibe 404 en una ruta de configuracion', async ({ client }) => {

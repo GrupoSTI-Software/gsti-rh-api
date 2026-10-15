@@ -7,6 +7,11 @@ import { LogAccessPoint } from '../interfaces/MongoDB/log_access_point.js'
 import { LogStore } from '#models/MongoDB/log_store'
 import Employee from '#models/employee'
 import AccessPointEmployee from '#models/access_point_employee'
+import type { ModelPaginatorContract } from '@adonisjs/lucid/types/model'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import { sharingViewOf } from '#modules/access-point/sharing/access_point_sharing_view'
 
 export default class AccessPointService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -43,18 +48,56 @@ export default class AccessPointService {
       'access_point_last_connection',
       'access_point_created_at',
     ]
-    const accessPoints = await AccessPoint.query()
-      .where('business_unit_id', filters.businessUnitId)
-      .whereNull('access_point_deleted_at')
-      .if(filters.search, (query) => {
-        query.whereRaw('UPPER(access_point_name) LIKE ?', [`%${filters.search!.toUpperCase()}%`])
-      })
-      .select(selectedColumns)
-      .preload('businessUnit')
-      .orderBy('access_point_created_at', 'asc')
-      .paginate(filters.page, filters.limit)
+    // Propios mas los compartidos con la empresa (VLRH-P0065, 6). El mixin de
+    // tenant solo deja pasar las empresas del alcance, y la responsable de un
+    // aparato compartido no esta ahi: por eso corre sin scope, con el alcance
+    // de la peticion aplicado a mano. Todo se cierra dentro del bypass.
+    const visible = filters.allowedBusinessUnitIds.includes(filters.businessUnitId)
+    const sharedIds = visible ? await AccessPointScope.sharedWith(filters.businessUnitId) : []
+    return TenantContext.runUnscoped(
+      () =>
+        AccessPoint.query()
+          .where((scope) => {
+            if (!visible) {
+              scope.whereRaw('1 = 0')
+              return
+            }
+            scope
+              .where('business_unit_id', filters.businessUnitId)
+              .orWhereIn('access_point_id', sharedIds)
+          })
+          .whereNull('access_point_deleted_at')
+          .if(filters.search, (query) => {
+            query.whereRaw('UPPER(access_point_name) LIKE ?', [
+              `%${filters.search!.toUpperCase()}%`,
+            ])
+          })
+          .select(selectedColumns)
+          .preload('businessUnit')
+          .orderBy('access_point_created_at', 'asc')
+          .paginate(filters.page, filters.limit),
+      TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
+    )
+  }
 
-    return accessPoints
+  /**
+   * La pagina serializada con el rol de la empresa sobre cada checador
+   * (`sharedRole`, `sharedWith`, `sharedBy`), calculado por lote.
+   */
+  async serializeWithSharing(
+    page: ModelPaginatorContract<AccessPoint>,
+    viewerBusinessUnitIds: number[]
+  ) {
+    const rows = page.all()
+    const views = await sharingViewOf(rows, viewerBusinessUnitIds)
+    const serialized = page.serialize()
+    return {
+      ...serialized,
+      data: serialized.data.map((row, index) => ({
+        ...row,
+        ...(views.get(rows[index].accessPointId) ?? {}),
+      })),
+    }
   }
 
   async create(accessPoint: AccessPoint) {
@@ -104,7 +147,7 @@ export default class AccessPointService {
    * — se retiró. `allowedBusinessUnitIds` se conserva en la firma por
    * compatibilidad del contrato del servicio, aunque ya no se usa aquí.
    */
-  async show(accessPointId: number, _allowedBusinessUnitIds?: number[]) {
+  async show(accessPointId: number, allowedBusinessUnitIds: number[] = []) {
     const selectedColumns = [
       'access_point_id',
       'access_point_name',
@@ -119,13 +162,25 @@ export default class AccessPointService {
       'access_point_status',
       'access_point_last_connection',
     ]
-    const accessPoint = await AccessPoint.query()
-      .whereNull('access_point_deleted_at')
-      .where('access_point_id', accessPointId)
-      .select(selectedColumns)
-      .preload('businessUnit')
-      .first()
-    return accessPoint ? accessPoint : null
+    // La invitada tambien consulta el aparato compartido (VLRH-P0065, 6): se
+    // lee sin scope y se admite solo si el aparato es de su alcance o esta
+    // compartido con alguna empresa de el.
+    return TenantContext.runUnscoped(async () => {
+      const accessPoint = await AccessPoint.query()
+        .whereNull('access_point_deleted_at')
+        .where('access_point_id', accessPointId)
+        .select(selectedColumns)
+        .preload('businessUnit')
+        .first()
+      if (!accessPoint) return null
+      const owned = allowedBusinessUnitIds.includes(accessPoint.businessUnitId as number)
+      if (owned) return accessPoint
+      const participants = await AccessPointScope.participants(
+        accessPoint.accessPointId,
+        accessPoint.businessUnitId as number
+      )
+      return participants.some((id) => allowedBusinessUnitIds.includes(id)) ? accessPoint : null
+    }, TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
   }
 
   /**

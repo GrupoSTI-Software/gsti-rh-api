@@ -159,7 +159,28 @@ export async function resolveOwnedAccessPoint(
 ): Promise<AccessPoint> {
   const participant = await resolveParticipantAccessPoint(ctx, accessPointId)
   if (participant.role === 'owner') return participant.accessPoint
-  throw new AdmsError(
+  throw sharedReadOnly(ctx)
+}
+
+/**
+ * Para el catalogo de equipos (`PUT`/`DELETE /api/access-points/:id`), que
+ * conserva su propio 404 para lo que no encuentra: solo corta a la invitada
+ * con el 403 de solo lectura. Un aparato ajeno o inexistente no lanza nada
+ * aqui y sigue su camino hacia el 404 de siempre.
+ */
+export async function rejectSharedGuest(ctx: HttpContext, accessPointId: number): Promise<void> {
+  let participant: ParticipantAccessPoint
+  try {
+    participant = await resolveParticipantAccessPoint(ctx, accessPointId)
+  } catch (error) {
+    if (error instanceof AdmsError && error.httpStatus === 404) return
+    throw error
+  }
+  if (participant.role === 'guest') throw sharedReadOnly(ctx)
+}
+
+function sharedReadOnly(ctx: HttpContext): AdmsError {
+  return new AdmsError(
     ctx.i18n.formatMessage('access_point_shared_read_only_title'),
     ADMS_ERROR_CODES.AUTHZ_FORBIDDEN,
     403,
