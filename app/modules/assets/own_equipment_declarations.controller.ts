@@ -33,9 +33,10 @@ export default class OwnEquipmentDeclarationsController {
    *       vivo, en el alcance de empresas de la petición y teletrabajar
    *       (porcentaje mayor a 0); la categoría no puede estar cubierta por un
    *       activo asignado o en envío, ni tener ya una declaración vigente. La
-   *       cuota llega cruda (`monthlyFee`) y se valida por texto; `fee_source`
-   *       y `status` los fija el servidor y la empresa sale de la fila del
-   *       colaborador, nunca del body.
+   *       cuota llega cruda (`monthlyFee`) y se valida por texto; si no viene se
+   *       precarga con la estándar configurada de la empresa y, si tampoco
+   *       existe, se rechaza. `fee_source` y `status` los fija el servidor y la
+   *       empresa sale de la fila del colaborador, nunca del body.
    *     tags: [Assets]
    *     security:
    *       - bearerAuth: []
@@ -48,13 +49,13 @@ export default class OwnEquipmentDeclarationsController {
    *         application/json:
    *           schema:
    *             type: object
-   *             required: [category, description, startDate, monthlyFee]
+   *             required: [category, description, startDate]
    *             properties:
    *               category: { type: string, enum: [ergonomic_chair, computing_equipment, accessory] }
    *               description: { type: string, maxLength: 255 }
    *               conditions: { type: string, maxLength: 2000, nullable: true }
    *               startDate: { type: string, format: date, example: "2026-11-01" }
-   *               monthlyFee: { type: number, example: 350, description: "0 o más, hasta dos decimales, sin exceder 99999999.99" }
+   *               monthlyFee: { type: number, example: 350, description: "Opcional: 0 o más, hasta dos decimales, sin exceder 99999999.99. Si falta, se precarga con la cuota estándar de la empresa; sin estándar, es obligatoria." }
    *           example:
    *             category: ergonomic_chair
    *             description: Silla de oficina con respaldo ajustable

@@ -2,12 +2,14 @@ import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
 import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
 import { MAX_ALLOWANCE } from '#constants/telework_compliance_setting'
+import TeleworkComplianceSettingService from '#services/telework_compliance_setting_service'
 import { TenantContext } from '#utils/tenant_context'
 import { ASSET_ERROR_KEYS } from './assets.constants.js'
 import { AssetError } from './assets.error.js'
 import type { OwnEquipmentDeclarationDto } from './dto/own_equipment_declarations.dto.js'
 import type { OwnEquipmentDeclarationsRepository } from './own_equipment_declarations.repository.js'
 import OwnEquipmentDeclarationsRepositoryMysql from './own_equipment_declarations.repository.mysql.js'
+import { resolveOwnEquipmentFeeSource } from './telework_supplies.rules.js'
 
 /**
  * Alta de la declaración del uso de equipo propio con su cuota
@@ -70,7 +72,8 @@ export interface OwnEquipmentDeclarationInput {
 
 export default class OwnEquipmentDeclarationsService {
   constructor(
-    private readonly repository: OwnEquipmentDeclarationsRepository = new OwnEquipmentDeclarationsRepositoryMysql()
+    private readonly repository: OwnEquipmentDeclarationsRepository = new OwnEquipmentDeclarationsRepositoryMysql(),
+    private readonly settings: Pick<TeleworkComplianceSettingService, 'getEffective'> = new TeleworkComplianceSettingService()
   ) {}
 
   /**
@@ -109,7 +112,22 @@ export default class OwnEquipmentDeclarationsService {
       )
     }
 
-    const monthlyFee = parseMonthlyFee(rawMonthlyFee)
+    // Cuota estándar de la empresa (Tarea 3): la cuota deja de ser obligatoria
+    // en el alta; si no viene se toma la estándar vigente y, si tampoco existe,
+    // se rechaza. El origen (`feeSource`) lo decide el servidor comparando
+    // centavos contra la estándar (`resolveOwnEquipmentFeeSource`), nunca el
+    // cliente ni la igualdad de flotantes.
+    const { ownEquipmentFeeDefault } = await this.settings.getEffective(employee.businessUnitId)
+
+    let monthlyFee: number
+    if (rawMonthlyFee === undefined || rawMonthlyFee === null || rawMonthlyFee === '') {
+      if (ownEquipmentFeeDefault === null) throw AssetError.ownEquipmentFeeInvalid()
+      monthlyFee = ownEquipmentFeeDefault
+    } else {
+      monthlyFee = parseMonthlyFee(rawMonthlyFee)
+    }
+
+    const feeSource = resolveOwnEquipmentFeeSource(monthlyFee, ownEquipmentFeeDefault)
 
     if (await this.repository.hasOpenCoverage(db, scope, employeeId, input.category)) {
       throw AssetError.categoryCoveredByAsset()
@@ -146,7 +164,7 @@ export default class OwnEquipmentDeclarationsService {
           conditions: input.conditions === '' ? null : input.conditions,
           startDate,
           monthlyFee,
-          feeSource: 'adjusted',
+          feeSource,
           createdByUserId: userId,
         })
       })
