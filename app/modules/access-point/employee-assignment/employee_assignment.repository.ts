@@ -19,8 +19,8 @@ export default interface EmployeeAssignmentRepository {
    */
   accessPointScope(accessPointId: number, scope: BusinessUnitScope): Promise<number[] | null>
 
-  /** Indica si el empleado existe dentro del alcance. */
-  employeeExists(employeeId: number, scope: BusinessUnitScope): Promise<boolean>
+  /** Empresa del empleado si existe dentro del alcance; `null` si no. */
+  employeeBusinessUnitId(employeeId: number, scope: BusinessUnitScope): Promise<number | null>
 
   /** Devuelve la asignación vigente, o null si no la hay. */
   findAssignment(

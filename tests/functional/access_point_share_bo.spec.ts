@@ -11,6 +11,10 @@ import { TenantContext } from '#utils/tenant_context'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import ReplicationService from '#modules/biometric-vault/replication/replication.service'
+import ConsentGate from '#modules/biometric-vault/consent/consent_gate'
+import type { ConsentRecord } from '#modules/biometric-vault/consent/consent_gate.repository'
+import { REPLICATION_SKIP } from '#modules/biometric-vault/replication/replication.types'
+import { DateTime } from 'luxon'
 import {
   cleanupUnitUser,
   createBypassUserInBusinessUnit,
@@ -242,7 +246,7 @@ test.group('Checador compartido: Backoffice', (group) => {
     res.assertStatus(404)
   })
 
-  test('replicar a un checador donde la empresa del empleado no participa es 404', async ({
+  test('replicar a un checador donde la empresa del empleado no participa es 404 y el servicio lo salta', async ({
     client,
     assert,
   }) => {
@@ -270,23 +274,49 @@ test.group('Checador compartido: Backoffice', (group) => {
         .header('X-Business-Unit-Id', actor.publicId)
       res.assertStatus(404)
 
-      // La regla vive tambien en el servicio: el canal y el alta lo llaman sin
-      // pasar por el controlador.
-      const attempt = new ReplicationService().replicate({
-        employeeId: fx.guestEmployee.employeeId,
-        businessUnitId: fx.guestBu,
-        sourceAccessPointId: null,
-        targetAccessPointIds: [foreignAp.accessPointId],
-        modalities: ['fingerprint'],
-        actor: { userId: null, ip: '127.0.0.1', userAgent: null, requestId: null },
-        dryRun: true,
-      })
-      const error = await attempt.then(
-        () => null,
-        (reason: unknown) => reason as { key?: string; status?: number }
+      // La regla vive tambien en el servicio (el canal y el alta lo llaman sin pasar
+      // por el controlador): el destino ajeno se salta y el reparto sigue con los demas.
+      class GrantedConsent extends ConsentGate {
+        async assertGranted(): Promise<ConsentRecord> {
+          return {
+            userConsentId: 0,
+            legalDocumentId: 0,
+            channel: 'physical',
+            grantedAt: DateTime.utc(),
+          }
+        }
+      }
+      const service = new ReplicationService(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        new GrantedConsent()
       )
-      assert.isNotNull(error)
-      assert.equal(error?.key, 'punto-acceso-no-encontrado')
+      const result = await TenantContext.run([fx.ownerBu, fx.guestBu], () =>
+        service.replicate({
+          employeeId: fx.guestEmployee.employeeId,
+          businessUnitId: fx.guestBu,
+          sourceAccessPointId: null,
+          targetAccessPointIds: [foreignAp.accessPointId, fx.accessPoint.accessPointId],
+          modalities: ['fingerprint'],
+          actor: { userId: null, ip: '127.0.0.1', userAgent: null, requestId: null },
+          dryRun: true,
+        })
+      )
+      assert.lengthOf(result.targets, 2)
+      const [foreign, shared] = result.targets
+      assert.equal(foreign.accessPointId, foreignAp.accessPointId)
+      assert.equal(foreign.accessPointName, '')
+      assert.deepEqual(
+        foreign.items.map((item) => item.reason),
+        [REPLICATION_SKIP.NOT_PARTICIPANT]
+      )
+      assert.equal(shared.accessPointId, fx.accessPoint.accessPointId)
+      assert.notInclude(
+        shared.items.map((item) => item.reason),
+        REPLICATION_SKIP.NOT_PARTICIPANT
+      )
     } finally {
       await unscoped(() =>
         AccessPoint.query().where('access_point_id', foreignAp.accessPointId).delete()

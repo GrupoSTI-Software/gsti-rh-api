@@ -52,10 +52,13 @@ export default class EmployeeAssignmentRepositoryMysql
     return participants.some((id) => scope.includes(id)) ? participants : null
   }
 
-  async employeeExists(employeeId: number, scope: BusinessUnitScope): Promise<boolean> {
+  async employeeBusinessUnitId(
+    employeeId: number,
+    scope: BusinessUnitScope
+  ): Promise<number | null> {
     const query = Employee.query().where('employeeId', employeeId)
     const found = await this.applyScope(query, scope).first()
-    return Boolean(found)
+    return found ? (found.businessUnitId ?? null) : null
   }
 
   async findAssignment(

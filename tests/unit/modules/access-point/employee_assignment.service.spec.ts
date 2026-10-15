@@ -27,8 +27,8 @@ function makeService(assignment: AccessPointEmployee | null) {
     async accessPointScope() {
       return [1]
     },
-    async employeeExists() {
-      return true
+    async employeeBusinessUnitId() {
+      return 1
     },
     async findAssignment(_accessPointId: number, _employeeId: number, _scope: BusinessUnitScope) {
       return assignment
@@ -106,5 +106,48 @@ test.group('Retirar la asignacion exige la baja en el equipo', () => {
 
     assert.instanceOf(capturado, AccessPointEmployeeServiceError)
     assert.equal((capturado as AccessPointEmployeeServiceError).httpStatus, 404)
+  })
+})
+
+test.group('La empresa del colaborador tiene que participar del checador', () => {
+  /** Checador de la empresa 1 compartido con la 2; el colaborador es de la 3. */
+  function outsiderService() {
+    const repository: EmployeeAssignmentRepository = {
+      async accessPointScope() {
+        return [1, 2]
+      },
+      async employeeBusinessUnitId() {
+        return 3
+      },
+      async findAssignment() {
+        return null
+      },
+      async createAssignment() {
+        return assignmentOf('pending_pin')
+      },
+      async removeAssignment() {},
+    }
+    return new EmployeeAssignmentService(i18n, repository)
+  }
+
+  async function keyOf(run: () => Promise<unknown>): Promise<string | null> {
+    try {
+      await run()
+      return null
+    } catch (error) {
+      return error instanceof AccessPointEmployeeServiceError ? error.key : 'otro-error'
+    }
+  }
+
+  test('asignar a alguien de una empresa que no participa es 404 del checador', async ({
+    assert,
+  }) => {
+    const key = await keyOf(() => outsiderService().assign(12, 77, [1, 3], null))
+    assert.equal(key, 'punto-acceso-no-encontrado')
+  })
+
+  test('retirar tambien es 404 del checador', async ({ assert }) => {
+    const key = await keyOf(() => outsiderService().remove(12, 77, [1, 3]))
+    assert.equal(key, 'punto-acceso-no-encontrado')
   })
 })

@@ -70,6 +70,16 @@ export default class EmployeeAssignmentService {
     return this.i18n.formatMessage(key)
   }
 
+  private accessPointNotFound(): AccessPointEmployeeServiceError {
+    return new AccessPointEmployeeServiceError({
+      key: 'punto-acceso-no-encontrado',
+      errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.ACCESS_POINT_NOT_FOUND,
+      httpStatus: 404,
+      title: this.t('access_point_employee_access_point_not_found_title'),
+      detail: this.t('access_point_employee_access_point_not_found_message'),
+    })
+  }
+
 
   /**
    * Comprueba que ambos extremos existan dentro del alcance de la petición.
@@ -90,19 +100,11 @@ export default class EmployeeAssignmentService {
   ): Promise<number[]> {
     const deviceScope = await this.repository.accessPointScope(accessPointId, scope)
 
-    if (!deviceScope) {
-      throw new AccessPointEmployeeServiceError({
-        key: 'punto-acceso-no-encontrado',
-        errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.ACCESS_POINT_NOT_FOUND,
-        httpStatus: 404,
-        title: this.t('access_point_employee_access_point_not_found_title'),
-        detail: this.t('access_point_employee_access_point_not_found_message'),
-      })
-    }
+    if (!deviceScope) throw this.accessPointNotFound()
 
-    const employeeExists = await this.repository.employeeExists(employeeId, scope)
+    const employeeBusinessUnitId = await this.repository.employeeBusinessUnitId(employeeId, scope)
 
-    if (!employeeExists) {
+    if (employeeBusinessUnitId === null) {
       throw new AccessPointEmployeeServiceError({
         key: 'colaborador-no-encontrado',
         errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.EMPLOYEE_NOT_FOUND,
@@ -111,6 +113,14 @@ export default class EmployeeAssignmentService {
         detail: this.t('access_point_employee_employee_not_found_message'),
       })
     }
+
+    /**
+     * La empresa del colaborador tiene que participar del aparato: un usuario
+     * con varias empresas en su alcance no puede colgar a alguien de una
+     * tercera en un checador que no se le comparte (VLRH-P0065, 6). Para esa
+     * empresa el checador no existe.
+     */
+    if (!deviceScope.includes(employeeBusinessUnitId)) throw this.accessPointNotFound()
 
     return deviceScope
   }

@@ -28,6 +28,11 @@ export const REPLICATION_SKIP = {
   NOTHING_TO_COPY: 'nothing_to_copy',
   /** El destino es el origen. */
   SAME_DEVICE: 'same_device',
+  /**
+   * La empresa del colaborador no participa del destino (VLRH-P0065, 4): ni es
+   * suyo ni se lo comparten. Se salta ese destino y se sigue con los demas.
+   */
+  NOT_PARTICIPANT: 'not_participant',
   /** El equipo declaro no tener rostro: no se le manda la foto. */
   NO_FACE_SUPPORT: 'no_face_support',
   /**
