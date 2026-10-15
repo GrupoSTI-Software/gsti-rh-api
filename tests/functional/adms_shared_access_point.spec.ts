@@ -3,6 +3,8 @@ import { DateTime } from 'luxon'
 import Assist from '#models/assist'
 import AccessPointStamp from '#models/access_point_stamp'
 import AccessPointEmployee from '#models/access_point_employee'
+import AccessPointEmployeeEvent from '#models/access_point_employee_event'
+import DeviceCommand from '#models/device_command'
 import AdmsHeldPunch from '#models/adms_held_punch'
 import AdmsUnmappedPin from '#models/adms_unmapped_pin'
 import { TenantContext } from '#utils/tenant_context'
@@ -165,5 +167,43 @@ test.group('Checador compartido: canal ADMS', (group) => {
         )
       )
     }, /no pertenece/)
+  })
+
+  test('el padron no trata como ajenos a los de la invitada', async ({ assert }) => {
+    const statusOf = async () =>
+      unscoped(() =>
+        AccessPointEmployee.query().where('access_point_id', fx.accessPoint.accessPointId)
+      )
+    // Alta en vuelo de los dos: el padron los confirma, cada evento con su empresa.
+    await unscoped(() =>
+      AccessPointEmployee.query()
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .update({ access_point_employee_sync_status: 'sent' })
+    )
+    const res = await admsChannelPost(
+      `/iclock/cdata?SN=${fx.accessPoint.accessPointSerialNumber}&table=OPERLOG&Stamp=9999`,
+      `USER PIN=${fx.ownerPin}\tName=A\tPri=0\tVerify=-1\nUSER PIN=${fx.guestPin}\tName=B\tPri=0\tVerify=-1\n`,
+      fx.accessPoint.accessPointChannelSecret
+    )
+    assert.equal(res.status, 200)
+    const pivots = await statusOf()
+    assert.isAtLeast(pivots.length, 2)
+    for (const pivot of pivots) assert.equal(pivot.accessPointEmployeeSyncStatus, 'confirmed')
+    const deletes = await unscoped(() =>
+      DeviceCommand.query()
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .where('device_command_kind', DEVICE_COMMAND_KIND.USER_DELETE)
+    )
+    assert.lengthOf(deletes, 0)
+    for (const pivot of pivots) {
+      const events = await unscoped(() =>
+        AccessPointEmployeeEvent.query().where(
+          'access_point_employee_id',
+          pivot.accessPointEmployeeId
+        )
+      )
+      assert.isAbove(events.length, 0)
+      for (const event of events) assert.equal(event.businessUnitId, pivot.businessUnitId)
+    }
   })
 })

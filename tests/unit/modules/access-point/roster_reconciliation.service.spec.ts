@@ -5,6 +5,7 @@ import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee, {
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
+  type AccessPointEmployeeSyncStatus,
 } from '#models/access_point_employee'
 import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
@@ -12,6 +13,7 @@ import DeviceCommand from '#models/device_command'
 import AdmsIncident from '#models/adms_incident'
 import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import RosterReconciliationService from '#modules/access-point/employee-sync/roster_reconciliation.service'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 
 /**
  * Rebanada 8.1: el padron del equipo cierra la baja.
@@ -362,5 +364,49 @@ test.group('Reconciliacion del padron (rebanada 8.1)', (group) => {
       AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
     )
     assert.equal(fresh.accessPointEmployeeSyncStatus, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED)
+  })
+
+  test('los eventos del pivote llevan la empresa del pivote, no la del responsable', async ({
+    assert,
+  }) => {
+    /**
+     * Checador compartido: quien sube el padron es el aparato (responsable), pero
+     * el pivote puede ser de una empresa invitada. El evento cuelga del pivote.
+     */
+    const otraEmpresa = businessUnitId + 900000
+    const eventos: Array<{ accessPointEmployeeId: number; businessUnitId: number }> = []
+    const repoFalso = {
+      save: async () => {},
+      recordEvent: async (event: { accessPointEmployeeId: number; businessUnitId: number }) => {
+        eventos.push(event)
+      },
+    } as unknown as EmployeeSyncRepository
+
+    const correr = async (status: AccessPointEmployeeSyncStatus, pins: string[]) => {
+      await TenantContext.run([businessUnitId], async () => {
+        const row = await AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
+        row.accessPointEmployeeSyncStatus = status
+        await row.save()
+        await new RosterReconciliationService(repoFalso).reconcile({
+          accessPointId: accessPoint.accessPointId,
+          businessUnitId: otraEmpresa,
+          pins,
+          hasFingerprints: false,
+          serial: SERIAL,
+          rawMessageId: null,
+          receivedAt: DateTime.utc().plus({ minutes: 1 }),
+        })
+      })
+    }
+
+    await correr(ACCESS_POINT_EMPLOYEE_SYNC_STATUS.SENT, [PIN])
+    await correr(ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED, ['no-es-este'])
+    await correr(ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED, [PIN])
+
+    assert.lengthOf(eventos, 3)
+    for (const evento of eventos) {
+      assert.equal(evento.accessPointEmployeeId, pivot.accessPointEmployeeId)
+      assert.equal(evento.businessUnitId, businessUnitId)
+    }
   })
 })
