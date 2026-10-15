@@ -12,8 +12,9 @@ interface EmployeeBusinessUnit {
  * Colaborador fuera del alcance de la peticion (VLRH-P0065).
  *
  * No lleva texto propio: `resolveAdmsApiError` le pone el titulo y el detalle
- * i18n del 404 de `resolveScopedEmployee`, asi que para quien pregunta es
- * exactamente el mismo error. Un colaborador sin empresa no se distingue de
+ * i18n de colaborador no encontrado (`access_point_employee_employee_not_found_*`,
+ * los mismos del alta del vinculo). Lo lanzan `resolveScopedEmployee` y esta
+ * guarda, asi que para quien pregunta es exactamente el mismo error. Un colaborador sin empresa no se distingue de
  * uno de otra empresa, y su id no sale en la respuesta.
  */
 export class EmployeeOutOfScopeError extends AdmsError {

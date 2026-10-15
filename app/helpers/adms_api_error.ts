@@ -63,8 +63,8 @@ export function resolveAdmsApiError(error: unknown, i18n: I18n): ResolvedAdmsApi
   if (error instanceof EmployeeOutOfScopeError) {
     return {
       status: 404,
-      title: i18n.formatMessage('adms_not_found_title'),
-      detail: i18n.formatMessage('adms_not_found_message'),
+      title: i18n.formatMessage('access_point_employee_employee_not_found_title'),
+      detail: i18n.formatMessage('access_point_employee_employee_not_found_message'),
       key: 'colaborador-no-encontrado',
       code: ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
     }

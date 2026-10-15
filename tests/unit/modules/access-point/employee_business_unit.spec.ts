@@ -47,6 +47,22 @@ test.group('requireEmployeeBusinessUnitId: frontera multi-empresa', () => {
     assert.notInclude(JSON.stringify(actual), String(ORPHAN.employeeId))
   })
 
+  test('el 404 dice colaborador no encontrado, igual por los dos caminos', async ({ assert }) => {
+    const outOfScope = await resolveScopedEmployee(
+      { businessUnitScope: [], i18n } as unknown as HttpContext,
+      ORPHAN.employeeId
+    ).catch((error: unknown) => error)
+    const orphan = thrownBy(() => requireEmployeeBusinessUnitId(ORPHAN))
+
+    for (const error of [outOfScope, orphan]) {
+      const resolved = resolveAdmsApiError(error, i18n)
+      assert.equal(resolved.status, 404)
+      assert.equal(resolved.title, 'access_point_employee_employee_not_found_title')
+      assert.equal(resolved.detail, 'access_point_employee_employee_not_found_message')
+      assert.equal(resolved.key, 'colaborador-no-encontrado')
+    }
+  })
+
   test('devuelve la empresa del colaborador', ({ assert }) => {
     assert.equal(requireEmployeeBusinessUnitId({ employeeId: 7, businessUnitId: 3 }), 3)
   })
