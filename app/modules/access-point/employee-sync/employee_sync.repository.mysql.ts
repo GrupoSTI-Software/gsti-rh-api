@@ -8,8 +8,23 @@ import {
   type AccessPointEmployeeSyncStatus,
 } from '#models/access_point_employee'
 import AccessPointEmployeeEvent from '#models/access_point_employee_event'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import { canTransition, PIN_QUARANTINE_STATUSES } from './employee_sync_state.js'
 import type { EmployeeSyncRepository, SyncEventInput } from './employee_sync.repository.js'
+
+/**
+ * Lectura del espacio de PIN de un aparato, sin filtro de empresa.
+ *
+ * En un checador compartido (VLRH-P0065) el numero lo ocupan todas las
+ * empresas que lo usan o lo usaron: tambien una invitada ya revocada cuya baja
+ * el aparato aun no confirma. Con el mixin, el scope del que pregunta dejaba
+ * fuera esos vinculos y el numero se daba por libre. La consulta se cierra
+ * dentro del bypass: un builder sin ejecutar correria fuera de el (M12).
+ */
+function pinSpaceOf<T>(read: () => Promise<T>): Promise<T> {
+  return TenantContext.runUnscoped(read, TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
+}
 
 /** Prefijo del cerrojo por equipo. Con nombre, no sobre una fila. */
 const DEVICE_LOCK_PREFIX = 'valanserh:access-point:'
@@ -99,15 +114,19 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
    * baja.
    */
   async findByPin(accessPointId: number, pin: string): Promise<AccessPointEmployee[]> {
-    return AccessPointEmployee.query()
-      .withTrashed()
-      .where('access_point_id', accessPointId)
-      .where('access_point_employee_pin', pin)
-      .where((group) => {
-        group
-          .whereNull('access_point_employee_deleted_at')
-          .orWhereIn('access_point_employee_sync_status', [...PIN_QUARANTINE_STATUSES])
-      })
+    // El PIN es del aparato, no de una empresa: ver `pinSpaceOf`.
+    return pinSpaceOf(() =>
+      AccessPointEmployee.query()
+        .withTrashed()
+        .where('access_point_id', accessPointId)
+        .where('access_point_employee_pin', pin)
+        .where((group) => {
+          group
+            .whereNull('access_point_employee_deleted_at')
+            .orWhereIn('access_point_employee_sync_status', [...PIN_QUARANTINE_STATUSES])
+        })
+        .exec()
+    )
   }
 
   async countConfirmedBefore(accessPointId: number, at: DateTime): Promise<number> {
@@ -144,7 +163,8 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
       query.whereNot('access_point_employee_id', exceptPivotId)
     }
 
-    const rows = await query.select('access_point_employee_pin')
+    // El PIN es del aparato, no de una empresa: ver `pinSpaceOf`.
+    const rows = await pinSpaceOf(() => query.select('access_point_employee_pin').exec())
 
     return rows.map((row) => row.accessPointEmployeePin).filter((pin) => pin.length > 0)
   }
