@@ -797,9 +797,12 @@ test.group('Ciclo de vida de la declaración de equipo propio — endpoint HTTP'
     const closedOld = await declarationRow(oldId)
     assert.equal(closedOld.employee_own_equipment_declaration_end_date, '2026-09-01')
 
-    // Anterior al inicio: 422 de fecha (el chequeo va ANTES que el de cambios:
-    // sin cuota en el body, la versión vigente hereda la suya).
-    const beforeStart = await putAsA(client, newId, { effectiveDate: '2026-09-01' })
+    // Anterior al inicio: 422 de fecha (el chequeo va ANTES que el de cambios;
+    // la cuota es requerida y válida, así que no interfiere).
+    const beforeStart = await putAsA(client, newId, {
+      monthlyFee: 420,
+      effectiveDate: '2026-09-01',
+    })
     beforeStart.assertStatus(422)
     assert.equal(beforeStart.body().key, 'entrada-invalida')
     assert.equal(
@@ -807,7 +810,10 @@ test.group('Ciclo de vida de la declaración de equipo propio — endpoint HTTP'
       'La fecha de vigencia debe ser posterior al inicio de la declaración vigente'
     )
 
-    const before = await putAsA(client, newId, { effectiveDate: '2026-08-31' })
+    const before = await putAsA(client, newId, {
+      monthlyFee: 420,
+      effectiveDate: '2026-08-31',
+    })
     before.assertStatus(422)
     assert.equal(before.body().key, 'entrada-invalida')
     assert.equal(
@@ -818,6 +824,27 @@ test.group('Ciclo de vida de la declaración de equipo propio — endpoint HTTP'
     assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 1)
     const afterRejects = await declarationRow(newId)
     assert.equal(afterRejects.employee_own_equipment_declaration_status, 'active')
+  })
+
+  test('CA-6b: un PUT sin la cuota responde 422 cuota-de-equipo-propio-invalida', async ({
+    client,
+    assert,
+  }) => {
+    await upsertTeleworkSettings(buIdA(), 350)
+    const oldId = await createOpenChair(client)
+
+    // La cuota es REQUERIDA en el ajuste (spec §11): se parsea justo tras el
+    // alcance y ANTES del pre-chequeo, así que un cuerpo sin `monthlyFee`
+    // responde 422 de cuota sin llegar a evaluar la fecha ni los cambios.
+    const response = await putAsA(client, oldId, { effectiveDate: '2026-10-15' })
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'cuota-de-equipo-propio-invalida')
+
+    // La vigente no cambia y no nace una versión nueva.
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 1)
+    const unchanged = await declarationRow(oldId)
+    assert.equal(unchanged.employee_own_equipment_declaration_status, 'active')
+    assert.isNull(unchanged.employee_own_equipment_declaration_end_date)
   })
 
   test('CA-7: el ajuste sin cambios se rechaza y no nace una versión', async ({

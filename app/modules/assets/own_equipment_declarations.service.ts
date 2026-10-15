@@ -228,10 +228,12 @@ export default class OwnEquipmentDeclarationsService {
   ): Promise<OwnEquipmentDeclarationDto> {
     const scope = TenantContext.getScope()
 
-    // La cuota del body manda, con estándar o sin ella: el ajuste NO precarga
-    // con la estándar. Si no llega ninguna, la versión vigente hereda la suya.
-    const hasBodyFee = rawMonthlyFee !== undefined && rawMonthlyFee !== null && rawMonthlyFee !== ''
-    const bodyFee = hasBodyFee ? parseMonthlyFee(rawMonthlyFee) : null
+    // La cuota es REQUERIDA en el ajuste (spec §11): se parsea
+    // incondicionalmente justo tras el alcance y ANTES del pre-chequeo, de modo
+    // que un PUT sin `monthlyFee` responde 422 `cuota-de-equipo-propio-invalida`
+    // en vez de caer a los chequeos de fecha/cambios. La cuota parseada es el
+    // monto de la versión nueva y el que compara `hasOwnEquipmentChanges`.
+    const fee = parseMonthlyFee(rawMonthlyFee)
 
     // Pre-chequeo sin candado (respuesta rápida): inexistente, ajena o borrada
     // → 404 indistinguible (CA-11); ya cerrada → 409.
@@ -266,8 +268,6 @@ export default class OwnEquipmentDeclarationsService {
         if (await this.repository.hasOpenCoverage(trx, scope, employeeId, forChange.category)) {
           throw AssetError.categoryCoveredByAsset()
         }
-
-        const fee = bodyFee ?? forChange.monthlyFee
 
         const effectiveDate = input.effectiveDate ?? toBusinessDateString()
         if (
