@@ -3,7 +3,8 @@ import db from '@adonisjs/lucid/services/db'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import AccessPoint from '#models/access_point'
 import { TenantContext } from '#utils/tenant_context'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import { getBusinessTimeZone } from '#utils/business_date'
 import AccessPointProfile from '#models/access_point_profile'
 import AccessPointEmployee, {
@@ -101,7 +102,8 @@ export interface ModelCapacity {
 export default class HealthService {
   constructor(
     private readonly progress: UploadProgressRepository = new UploadProgressRepositoryMysql(),
-    private readonly commands: DeviceCommandRepository = new DeviceCommandRepositoryMysql()
+    private readonly commands: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
   ) {}
 
   /**
@@ -112,7 +114,7 @@ export default class HealthService {
    */
   async listFor(businessUnitIds: number[], now: DateTime): Promise<AccessPointHealthDto[]> {
     if (businessUnitIds.length === 0) return []
-    const shared = await Promise.all(businessUnitIds.map((id) => AccessPointScope.sharedWith(id)))
+    const shared = await Promise.all(businessUnitIds.map((id) => this.scope.sharedWith(id)))
     const sharedIds = [...new Set(shared.flat())]
     // La responsable del compartido no esta en el alcance: se lee sin scope y se
     // cierra la consulta dentro del bypass (M12).
@@ -131,7 +133,7 @@ export default class HealthService {
 
     const rows: AccessPointHealthDto[] = []
     for (const accessPoint of accessPoints) {
-      const deviceScope = await AccessPointScope.participants(
+      const deviceScope = await this.scope.participants(
         accessPoint.accessPointId,
         accessPoint.businessUnitId
       )

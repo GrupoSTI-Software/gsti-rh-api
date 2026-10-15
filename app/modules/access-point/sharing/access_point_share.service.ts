@@ -15,7 +15,8 @@ import {
   DEVICE_COMMAND_STATUS,
 } from '#modules/device-commands/device_command.constants'
 import { canDetachAssignment } from '#modules/access-point/employee-sync/employee_sync_state'
-import { AccessPointScope } from './access_point_scope.js'
+import type { AccessPointScopePort } from './access_point_scope.port.js'
+import AccessPointScopeRepositoryMysql from './access_point_scope.repository.mysql.js'
 import { AccessPointShareErrors } from './access_point_share.errors.js'
 import AccessPointShareRepositoryMysql from './access_point_share.repository.mysql.js'
 import type {
@@ -72,7 +73,8 @@ export default class AccessPointShareService {
   constructor(
     private readonly repository: AccessPointShareRepository = new AccessPointShareRepositoryMysql(),
     private readonly sync: EmployeeSyncService = new EmployeeSyncService(),
-    private readonly commands: DeviceCommandPort = new DeviceCommandService()
+    private readonly commands: DeviceCommandPort = new DeviceCommandService(),
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
   ) {}
 
   /**
@@ -367,7 +369,7 @@ export default class AccessPointShareService {
       trx
     )
     if (pivots.length === 0) return
-    const participants = await AccessPointScope.participants(accessPointId, ownerBusinessUnitId)
+    const participants = await this.scope.participants(accessPointId, ownerBusinessUnitId)
     await TenantContext.run(participants, async () => {
       const pending = await this.commands.listByDevice(
         accessPointId,

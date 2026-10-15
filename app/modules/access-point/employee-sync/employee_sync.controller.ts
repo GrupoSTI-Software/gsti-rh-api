@@ -14,7 +14,8 @@ import {
   resolveParticipantEmployee,
   resolveScopedEmployee,
 } from '#modules/access-point/access_point_authorization'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import Employee from '#models/employee'
 import AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
@@ -74,6 +75,9 @@ const pinValidator = vine.compile(
  * persona, no sobre el catalogo de equipos.
  */
 export default class EmployeeSyncController {
+  /** Scope del checador: puerto con su adaptador por defecto, reemplazable en pruebas. */
+  private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+
   /**
    * @swagger
    * /api/access-points/{accessPointId}/employee/{employeeId}/pin:
@@ -226,7 +230,7 @@ export default class EmployeeSyncController {
         data: { params: request.params() },
       })
       const employee = await resolveScopedEmployee(ctx, params.employeeId)
-      const employeeScope = await AccessPointScope.forEmployee(employee.businessUnitId as number)
+      const employeeScope = await this.scope.forEmployee(employee.businessUnitId as number)
 
       /**
        * Los checadores compartidos con la empresa del colaborador son de otra
@@ -329,6 +333,7 @@ export default class EmployeeSyncController {
       employeeId: employee.employeeId,
       accessPoints: rows,
       available: await availableFor(
+        this.scope,
         ctx.businessUnitScope ?? [],
         employee.businessUnitId as number,
         new Set(rows.map((row) => row.accessPointId)),
@@ -544,6 +549,7 @@ async function countBiometrics(employeeId: number): Promise<EmployeeBiometricSum
  * pestaña de biometricos, no el del catalogo de equipos.
  */
 async function availableFor(
+  sharing: AccessPointScopePort,
   businessUnitIds: number[],
   employeeBusinessUnitId: number,
   taken: Set<number>,
@@ -557,7 +563,7 @@ async function availableFor(
    * id y llevan `sharedBy`. Corre dentro del scope del colaborador, que ya
    * incluye a sus responsables.
    */
-  const sharedIds = await AccessPointScope.sharedWith(employeeBusinessUnitId)
+  const sharedIds = await sharing.sharedWith(employeeBusinessUnitId)
   const accessPoints = await AccessPoint.query()
     .where((scope) => {
       scope.whereIn('business_unit_id', businessUnitIds).orWhereIn('access_point_id', sharedIds)

@@ -9,7 +9,8 @@ import {
   resolveOwnedAccessPoint,
   resolveParticipantAccessPoint,
 } from '#modules/access-point/access_point_authorization'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import { TenantContext } from '#utils/tenant_context'
 import HealthService, { forGuest } from './health.service.js'
 import DeviceSyncService from './device_sync.service.js'
@@ -27,6 +28,9 @@ const idValidator = vine.compile(
  * cualquier autenticado, que es lo que haria `evaluate`.
  */
 export default class HealthController {
+  /** Scope del checador: puerto con su adaptador por defecto, reemplazable en pruebas. */
+  private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+
   /**
    * @swagger
    * /api/v1/access-points/health:
@@ -134,7 +138,7 @@ export default class HealthController {
       // Pedir al aparato que se reporte dispara trafico hacia el equipo: es de
       // su responsable. La invitada lo lee (estado) pero no lo opera.
       const accessPoint = await resolveOwnedAccessPoint(ctx, params.accessPointId)
-      const deviceScope = await AccessPointScope.participants(
+      const deviceScope = await this.scope.participants(
         accessPoint.accessPointId,
         accessPoint.businessUnitId
       )

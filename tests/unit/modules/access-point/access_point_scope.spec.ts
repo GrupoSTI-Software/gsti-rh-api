@@ -1,7 +1,7 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import {
   createSharedAccessPointFixture,
   type SharedFixture,
@@ -9,6 +9,7 @@ import {
 
 test.group('AccessPointScope', (group) => {
   let fx: SharedFixture
+  const scopeRepository = new AccessPointScopeRepositoryMysql()
   group.setup(async () => {
     fx = await createSharedAccessPointFixture()
     return () => fx.cleanup()
@@ -16,24 +17,24 @@ test.group('AccessPointScope', (group) => {
 
   test('sin invitadas el scope es solo la responsable', async ({ assert }) => {
     await fx.share.merge({ accessPointShareRevokedAt: DateTime.utc() }).save()
-    const scope = await AccessPointScope.participants(fx.accessPoint.accessPointId, fx.ownerBu)
+    const scope = await scopeRepository.participants(fx.accessPoint.accessPointId, fx.ownerBu)
     assert.deepEqual(scope, [fx.ownerBu])
     await fx.share.merge({ accessPointShareRevokedAt: null }).save()
   })
 
   test('con invitada viva el scope la incluye despues de la responsable', async ({ assert }) => {
-    const scope = await AccessPointScope.participants(fx.accessPoint.accessPointId, fx.ownerBu)
+    const scope = await scopeRepository.participants(fx.accessPoint.accessPointId, fx.ownerBu)
     assert.deepEqual(scope, [fx.ownerBu, fx.guestBu])
   })
 
   test('isParticipant distingue invitada de ajena', async ({ assert }) => {
-    assert.isTrue(await AccessPointScope.isParticipant(fx.accessPoint.accessPointId, fx.guestBu))
-    assert.isFalse(await AccessPointScope.isParticipant(fx.accessPoint.accessPointId, fx.outsiderBu))
+    assert.isTrue(await scopeRepository.isParticipant(fx.accessPoint.accessPointId, fx.guestBu))
+    assert.isFalse(await scopeRepository.isParticipant(fx.accessPoint.accessPointId, fx.outsiderBu))
   })
 
   test('sharedWith devuelve los checadores ajenos compartidos', async ({ assert }) => {
-    assert.deepEqual(await AccessPointScope.sharedWith(fx.guestBu), [fx.accessPoint.accessPointId])
-    assert.deepEqual(await AccessPointScope.sharedWith(fx.outsiderBu), [])
+    assert.deepEqual(await scopeRepository.sharedWith(fx.guestBu), [fx.accessPoint.accessPointId])
+    assert.deepEqual(await scopeRepository.sharedWith(fx.outsiderBu), [])
   })
 
   /**
@@ -82,7 +83,7 @@ test.group('AccessPointScope', (group) => {
     assert,
   }) => {
     const { result, queries } = await countQueries(() =>
-      AccessPointScope.channelScope(fx.accessPoint.accessPointId, fx.ownerBu)
+      scopeRepository.channelScope(fx.accessPoint.accessPointId, fx.ownerBu)
     )
     assert.equal(queries, 1)
     assert.deepEqual(result, {
@@ -96,13 +97,13 @@ test.group('AccessPointScope', (group) => {
   }) => {
     await fx.share.merge({ accessPointShareRevokedAt: DateTime.utc() }).save()
     try {
-      const scope = await AccessPointScope.channelScope(fx.accessPoint.accessPointId, fx.ownerBu)
+      const scope = await scopeRepository.channelScope(fx.accessPoint.accessPointId, fx.ownerBu)
       assert.deepEqual(scope, {
         participantBusinessUnitIds: [fx.ownerBu, fx.guestBu],
         everShared: true,
       })
       assert.deepEqual(
-        await AccessPointScope.channelParticipants(fx.accessPoint.accessPointId, fx.ownerBu),
+        await scopeRepository.channelParticipants(fx.accessPoint.accessPointId, fx.ownerBu),
         [fx.ownerBu, fx.guestBu]
       )
     } finally {
@@ -113,7 +114,7 @@ test.group('AccessPointScope', (group) => {
   test('un aparato sin invitaciones ni vinculos ajenos es solo de la responsable', async ({
     assert,
   }) => {
-    const scope = await AccessPointScope.channelScope(0, fx.ownerBu)
+    const scope = await scopeRepository.channelScope(0, fx.ownerBu)
     assert.deepEqual(scope, { participantBusinessUnitIds: [fx.ownerBu], everShared: false })
   })
 })

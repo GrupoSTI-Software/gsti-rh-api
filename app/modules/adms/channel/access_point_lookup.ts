@@ -3,7 +3,8 @@ import db from '@adonisjs/lucid/services/db'
 import limiter from '@adonisjs/limiter/services/main'
 import encryption from '@adonisjs/core/services/encryption'
 import { ADMS_RATE } from '#modules/adms/adms.constants'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 
 export interface AccessPointLookupRow {
   accessPointId: number
@@ -95,6 +96,10 @@ function decryptSecret(value: string | null): string | null {
 }
 
 export class AccessPointLookupMysql implements AccessPointLookupPort {
+  constructor(
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+  ) {}
+
   async findBySerial(serial: string): Promise<AccessPointLookupRow | null> {
     const row = await db
       .from('access_points')
@@ -115,7 +120,7 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
     if (!row) return null
     const typed = row as AccessPointRawRow
     // Scope del canal y `everShared` en una sola consulta: corre en cada peticion del aparato.
-    const { participantBusinessUnitIds, everShared } = await AccessPointScope.channelScope(
+    const { participantBusinessUnitIds, everShared } = await this.scope.channelScope(
       typed.access_point_id,
       typed.business_unit_id
     )

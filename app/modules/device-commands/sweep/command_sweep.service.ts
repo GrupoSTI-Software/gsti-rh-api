@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import DeviceCommandRepositoryMysql from '../device_command.repository.mysql.js'
 import {
   DEVICE_COMMAND_ENROLL_INFLIGHT_TIMEOUT_SECONDS,
@@ -59,7 +60,8 @@ export default class CommandSweepService {
     private readonly now: () => DateTime = () => DateTime.utc(),
     private readonly commands: DeviceCommandService = new DeviceCommandService(),
     private readonly roster: RosterReconciliationService = new RosterReconciliationService(),
-    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql()
+    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
   ) {}
 
   async run(limit: number = COMMAND_SWEEP_BATCH_SIZE): Promise<CommandSweepResult> {
@@ -242,7 +244,7 @@ export default class CommandSweepService {
        * El `CHECK` es del aparato: va a nombre de la responsable, no de la
        * empresa del pivote, que puede ser una ex-invitada (VLRH-P0065, 3.3).
        */
-      const owner = await AccessPointScope.ownerOf(pivot.accessPointId)
+      const owner = await this.scope.ownerOf(pivot.accessPointId)
       if (owner === null) continue
       await TenantContext.run([owner], () =>
         this.commands.enqueue({

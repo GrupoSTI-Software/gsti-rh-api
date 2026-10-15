@@ -5,7 +5,8 @@ import DeviceCommand from '#models/device_command'
 import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import {
@@ -36,6 +37,10 @@ const LIVE_STATUSES: readonly DeviceCommandStatus[] = [
 export default class DeviceCommandRepositoryMysql
   implements DeviceCommandRepository, ExecutedCopyLookup
 {
+  constructor(
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+  ) {}
+
   /**
    * Bloquea la fila del punto de acceso, busca por llave de correlacion e
    * inserta, todo en la MISMA transaccion.
@@ -81,7 +86,7 @@ export default class DeviceCommandRepositoryMysql
       const participant =
         owner !== null &&
         (owner === input.businessUnitId ||
-          (await AccessPointScope.isParticipant(input.accessPointId, input.businessUnitId)))
+          (await this.scope.isParticipant(input.accessPointId, input.businessUnitId)))
       if (!participant) {
         throw new DeviceCommandError(
           'El checador no pertenece a esa empresa',

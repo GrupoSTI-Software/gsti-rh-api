@@ -10,7 +10,8 @@ import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync
 import type AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import { isPinQuarantined } from '#modules/access-point/employee-sync/employee_sync_state'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import ConsentGate from '../consent/consent_gate.js'
 import PhotoDerivativeService from './photo_derivative.service.js'
 import PhotoPublicationService, { photoDeleteCorrelationKey } from './photo_publication.service.js'
@@ -62,7 +63,8 @@ export default class DeviceFaceService {
     private readonly publications: PhotoPublicationService = new PhotoPublicationService(),
     private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
     private readonly commands: DeviceCommandPort = new DeviceCommandService(),
-    private readonly consent: ConsentGate = new ConsentGate()
+    private readonly consent: ConsentGate = new ConsentGate(),
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
   ) {}
 
   async enable(input: EnableFaceInput): Promise<EnableFaceResult> {
@@ -259,7 +261,7 @@ export default class DeviceFaceService {
     for (const pivot of pivots) {
       const status = pivot.accessPointEmployeeSyncStatus
       if (isPinQuarantined(status) || status === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED) continue
-      if (!(await AccessPointScope.isParticipant(pivot.accessPointId, pivot.businessUnitId))) continue
+      if (!(await this.scope.isParticipant(pivot.accessPointId, pivot.businessUnitId))) continue
       result.push(pivot)
     }
     return result

@@ -11,7 +11,8 @@ import {
   resolveParticipantEmployee,
   resolveScopedEmployee,
 } from '#modules/access-point/access_point_authorization'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import { TenantContext } from '#utils/tenant_context'
 import { toDeviceCommandDto } from '#modules/device-commands/dto/device_command.dto'
 import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
@@ -93,6 +94,9 @@ const enrollmentValidator = vine.compile(
  * catalogo de equipos: la operacion es sobre la persona.
  */
 export default class DeviceBiometricsController {
+  /** Scope del checador: puerto con su adaptador por defecto, reemplazable en pruebas. */
+  private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+
   /**
    * @swagger
    * /api/v1/employees/{employeeId}/device-biometrics/fingerprint-enrollment:
@@ -318,7 +322,7 @@ export default class DeviceBiometricsController {
       if (participant) await resolveParticipantEmployee(ctx, participant, employee.employeeId)
       const scope =
         participant?.deviceScope ??
-        (await AccessPointScope.forEmployee(employee.businessUnitId as number))
+        (await this.scope.forEmployee(employee.businessUnitId as number))
 
       const service = new EmployeeBiometricSummaryService()
       const biometrics = await TenantContext.run(scope, () =>
@@ -389,7 +393,7 @@ export default class DeviceBiometricsController {
 
       // En el scope del colaborador: el checador compartido donde tiene la
       // huella tambien cuenta para retenerla.
-      const scope = await AccessPointScope.forEmployee(employee.businessUnitId as number)
+      const scope = await this.scope.forEmployee(employee.businessUnitId as number)
       const service = new FingerprintDeletionService()
       const result = await TenantContext.run(scope, () =>
         service.delete({
@@ -527,7 +531,7 @@ export default class DeviceBiometricsController {
 
       // En el scope del colaborador: sin el, el perfil del checador compartido
       // no se ve y el rostro no se publica ahi.
-      const scope = await AccessPointScope.forEmployee(employee.businessUnitId as number)
+      const scope = await this.scope.forEmployee(employee.businessUnitId as number)
       const service = new DeviceFaceService()
       const result = await TenantContext.run(scope, () =>
         service.enable({
@@ -577,7 +581,7 @@ export default class DeviceBiometricsController {
 
       // En el scope del colaborador: retirar el rostro tiene que alcanzar
       // tambien el checador compartido donde esta dado de alta.
-      const scope = await AccessPointScope.forEmployee(employee.businessUnitId as number)
+      const scope = await this.scope.forEmployee(employee.businessUnitId as number)
       const service = new DeviceFaceService()
       const result = await TenantContext.run(scope, () =>
         service.disable({

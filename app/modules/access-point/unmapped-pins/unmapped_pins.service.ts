@@ -11,7 +11,8 @@ import { AdmsError } from '#exceptions/adms_error'
 import { ASSIST_ORIGIN } from '#constants/assist_origin'
 import AssistIngestionService from '#modules/assist-ingestion/assist_ingestion.service'
 import TemplateService from '#modules/biometric-vault/template/template.service'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import { TenantContext } from '#utils/tenant_context'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 
@@ -67,13 +68,14 @@ export interface LinkResult {
 export default class UnmappedPinsService {
   constructor(
     private readonly assists: AssistIngestionService = new AssistIngestionService(),
-    private readonly templates: TemplateService = new TemplateService()
+    private readonly templates: TemplateService = new TemplateService(),
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
   ) {}
 
   async list(businessUnitIds: number[], status?: string): Promise<UnmappedPinRow[]> {
     if (businessUnitIds.length === 0) return []
 
-    const sharedIds = await sharedAccessPointIds(businessUnitIds)
+    const sharedIds = await this.sharedAccessPointIds(businessUnitIds)
     /**
      * Las filas viven con la empresa del aparato: la invitada las ve por el
      * `access_point_id` compartido, no por su `business_unit_id`, asi que la
@@ -148,7 +150,7 @@ export default class UnmappedPinsService {
      * solo entre quienes participan del aparato: un empleado de la invitada se
      * propone para el PIN del checador de la responsable.
      */
-    const participants = await AccessPointScope.participants(row.accessPointId, row.businessUnitId)
+    const participants = await this.scope.participants(row.accessPointId, row.businessUnitId)
     const reachable = businessUnitIds.filter((id) => participants.includes(id))
 
     const byCode = await Employee.query()
@@ -208,7 +210,7 @@ export default class UnmappedPinsService {
       .first()
     if (
       !employee ||
-      !(await AccessPointScope.isParticipant(row.accessPointId, employee.businessUnitId as number))
+      !(await this.scope.isParticipant(row.accessPointId, employee.businessUnitId as number))
     ) {
       throw new AdmsError(
         'El colaborador no existe en tu alcance o no participa de este equipo',
@@ -224,7 +226,7 @@ export default class UnmappedPinsService {
      * del PIN debe ver tambien a los empleados de las demas participantes, y
      * lo retenido es de la responsable.
      */
-    const deviceScope = await AccessPointScope.participants(row.accessPointId, row.businessUnitId)
+    const deviceScope = await this.scope.participants(row.accessPointId, row.businessUnitId)
     return TenantContext.run(deviceScope, () => this.claim(row, employee, input.userId, now))
   }
 
@@ -311,7 +313,7 @@ export default class UnmappedPinsService {
     row.admsUnmappedPinResolvedByUserId = input.userId
     row.admsUnmappedPinResolvedAt = input.now ?? DateTime.utc()
     /** La fila es de la responsable: una invitada la resuelve con el scope del aparato. */
-    const deviceScope = await AccessPointScope.participants(row.accessPointId, row.businessUnitId)
+    const deviceScope = await this.scope.participants(row.accessPointId, row.businessUnitId)
     await TenantContext.run(deviceScope, () => row.save())
     return row
   }
@@ -444,7 +446,7 @@ export default class UnmappedPinsService {
     businessUnitIds: number[]
   ): Promise<AdmsUnmappedPin> {
     const sharedIds =
-      businessUnitIds.length === 0 ? [] : await sharedAccessPointIds(businessUnitIds)
+      businessUnitIds.length === 0 ? [] : await this.sharedAccessPointIds(businessUnitIds)
     const row =
       businessUnitIds.length === 0
         ? null
@@ -458,6 +460,12 @@ export default class UnmappedPinsService {
           )
     if (row) return row
     throw pendingNotFound()
+  }
+
+  /** Aparatos que las empresas dadas usan como invitadas. */
+  private async sharedAccessPointIds(businessUnitIds: number[]): Promise<number[]> {
+    const lists = await Promise.all(businessUnitIds.map((id) => this.scope.sharedWith(id)))
+    return [...new Set(lists.flat())]
   }
 }
 
@@ -483,12 +491,6 @@ function toCandidate(employee: Employee, matchedBy: 'code' | 'name'): CandidateR
       .join(' '),
     matchedBy,
   }
-}
-
-/** Aparatos que las empresas dadas usan como invitadas. */
-async function sharedAccessPointIds(businessUnitIds: number[]): Promise<number[]> {
-  const lists = await Promise.all(businessUnitIds.map((id) => AccessPointScope.sharedWith(id)))
-  return [...new Set(lists.flat())]
 }
 
 /** Las filas de las empresas dadas y las de los aparatos que comparten con ellas. */

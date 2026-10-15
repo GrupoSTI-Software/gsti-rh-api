@@ -10,7 +10,8 @@ import AccessPointEmployee from '#models/access_point_employee'
 import type { ModelPaginatorContract } from '@adonisjs/lucid/types/model'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import {
   redactForViewer,
   sharingViewOf,
@@ -19,7 +20,10 @@ import {
 export default class AccessPointService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
 
-  constructor(i18n: I18n) {
+  constructor(
+    i18n: I18n,
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+  ) {
     this.t = i18n.formatMessage.bind(i18n)
   }
 
@@ -56,7 +60,7 @@ export default class AccessPointService {
     // aparato compartido no esta ahi: por eso corre sin scope, con el alcance
     // de la peticion aplicado a mano. Todo se cierra dentro del bypass.
     const visible = filters.allowedBusinessUnitIds.includes(filters.businessUnitId)
-    const sharedIds = visible ? await AccessPointScope.sharedWith(filters.businessUnitId) : []
+    const sharedIds = visible ? await this.scope.sharedWith(filters.businessUnitId) : []
     return TenantContext.runUnscoped(
       () =>
         AccessPoint.query()
@@ -178,7 +182,7 @@ export default class AccessPointService {
       if (!accessPoint) return null
       const owned = allowedBusinessUnitIds.includes(accessPoint.businessUnitId as number)
       if (owned) return accessPoint
-      const participants = await AccessPointScope.participants(
+      const participants = await this.scope.participants(
         accessPoint.accessPointId,
         accessPoint.businessUnitId as number
       )

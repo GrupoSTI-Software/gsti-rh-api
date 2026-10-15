@@ -1,5 +1,6 @@
 import type { DateTime } from 'luxon'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import DeviceCommandRepositoryMysql from '../device_command.repository.mysql.js'
 import {
   DEVICE_COMMAND_KIND,
@@ -79,7 +80,8 @@ export default class CommandAckService {
     private readonly commands: DeviceCommandService = new DeviceCommandService(),
     private readonly photos: PhotoDispatchPort = new PhotoDispatchService(),
     private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql(),
-    private readonly notices: SpreadNoticePort = new SpreadNoticeAdapter()
+    private readonly notices: SpreadNoticePort = new SpreadNoticeAdapter(),
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
   ) {}
 
   async apply(input: AckInput): Promise<AckOutcome> {
@@ -340,7 +342,7 @@ export default class CommandAckService {
      * 3.3): la baja puede ser de una ex-invitada, y a su nombre la cola lo
      * rechazaria y la baja no se cerraria nunca.
      */
-    const owner = await AccessPointScope.ownerOf(command.accessPointId)
+    const owner = await this.scope.ownerOf(command.accessPointId)
     if (owner === null) return
     await this.commands.enqueue({
       accessPointId: command.accessPointId,

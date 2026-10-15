@@ -7,7 +7,8 @@ import { DateTime } from 'luxon'
 import EmployeeService from '#services/employee_service'
 import { AdmsError } from '#exceptions/adms_error'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { rejectSharedGuest } from '#modules/access-point/access_point_authorization'
 import {
@@ -16,6 +17,9 @@ import {
 } from '#modules/access-point/sharing/access_point_sharing_view'
 
 export default class AccessPointController {
+  /** Scope del checador: puerto con su adaptador por defecto, reemplazable en pruebas. */
+  private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+
   /**
    * @swagger
    * /api/access-points:
@@ -461,7 +465,7 @@ export default class AccessPointController {
        * cuenta si el aparato se compartio alguna vez: el vinculo de otra
        * empresa en un aparato nunca compartido no es de ninguna invitada.
        */
-      const { participantBusinessUnitIds, everShared } = await AccessPointScope.channelScope(
+      const { participantBusinessUnitIds, everShared } = await this.scope.channelScope(
         currentAccessPoint.accessPointId,
         currentAccessPoint.businessUnitId
       )

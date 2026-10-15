@@ -16,7 +16,8 @@ import type AccessPointEmployee from '#models/access_point_employee'
 import IncidentService from '#modules/adms/raw/incident.service'
 import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
-import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import TemplateService from '../template/template.service.js'
 import type { TemplateSlot } from '../template/template.repository.js'
 import ConsentGate from '../consent/consent_gate.js'
@@ -94,7 +95,8 @@ export default class ReplicationService {
     private readonly publications: PhotoPublicationService = new PhotoPublicationService(),
     private readonly consent: ConsentGate = new ConsentGate(),
     private readonly incidents: IncidentService = new IncidentService(),
-    private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql()
+    private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql(),
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
   ) {}
 
   async replicate(input: ReplicationInput): Promise<ReplicationResult> {
@@ -109,7 +111,7 @@ export default class ReplicationService {
      */
     const outOfScope = new Set<number>()
     for (const target of input.targetAccessPointIds) {
-      if (!(await AccessPointScope.isParticipant(target, input.businessUnitId))) {
+      if (!(await this.scope.isParticipant(target, input.businessUnitId))) {
         outOfScope.add(target)
       }
     }
