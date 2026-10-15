@@ -102,8 +102,17 @@ export default class AccessPointShareService {
         )
       )
 
+      /**
+       * Un grupo apagado no admite invitaciones nuevas (`grant` responde 422):
+       * no se ofrecen candidatas. Avisos, discrepancias y `outsideGroup` no
+       * cambian: apagar el grupo solo impide otorgar.
+       */
       let candidates: AccessPointShareCandidate[] = []
-      if (assignment.open && ownerGroup !== undefined) {
+      if (
+        assignment.open &&
+        ownerGroup !== undefined &&
+        (await this.repository.isGroupActive(ownerGroup))
+      ) {
         const taken = new Set([assignment.ownerBusinessUnitId, ...liveGuests])
         const members = await this.repository.listGroupMembers(ownerGroup)
         candidates = members

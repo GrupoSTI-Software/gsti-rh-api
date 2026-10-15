@@ -175,3 +175,20 @@ test.group('AccessPointShareService: otorgar contra desasignar', () => {
     assert.notInclude(calls, 'insert')
   })
 })
+
+test.group('AccessPointShareService: candidatas', () => {
+  test('con el grupo encendido ofrece a los miembros que no participan', async ({ assert }) => {
+    const { service } = makeService()
+    const list = await service.list(50)
+    assert.deepEqual(
+      list.candidates.map((candidate) => candidate.businessUnitPublicId),
+      ['other-public']
+    )
+  })
+
+  test('con el grupo apagado no ofrece candidatas: otorgar lo rechazaria', async ({ assert }) => {
+    const { service } = makeService({ groupActive: false })
+    const list = await service.list(50)
+    assert.deepEqual(list.candidates, [])
+  })
+})
