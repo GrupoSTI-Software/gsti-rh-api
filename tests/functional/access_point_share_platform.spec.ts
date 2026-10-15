@@ -24,6 +24,7 @@ import PlatformTenantGroupService from '#services/platform_tenant_group_service'
 import AccessPointShareService, {
   type ShareGroupWarning,
 } from '#modules/access-point/sharing/access_point_share.service'
+import AccessPointShareRepositoryMysql from '#modules/access-point/sharing/access_point_share.repository.mysql'
 import PlatformDeviceAccessPointService, {
   type AccessPointDeactivateOutcome,
 } from '#services/platform_device_access_point_service'
@@ -43,6 +44,28 @@ import {
 
 const unscoped = <T>(fn: () => Promise<T>) =>
   TenantContext.runUnscoped(async () => await fn(), TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
+
+/**
+ * Espera a que alguna transaccion de InnoDB quede esperando un candado de fila
+ * (`performance_schema.data_lock_waits`; `INNODB_TRX` no lo refleja), o a
+ * que `pending` termine sin esperar: asi la prueba de carrera sabe que la otra
+ * conexion ya llego al punto de bloqueo (o que nunca lo hara).
+ */
+const waitForLockWait = async (pending: Promise<unknown>, timeoutMs = 5000): Promise<void> => {
+  let settled = false
+  void pending.finally(() => {
+    settled = true
+  })
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline && !settled) {
+    const [rows] = (await db.rawQuery(
+      'SELECT COUNT(*) AS waiting FROM performance_schema.data_lock_waits'
+    )) as [Array<{ waiting: number }>, unknown]
+    if (Number(rows[0]?.waiting ?? 0) > 0) return
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  if (!settled) throw new Error('Ninguna transaccion llego a esperar el candado')
+}
 
 /**
  * El landlord otorga y revoca invitaciones a un checador y avisa al sacar
@@ -423,6 +446,56 @@ test.group('Checador compartido: landlord', (group) => {
       .json({ businessUnitPublicId: own.guestPublicId })
     res.assertStatus(409)
     res.assertBodyContains({ key: 'unidad-sin-asignacion' })
+  })
+
+  /**
+   * Carrera otorgar contra desasignar: el otorgamiento tiene la entrega
+   * bloqueada y su invitacion insertada sin confirmar cuando arranca la
+   * desasignacion. Esta espera la entrega y, al confirmar el otorgamiento,
+   * tiene que verlo y revocarlo: si su primera lectura consistente fuera
+   * anterior al candado, la snapshot no tendria la invitacion nueva y la
+   * dejaria viva sobre una entrega cerrada.
+   */
+  test('desasignar revoca una invitacion otorgada mientras esperaba la entrega', async ({
+    assert,
+  }) => {
+    const own = await ownFixture()
+    const repository = new AccessPointShareRepositoryMysql()
+    const grantTrx = await db.transaction()
+    let unassigning: Promise<unknown> | null = null
+    try {
+      assert.isTrue(await repository.lockOpenAssignment(own.platformDeviceAssignmentId, grantTrx))
+      const lateShareId = await repository.insert(
+        {
+          accessPointId: own.accessPoint.accessPointId,
+          businessUnitId: own.outsiderBu,
+          platformTenantGroupId: own.groupId,
+          grantedAt: DateTime.utc(),
+          grantedBy: null,
+        },
+        grantTrx
+      )
+
+      unassigning = new PlatformDeviceAssignmentService()
+        .unassign(own.platformDeviceId, {
+          releasedAt: new Date(),
+          releaseReason: own.releaseReason,
+        })
+        .catch((error: unknown) => error)
+      await waitForLockWait(unassigning)
+      await grantTrx.commit()
+      const outcome = await unassigning
+      assert.notInstanceOf(outcome, Error, String(outcome))
+
+      const late = await unscoped(() =>
+        AccessPointShare.query().where('access_point_share_id', lateShareId).firstOrFail()
+      )
+      assert.isNotNull(late.accessPointShareRevokedAt)
+      assert.equal(late.accessPointShareRevokeReason, ACCESS_POINT_SHARE_REVOKE_REASON.UNASSIGNMENT)
+    } finally {
+      if (!grantTrx.isCompleted) await grantTrx.rollback()
+      if (unassigning) await unassigning
+    }
   })
 
   test('si apagar el punto de acceso falla, desasignar no deja bajas en cola ni revoca', async ({

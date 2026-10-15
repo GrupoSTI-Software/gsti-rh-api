@@ -171,9 +171,14 @@ export default class AccessPointShareService {
           /**
            * La entrega se valido arriba sin candado: una desasignacion
            * concurrente que ya cerro las invitaciones dejaria esta viva sobre
-           * una entrega cerrada. Releida con `FOR UPDATE`, o la desasignacion
-           * ya termino y se ve cerrada, o espera a que este insert confirme y
-           * lo revoca con las demas.
+           * una entrega cerrada. Releida con `FOR UPDATE` se serializa con la
+           * desasignacion, que bloquea la misma entrega antes de su primera
+           * lectura consistente (`PlatformDeviceAssignmentService.unassign`):
+           * - si la desasignacion la tomo primero, este candado espera a que
+           *   confirme, la ve cerrada y responde 409 sin insertar;
+           * - si este otorgamiento la tomo primero, la desasignacion espera a
+           *   que el insert confirme y, como su snapshot nace despues, ve la
+           *   invitacion nueva y la revoca con las demas.
            */
           if (!(await this.repository.lockOpenAssignment(input.platformDeviceAssignmentId, trx))) {
             throw AccessPointShareErrors.noAssignment()

@@ -325,12 +325,25 @@ export default class PlatformDeviceAssignmentService {
         )
       }
 
-      // Con la fila padre ya bloqueada, buscar la entrega vigente (regla 8).
+      /**
+       * Con la fila padre ya bloqueada, buscar la entrega vigente (regla 8).
+       *
+       * La entrega y los checadores de la unidad se bloquean ANTES de
+       * cualquier lectura consistente (la precarga va despues): con
+       * REPEATABLE READ esa primera lectura fija la snapshot de toda la
+       * transaccion. Si fuera antes de los candados, un otorgamiento o un
+       * envio confirmados mientras tanto quedarian fuera de lo que ve la
+       * revocacion de invitaciones (VLRH-P0065, 3.2.3): una invitacion viva
+       * sobre una entrega cerrada o un alta que escapa a la baja.
+       *
+       * Orden: aparato, entrega, checador; el mismo que otorgar (entrega y
+       * luego checador) y que el envio (checador primero), sin ciclo.
+       */
       const assignment = await PlatformDeviceAssignment.query({ client: trx })
         .where('platform_device_id', platformDeviceId)
         .whereNull('platform_device_assignment_released_at')
         .whereNull('platform_device_assignment_deleted_at')
-        .preload('businessUnit')
+        .forUpdate()
         .first()
 
       if (!assignment) {
@@ -342,6 +355,8 @@ export default class PlatformDeviceAssignmentService {
           'La unidad no tiene una asignación vigente que cerrar.'
         )
       }
+      const accessPointIds = await this.lockAccessPointsOf(assignment, trx)
+      await assignment.load('businessUnit')
 
       // Regla 2: releasedAt ∈ [deliveredAt de ESTA asignación, hoy en zona de negocio].
       // A propósito el mismo error de negocio para ambos bordes (CA-6 del spec).
@@ -391,7 +406,7 @@ export default class PlatformDeviceAssignmentService {
       // antes de apagar el punto de acceso (VLRH-P0065, 3.2.3): sus empleados
       // reciben la baja mientras la invitada sigue siendo participante. Las
       // bajas van en `trx`: si algo de abajo revierte, no queda nada en cola.
-      await this.revokeSharesOf(assignment, trx)
+      await this.revokeSharesOf(accessPointIds, trx)
 
       // Punto de extensión declarado (§9 del spec 1881): "Desactivar el punto
       // de acceso del tenant al desasignar la unidad" (USRH1787189981883)
@@ -437,27 +452,38 @@ export default class PlatformDeviceAssignmentService {
   }
 
   /**
-   * Revoca las invitaciones vivas del checador de la unidad al cerrar su
-   * entrega, con motivo `unassignment` y sin usuario (VLRH-P0065, 3.2.3).
+   * Bloquea (`FOR UPDATE`) los checadores vivos de la unidad en la empresa de
+   * la entrega y devuelve sus ids. Es lectura con candado: no fija la
+   * snapshot de la transaccion.
    */
-  private async revokeSharesOf(
+  private async lockAccessPointsOf(
     assignment: PlatformDeviceAssignment,
     trx: TransactionClientContract
-  ): Promise<number> {
+  ): Promise<number[]> {
     // Constructor crudo: sin mixin de empresa, no necesita bypass.
-    const accessPoints = (await trx
+    const rows = (await trx
       .from('access_points')
       .where('platform_device_id', assignment.platformDeviceId)
       .where('business_unit_id', assignment.businessUnitId)
       .whereNull('access_point_deleted_at')
-      .select('access_point_id')) as Array<{ access_point_id: number }>
+      .orderBy('access_point_id', 'asc')
+      .select('access_point_id')
+      .forUpdate()) as Array<{ access_point_id: number }>
+    return rows.map((row) => Number(row.access_point_id))
+  }
+
+  /**
+   * Revoca las invitaciones vivas de los checadores de la unidad al cerrar su
+   * entrega, con motivo `unassignment` y sin usuario (VLRH-P0065, 3.2.3). Los
+   * checadores ya vienen bloqueados por `lockAccessPointsOf`.
+   */
+  private async revokeSharesOf(
+    accessPointIds: number[],
+    trx: TransactionClientContract
+  ): Promise<number> {
     let revoked = 0
-    for (const row of accessPoints) {
-      revoked += await this.shareService.revokeAllForAccessPoint(
-        Number(row.access_point_id),
-        null,
-        trx
-      )
+    for (const accessPointId of accessPointIds) {
+      revoked += await this.shareService.revokeAllForAccessPoint(accessPointId, null, trx)
     }
     return revoked
   }
