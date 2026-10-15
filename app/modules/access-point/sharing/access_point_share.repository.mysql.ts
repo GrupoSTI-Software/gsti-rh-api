@@ -196,6 +196,15 @@ export default class AccessPointShareRepositoryMysql implements AccessPointShare
     return share.accessPointShareId
   }
 
+  async lockAccessPoint(accessPointId: number, trx: TransactionClientContract): Promise<void> {
+    await trx
+      .from('access_points')
+      .where('access_point_id', accessPointId)
+      .select('access_point_id')
+      .forUpdate()
+      .first()
+  }
+
   async lockLiveByAccessPoint(
     accessPointId: number,
     trx: TransactionClientContract
@@ -230,12 +239,9 @@ export default class AccessPointShareRepositoryMysql implements AccessPointShare
   }
 
   /**
-   * Invitaciones con la responsable de su checador, sin bloquear el checador.
-   *
-   * El bloqueo va aparte y solo sobre `access_point_shares`: la fila de
-   * `access_points` la bloquea despues el encolado de la baja (`FOR UPDATE`
-   * para cotejar la empresa), y bloquearla aqui con el join alargaria el
-   * candado del aparato a toda la revocacion sin necesidad.
+   * Invitaciones con la responsable de su checador, sin bloquear el checador
+   * en el join: la fila de `access_points` la bloquea el servicio al abrir la
+   * revocacion (`lockAccessPoint`), antes que las invitaciones.
    */
   private async linksOf(
     accessPointShareIds: number[],

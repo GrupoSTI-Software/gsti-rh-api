@@ -202,6 +202,8 @@ export default class AccessPointShareService {
 
       if (share.revokedAt === null) {
         await db.transaction(async (trx) => {
+          // El aparato primero: el mismo orden de candados que el envio del alta.
+          await this.repository.lockAccessPoint(share.accessPointId, trx)
           const link = await this.repository.lockLiveById(share.accessPointShareId, trx)
           if (!link) return // otra peticion la revoco primero
           await this.retireGuestStaff(
@@ -238,6 +240,8 @@ export default class AccessPointShareService {
     trx: TransactionClientContract
   ): Promise<number> {
     return TenantContext.runUnscoped(async () => {
+      // El aparato primero: el mismo orden de candados que el envio del alta.
+      await this.repository.lockAccessPoint(accessPointId, trx)
       const links = await this.repository.lockLiveByAccessPoint(accessPointId, trx)
       if (links.length === 0) return 0
       for (const link of links) {
@@ -303,6 +307,11 @@ export default class AccessPointShareService {
 
   /**
    * Baja en el aparato de cada colaborador vivo de la invitada.
+   *
+   * El llamador ya tiene bloqueado el aparato (`lockAccessPoint`): un envio
+   * de la invitada que llegue despues espera el candado y, ya revocada, el
+   * guard de la cola lo rechaza; uno que llego antes ya dejo su alta en cola
+   * y aqui se cancela.
    *
    * Todo va en la transaccion del llamador (`trx`): pivotes, cancelaciones,
    * bajas y eventos se revierten con ella. Asi, si la desasignacion falla

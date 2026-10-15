@@ -76,6 +76,14 @@ export interface AccessPointShareRepository {
   findById(accessPointShareId: number): Promise<ShareRecord | null>
   hasLive(accessPointId: number, businessUnitId: number): Promise<boolean>
   insert(input: ShareInsert, trx: TransactionClientContract): Promise<number>
+  /**
+   * Bloquea la fila del punto de acceso (`FOR UPDATE`) hasta el fin de la
+   * transaccion. Es el candado del encolado y del envio del alta: tomarlo
+   * antes de listar vinculos y comandos serializa la revocacion contra un
+   * alta concurrente de la invitada. Re-tomarlo en la misma transaccion
+   * (lo hace el encolado de la baja) no espera nada.
+   */
+  lockAccessPoint(accessPointId: number, trx: TransactionClientContract): Promise<void>
   /** Invitaciones vivas del checador, bloqueadas hasta el fin de la transaccion. */
   lockLiveByAccessPoint(accessPointId: number, trx: TransactionClientContract): Promise<LiveShareLink[]>
   /** La invitacion si sigue viva, bloqueada hasta el fin de la transaccion. */
