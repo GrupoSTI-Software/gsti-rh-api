@@ -228,6 +228,14 @@ export default class EmployeeAssignmentService {
    * participacion de la empresa con el aparato bloqueado: si una revocacion
    * la saco mientras tanto, para ella el checador ya no existe y se responde
    * el mismo 404 que la autorizacion (A2-14).
+   *
+   * La traduccion no es redundante con `resolveAccessPointEmployeeApiError`:
+   * ese resolutor daria el 404 del canal (`adms_not_found_message`, codigo
+   * `ADMS.AUTHZ.001`), distinto en detalle y codigo del que este mismo
+   * endpoint responde cuando la empresa no participa desde el principio
+   * (`assertBothExist`: `access_point_employee_access_point_not_found_*`,
+   * `ACCP.ASSIGN.ACCESS_POINT_NOT_FOUND`). Sin ella, perder la carrera seria
+   * distinguible de no haber participado nunca.
    */
   private async assignPivot(input: AssignInput): Promise<AccessPointEmployee> {
     try {

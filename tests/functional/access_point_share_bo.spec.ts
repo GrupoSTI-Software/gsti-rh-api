@@ -337,6 +337,14 @@ test.group('Checador compartido: Backoffice', (group) => {
           .where('employee_id', extra.employeeId)
       )
       assert.lengthOf(pivots, 0)
+
+      // Perder la carrera no se distingue de no participar desde el principio.
+      const again = await client
+        .post(`/api/access-points/${apId}/employee/${extra.employeeId}`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      again.assertStatus(404)
+      assert.deepEqual(res.body, again.body())
     } finally {
       await own.cleanup()
     }
