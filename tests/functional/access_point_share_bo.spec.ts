@@ -252,6 +252,8 @@ test.group('Checador compartido: Backoffice', (group) => {
       .loginAs(actor.user.user)
       .header('X-Business-Unit-Id', actor.publicId)
     res.assertStatus(404)
+    // Criterio 7: el colaborador ajeno se comporta como inexistente, no el checador.
+    res.assertBodyContains({ key: 'colaborador-no-encontrado' })
   })
 
   test('la invitada solo ve a su personal en el padron del checador', async ({
