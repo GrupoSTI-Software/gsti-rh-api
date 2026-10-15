@@ -97,11 +97,19 @@ export interface UnassignmentRecord {
  * Ref: USRH1787189981876 · §10 del spec.
  *
  * Invariante crítico: un aparato solo puede tener una entrega abierta a la vez
- * (released_at IS NULL). Se garantiza mediante bloqueo pesimista (forUpdate)
- * sobre la fila de `platform_devices` — que siempre existe — dentro de una
- * transacción. NUNCA se hace forUpdate sobre `platform_device_assignments`
- * porque sobre un conjunto vacío no bloquea nada y deja pasar dos peticiones
- * concurrentes.
+ * (released_at IS NULL). El mutex de ese invariante es el bloqueo pesimista
+ * (forUpdate) sobre la fila de `platform_devices` — que siempre existe —
+ * dentro de una transacción. Un forUpdate sobre un rango de
+ * `platform_device_assignments` no sirve como mutex del alta: sobre un rango
+ * vacío no bloquea nada y deja pasar dos `createAssignment` concurrentes
+ * (regla de cc34e042, gotcha 9 del spec).
+ *
+ * Lo que sí está permitido es bloquear la fila de una entrega EXISTENTE
+ * después del aparato, para serializar con quien la toma por id: `unassign`
+ * la bloquea tras `platform_devices` y el otorgamiento de invitaciones la
+ * bloquea antes del checador (`AccessPointShareService.grant`,
+ * `lockOpenAssignment`). No sustituye al mutex: lo complementa (VLRH-P0065,
+ * 3.2.3).
  *
  * Secuencia de `createAssignment` (§10 del spec):
  *   1. Resolver tenant por publicId → 404 si no existe.
@@ -293,10 +301,12 @@ export default class PlatformDeviceAssignmentService {
    *      cualquiera que sea el motivo de liberación capturado.
    *   3. Cualquier otro caso → `disponible` (regla 4).
    *
-   * Mismo patrón transaccional que `createAssignment`: `forUpdate()` sobre
-   * la fila **padre** de `platform_devices` (que siempre existe), nunca
-   * sobre el rango de `platform_device_assignments` (gotcha 9 del spec:
-   * un rango vacío no bloquea nada).
+   * Mismo patrón transaccional que `createAssignment`: el mutex es el
+   * `forUpdate()` sobre la fila **padre** de `platform_devices` (que siempre
+   * existe), no un rango de `platform_device_assignments` (gotcha 9 del spec:
+   * un rango vacío no bloquea nada). Después del aparato se bloquea la
+   * entrega vigente, que ya existe, para serializar con el otorgamiento de
+   * invitaciones que la toma por id (ver el comentario en el cuerpo).
    *
    * @throws PlatformDeviceServiceError 404 — unidad no encontrada.
    * @throws PlatformDeviceServiceError 422 — sin entrega vigente que cerrar.
