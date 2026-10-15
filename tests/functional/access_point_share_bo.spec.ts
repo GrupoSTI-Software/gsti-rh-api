@@ -659,6 +659,29 @@ test.group('Checador compartido: Backoffice', (group) => {
     destroy.assertBodyContains({ key: 'solo-lectura-checador-compartido' })
   })
 
+  test('la responsable no puede borrar el checador con invitaciones vivas', async ({
+    client,
+    assert,
+  }) => {
+    const owner = await actorFor(fx.ownerBu)
+    const res = await client
+      .delete(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .loginAs(owner.user.user)
+      .header('X-Business-Unit-Id', owner.publicId)
+    res.assertStatus(409)
+    res.assertBodyContains({ key: 'checador-con-invitaciones-vivas' })
+    const body = res.body() as { title?: string; detail?: string }
+    assert.isNotEmpty(body.title)
+    assert.isNotEmpty(body.detail)
+    const alive = await unscoped(() =>
+      AccessPoint.query()
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .whereNull('access_point_deleted_at')
+        .first()
+    )
+    assert.isNotNull(alive)
+  })
+
   test('una empresa ajena sigue recibiendo 404 al consultar o editar el checador', async ({
     client,
   }) => {

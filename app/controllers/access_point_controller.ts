@@ -6,6 +6,8 @@ import { createAccessPointValidator, updateAccessPointValidator } from '#validat
 import { DateTime } from 'luxon'
 import EmployeeService from '#services/employee_service'
 import { AdmsError } from '#exceptions/adms_error'
+import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { rejectSharedGuest } from '#modules/access-point/access_point_authorization'
 import { sharingViewOf } from '#modules/access-point/sharing/access_point_sharing_view'
@@ -445,6 +447,24 @@ export default class AccessPointController {
           message: t('entity_was_not_found_with_entered_id', { entity: t('access_point') }),
           data: { accessPointId },
         }
+      }
+      /**
+       * Con invitadas vivas no se borra: su personal quedaria en un aparato que
+       * nadie administra y la invitacion colgando. Primero se revocan desde el
+       * landlord, que encola sus bajas (VLRH-P0065, 3.2).
+       */
+      const participants = await AccessPointScope.participants(
+        currentAccessPoint.accessPointId,
+        currentAccessPoint.businessUnitId
+      )
+      if (participants.length > 1) {
+        throw new AdmsError(
+          t('access_point_shared_live_title'),
+          ADMS_ERROR_CODES.DEV_SHARED_LIVE,
+          409,
+          'checador-con-invitaciones-vivas',
+          t('access_point_shared_live_message')
+        )
       }
       const accessPointService = new AccessPointService(i18n)
       const deletedAccessPoint = await accessPointService.delete(currentAccessPoint)

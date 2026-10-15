@@ -3279,6 +3279,8 @@
   "adms_not_found_message": "The access point does not exist or you cannot access it",
   "access_point_shared_read_only_title": "Shared access point",
   "access_point_shared_read_only_message": "Another company manages this access point; you can only manage your own staff on it.",
+  "access_point_shared_live_title": "Access point with active invitations",
+  "access_point_shared_live_message": "This access point is shared with other companies in the group. Ask for the invitations to be revoked before deleting it; otherwise their staff would remain on the device with no one to manage them.",
   "adms_internal_title": "Internal error",
   "adms_internal_message": "The operation could not be completed; try again",
   "access_point_employee_assigned_message": "The access point was assigned to the employee",
