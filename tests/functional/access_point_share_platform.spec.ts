@@ -41,31 +41,10 @@ import {
   type PlatformConsoleActor,
   type SharedFixture,
 } from '#tests/helpers/shared_access_point_fixture'
+import { lockHolderOf, waitForLockWaitOn } from '#tests/helpers/lock_wait'
 
 const unscoped = <T>(fn: () => Promise<T>) =>
   TenantContext.runUnscoped(async () => await fn(), TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
-
-/**
- * Espera a que alguna transaccion de InnoDB quede esperando un candado de fila
- * (`performance_schema.data_lock_waits`; `INNODB_TRX` no lo refleja), o a
- * que `pending` termine sin esperar: asi la prueba de carrera sabe que la otra
- * conexion ya llego al punto de bloqueo (o que nunca lo hara).
- */
-const waitForLockWait = async (pending: Promise<unknown>, timeoutMs = 5000): Promise<void> => {
-  let settled = false
-  void pending.finally(() => {
-    settled = true
-  })
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline && !settled) {
-    const [rows] = (await db.rawQuery(
-      'SELECT COUNT(*) AS waiting FROM performance_schema.data_lock_waits'
-    )) as [Array<{ waiting: number }>, unknown]
-    if (Number(rows[0]?.waiting ?? 0) > 0) return
-    await new Promise((resolve) => setTimeout(resolve, 25))
-  }
-  if (!settled) throw new Error('Ninguna transaccion llego a esperar el candado')
-}
 
 /**
  * El landlord otorga y revoca invitaciones a un checador y avisa al sacar
@@ -464,6 +443,7 @@ test.group('Checador compartido: landlord', (group) => {
     const grantTrx = await db.transaction()
     let unassigning: Promise<unknown> | null = null
     try {
+      const holder = await lockHolderOf(grantTrx)
       assert.isTrue(await repository.lockOpenAssignment(own.platformDeviceAssignmentId, grantTrx))
       const lateShareId = await repository.insert(
         {
@@ -482,7 +462,8 @@ test.group('Checador compartido: landlord', (group) => {
           releaseReason: own.releaseReason,
         })
         .catch((error: unknown) => error)
-      await waitForLockWait(unassigning)
+      // La espera propia: la desasignacion pidiendo la entrega que retiene este otorgamiento.
+      await waitForLockWaitOn(holder, 'platform_device_assignments', unassigning)
       await grantTrx.commit()
       const outcome = await unassigning
       assert.notInstanceOf(outcome, Error, String(outcome))
