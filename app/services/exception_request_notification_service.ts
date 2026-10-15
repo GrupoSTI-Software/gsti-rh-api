@@ -4,8 +4,8 @@ import env from '#start/env'
 import Employee from '#models/employee'
 import ExceptionRequest from '#models/exception_request'
 import ExceptionRequestAttachment from '#models/exception_request_attachment'
-import SystemSetting from '#models/system_setting'
 import User from '#models/user'
+import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import ExceptionRequestApproverResolverService from '#services/exception_request_approver_resolver_service'
 import ExceptionRequestNewApproverMail, {
   type ExceptionRequestMailBranding,
@@ -20,9 +20,11 @@ import { resolveMailSender } from '#helpers/resolve_mail_sender'
 /** Backoffice por omisión cuando el entorno no declara el suyo. */
 const DEFAULT_BACKOFFICE_URL = 'http://127.0.0.1:3000'
 
-/** Logotipo de la plataforma para las empresas que no configuraron el suyo. */
-const DEFAULT_MAIL_LOGO =
-  'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
+/** Marca del producto. Ningún aviso de solicitudes la toma de la empresa. */
+const MAIL_BRANDING: ExceptionRequestMailBranding = {
+  tradeName: MAIL_BRAND_TRADE_NAME,
+  backgroundImageLogo: MAIL_BRAND_LOGO_URL,
+}
 
 /** Datos de una resolución que hay que comunicarle al colaborador. */
 export interface NotifyResolutionParams {
@@ -93,7 +95,7 @@ export default class ExceptionRequestNotificationService {
         return
       }
 
-      const branding = await this.resolveBranding(empleado.businessUnitId)
+      const branding = MAIL_BRANDING
       const periodo = formatRequestedPeriodEs(
         solicitudes.map((solicitud) => solicitud.requestedDate)
       )
@@ -233,7 +235,7 @@ export default class ExceptionRequestNotificationService {
           to: destinatario.email,
           from: remitente,
           language: 'es',
-          branding: await this.resolveBranding(empleado.businessUnitId),
+          branding: MAIL_BRANDING,
           employeeName: this.employeeNameOf(empleado),
           status,
           exceptionTypeName: exceptionRequests[0].exceptionType?.exceptionTypeTypeName ?? '',
@@ -278,35 +280,6 @@ export default class ExceptionRequestNotificationService {
       .map((parte) => `${parte ?? ''}`.trim())
       .filter((parte) => parte.length > 0)
       .join(' ')
-  }
-
-  /** Marca con la que sale el correo: la de la empresa del colaborador. */
-  private async resolveBranding(businessUnitId: number): Promise<ExceptionRequestMailBranding> {
-    const configuracion = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
-      .where('business_unit_id', businessUnitId)
-      .first()
-
-    if (configuracion) {
-      return {
-        tradeName: configuracion.systemSettingTradeName || 'Valanserh',
-        backgroundImageLogo: configuracion.systemSettingLogo || DEFAULT_MAIL_LOGO,
-      }
-    }
-
-    // Sin configuración propia, la marca base de la plataforma: nunca la de otra
-    // empresa.
-    const base = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
-      .whereNull('business_unit_id')
-      .first()
-
-    return {
-      tradeName: base?.systemSettingTradeName || 'Valanserh',
-      backgroundImageLogo: base?.systemSettingLogo || DEFAULT_MAIL_LOGO,
-    }
   }
 
   /** Enlace al módulo de solicitudes del backoffice. */

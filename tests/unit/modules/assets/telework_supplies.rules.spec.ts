@@ -6,9 +6,12 @@ import {
   summarizeTeleworkSupplies,
 } from '#modules/assets/telework_supplies.rules'
 import type {
+  EmployeeTeleworkSuppliesDto,
   TeleworkCoverageRow,
   TeleworkProfile,
+  TeleworkSupplyCategoryDto,
 } from '#modules/assets/dto/telework_supplies.dto'
+import type { OwnEquipmentDeclarationDto } from '#modules/assets/dto/own_equipment_declarations.dto'
 import { EMPLOYEE_WORK_SCHEDULE } from '#constants/employee_work_schedule'
 import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
 
@@ -45,6 +48,40 @@ function makeRow(overrides: Partial<TeleworkCoverageRow> = {}): TeleworkCoverage
     assignedAt: '2026-01-01',
     ...overrides,
   }
+}
+
+/** Declaración vigente de equipo propio; por defecto silla vigente del colaborador 1. */
+function makeDeclaration(
+  overrides: Partial<OwnEquipmentDeclarationDto> = {}
+): OwnEquipmentDeclarationDto {
+  return {
+    declarationId: 41,
+    employeeId: 1,
+    category: 'ergonomic_chair',
+    description: 'Silla propia con respaldo ajustable',
+    conditions: null,
+    startDate: '2026-11-01',
+    monthlyFee: 350,
+    status: 'active',
+    createdAt: '2026-11-01T16:02:11.000Z',
+    ...overrides,
+  }
+}
+
+/** Mapa categoría → declaración vigente, el punto de extensión de la regla pura. */
+function ownEquipmentMap(
+  ...declarations: OwnEquipmentDeclarationDto[]
+): ReadonlyMap<SupplyTypeTeleworkCategory, OwnEquipmentDeclarationDto> {
+  return new Map(declarations.map((declaration) => [declaration.category, declaration]))
+}
+
+/** Categoría de la matriz ya aplicada por índice; falla si el colaborador no aplica. */
+function categoryAt(
+  matrix: EmployeeTeleworkSuppliesDto,
+  index: 0 | 1 | 2
+): TeleworkSupplyCategoryDto {
+  if (!matrix.applies) throw new Error('la matriz no aplica en este caso')
+  return matrix.categories[index]
 }
 
 test('aplica solo a Remote o Hybrid con porcentaje > 0; la baja no aplica (R4, propias 8-9)', ({
@@ -206,7 +243,7 @@ test('el invariante del resumen se cumple (§11)', ({ assert }) => {
           hasContract: false,
         }),
       ],
-      new Set<SupplyTypeTeleworkCategory>(['ergonomic_chair'])
+      ownEquipmentMap(makeDeclaration({ category: 'ergonomic_chair' }))
     ),
     buildEmployeeTeleworkSupplies(makeProfile(), []),
   ]
@@ -244,4 +281,86 @@ test('las categorías salen siempre en el orden de la norma (R1)', ({ assert }) 
     matrix.categories.map((category) => category.category),
     ['ergonomic_chair', 'computing_equipment', 'accessory']
   )
+})
+
+test('la categoría con declaración vigente sale own_equipment con su declaración (CA-1, regla 6)', ({
+  assert,
+}) => {
+  const declaration = makeDeclaration({ category: 'ergonomic_chair' })
+  const matrix = buildEmployeeTeleworkSupplies(makeProfile(), [], ownEquipmentMap(declaration))
+
+  const chair = categoryAt(matrix, 0)
+  assert.equal(chair.category, 'ergonomic_chair')
+  assert.equal(chair.status, 'own_equipment')
+  assert.isEmpty(chair.assets)
+  assert.equal(chair.ownEquipment, declaration)
+})
+
+test('el activo manda sobre la declaración, que sigue vigente (regla 7, CA-11)', ({ assert }) => {
+  const declaration = makeDeclaration({ category: 'ergonomic_chair' })
+  const matrix = buildEmployeeTeleworkSupplies(
+    makeProfile(),
+    [makeRow({ category: 'ergonomic_chair', assignmentStatus: 'active', hasContract: true })],
+    ownEquipmentMap(declaration)
+  )
+
+  const chair = categoryAt(matrix, 0)
+  assert.equal(chair.status, 'delivered')
+  assert.lengthOf(chair.assets, 1)
+  // La declaración sigue vigente aunque el activo mande en el estado (R5, regla 7).
+  assert.equal(chair.ownEquipment, declaration)
+})
+
+test('el aditamento declarado pasa de not_delivered a own_equipment (CA-10)', ({ assert }) => {
+  const declaration = makeDeclaration({ category: 'accessory' })
+
+  const without = buildEmployeeTeleworkSupplies(makeProfile(), [])
+  assert.equal(categoryAt(without, 2).status, 'not_delivered')
+
+  const matrix = buildEmployeeTeleworkSupplies(makeProfile(), [], ownEquipmentMap(declaration))
+  const accessory = categoryAt(matrix, 2)
+  assert.equal(accessory.category, 'accessory')
+  assert.equal(accessory.status, 'own_equipment')
+  assert.equal(accessory.ownEquipment, declaration)
+})
+
+test('el resumen cuenta la declaración aparte y descuenta el pendiente (CA-1)', ({ assert }) => {
+  // Cómputo en envío: la categoría no cuenta como sin cubrir y no lleva declaración.
+  const rows = [
+    makeRow({ category: 'computing_equipment', assignmentStatus: 'shipping', hasContract: false }),
+  ]
+  const declaration = makeDeclaration({ category: 'ergonomic_chair' })
+
+  const baseSummary = summarizeTeleworkSupplies(buildEmployeeTeleworkSupplies(makeProfile(), rows))
+  const withDeclaration = buildEmployeeTeleworkSupplies(
+    makeProfile(),
+    rows,
+    ownEquipmentMap(declaration)
+  )
+  const summary = summarizeTeleworkSupplies(withDeclaration)
+
+  // La declaración suma un equipo propio y descuenta el pendiente de la silla.
+  assert.equal(summary.ownEquipmentCount, baseSummary.ownEquipmentCount + 1)
+  assert.equal(summary.uncoveredCount, baseSummary.uncoveredCount - 1)
+
+  // `delivered`/`shipping` sin declaración: `ownEquipment` nulo y conteos intactos.
+  const computing = categoryAt(withDeclaration, 1)
+  assert.equal(computing.status, 'shipping')
+  assert.isNull(computing.ownEquipment)
+  assert.equal(summary.shippingCount, baseSummary.shippingCount)
+
+  const chair = categoryAt(withDeclaration, 0)
+  assert.equal(chair.status, 'own_equipment')
+  assert.equal(chair.ownEquipment, declaration)
+})
+
+test('un mapa vacío no cambia nada (la hermana anterior sigue igual)', ({ assert }) => {
+  const rows = [makeRow({ category: 'ergonomic_chair', assignmentStatus: 'active' })]
+  const implicit = buildEmployeeTeleworkSupplies(makeProfile(), rows)
+  const explicit = buildEmployeeTeleworkSupplies(makeProfile(), rows, new Map())
+
+  assert.deepEqual(explicit, implicit)
+  // Ninguna categoría porta declaración sin mapa.
+  assert.isNull(categoryAt(explicit, 0).ownEquipment)
+  assert.isNull(categoryAt(explicit, 1).ownEquipment)
 })

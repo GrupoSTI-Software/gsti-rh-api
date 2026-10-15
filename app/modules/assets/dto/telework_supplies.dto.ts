@@ -4,6 +4,7 @@ import type {
   TeleworkSupplyCoverageStatus,
 } from '../assets.constants.js'
 import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
+import type { OwnEquipmentDeclarationDto } from './own_equipment_declarations.dto.js'
 
 /**
  * Estados de cobertura que portan resguardos abiertos: la categoría muestra
@@ -32,27 +33,36 @@ export interface TeleworkSupplyAssetDto {
  * puede ser silla o cómputo, y `not_delivered` solo el aditamento; una
  * categoría cubierta (`delivered`/`shipping`) lleva al menos un activo,
  * mientras que el resto viaja con `assets` vacío.
+ *
+ * `ownEquipment` viaja por variante (§11): la declaración vigente cuando la
+ * categoría la tiene —`delivered`/`shipping` aunque el activo mande en el
+ * estado—, nunca `null` en `own_equipment` (la declaración la produjo) y
+ * siempre `null` en `uncovered` y `not_delivered`.
  */
 export type TeleworkSupplyCategoryDto =
   | {
       category: SupplyTypeTeleworkCategory
       status: CoveringStatus
       assets: [TeleworkSupplyAssetDto, ...TeleworkSupplyAssetDto[]]
+      ownEquipment: OwnEquipmentDeclarationDto | null
     }
   | {
       category: Extract<SupplyTypeTeleworkCategory, 'ergonomic_chair' | 'computing_equipment'>
       status: 'uncovered'
       assets: []
+      ownEquipment: null
     }
   | {
       category: Extract<SupplyTypeTeleworkCategory, 'accessory'>
       status: 'not_delivered'
       assets: []
+      ownEquipment: null
     }
   | {
       category: SupplyTypeTeleworkCategory
       status: 'own_equipment'
       assets: []
+      ownEquipment: OwnEquipmentDeclarationDto
     }
 
 /**

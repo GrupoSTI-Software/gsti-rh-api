@@ -21,6 +21,7 @@ import SystemSettingService from '#services/system_setting_service'
 import BillingTenantService from '#services/billing_tenant_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import BillingInternalNotificationService from '#services/billing_internal_notification_service'
+import BillingCustomerIdentityService from '#services/billing_customer_identity_service'
 import { resolveSignupApiError } from '#helpers/signup_api_error'
 import { resolveBillingSubscriptionApiError } from '#helpers/billing_subscription_api_error'
 import { resolveBillingProviderApiError } from '#helpers/billing_provider_api_error'
@@ -705,6 +706,11 @@ export default class SignupDraftService {
           'SignupDraftService.complete: fallo al notificar la contratación self-service.'
         )
       )
+
+    void new BillingCustomerIdentityService().syncForSubscription(
+      subscription.billingSubscriptionId,
+      'signup'
+    )
 
     const authTokenService = new AuthTokenService()
     const { accessToken, refreshToken } = await authTokenService.issueTokenPair(user, 'web')

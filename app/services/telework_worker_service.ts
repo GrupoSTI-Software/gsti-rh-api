@@ -5,6 +5,11 @@ import {
   EMPLOYEE_WORK_SCHEDULE,
   TELEWORK_LEGAL_THRESHOLD_PERCENT,
 } from '#constants/employee_work_schedule'
+import {
+  makeTeleworkSuppliesService,
+  type TeleworkSuppliesService,
+} from '#modules/assets/telework_supplies.service'
+import type { TeleworkSuppliesSummary } from '#modules/assets/dto/telework_supplies.dto'
 
 /** Filtros de la consulta derivada del listado 5.1. */
 export interface TeleworkWorkerFilters {
@@ -31,6 +36,17 @@ export interface TeleworkWorkerRow {
   workSchedule: string
   teleworkPercentage: number
   workplaces: TeleworkWorkerWorkplace[]
+}
+
+/** Opciones de `list`: el resumen de insumos solo se pide cuando el RBAC lo permite. */
+export interface TeleworkWorkerListOptions {
+  includeSuppliesSummary?: boolean
+}
+
+/** Fila del listado con el identificador de la ficha y, con permiso, el resumen de insumos. */
+export type TeleworkWorkerRowWithSupplies = TeleworkWorkerRow & {
+  employeeSlug: string
+  teleworkSuppliesSummary?: TeleworkSuppliesSummary
 }
 
 /**
@@ -60,13 +76,33 @@ export interface TeleworkWorkerRecipient {
  */
 export default class TeleworkWorkerService {
   /**
+   * El lector del resumen de insumos por defecto es la factoría del módulo de
+   * activos; el parámetro existe para que los specs cuenten llamadas (y
+   * devuelvan dobles) sin tocar la factoría ajena.
+   */
+  constructor(
+    private readonly suppliesSummary: Pick<TeleworkSuppliesService, 'summarizeForEmployees'> =
+      makeTeleworkSuppliesService()
+  ) {}
+
+  /**
    * Ejecuta la consulta derivada del listado 5.1 dentro del scope del tenant.
+   *
+   * Con `options.includeSuppliesSummary` la fila además trae `employeeSlug` y
+   * el resumen de insumos del colaborador, leído en UNA sola llamada por lote
+   * (el alcance es el mismo del índice); sin la opción la fila queda idéntica a
+   * la de siempre y el lector ni se consulta.
    *
    * @param filters - Búsqueda por nombre/puesto y paginación.
    * @param scope - IDs de unidades de negocio accesibles en la request.
+   * @param options - Interruptores del RBAC; el resumen de insumos es opt-in.
    * @returns Página de filas del listado con meta de paginación.
    */
-  async list(filters: TeleworkWorkerFilters, scope: number[]) {
+  async list(
+    filters: TeleworkWorkerFilters,
+    scope: number[],
+    options: TeleworkWorkerListOptions = {}
+  ) {
     const employees = await Employee.query()
       .whereNull('employee_deleted_at')
       .whereIn('business_unit_id', scope)
@@ -102,10 +138,49 @@ export default class TeleworkWorkerService {
       .paginate(filters.page, filters.limit)
 
     const serialized = employees.toJSON()
+    const rows = employees.all() as Employee[]
 
+    if (!options.includeSuppliesSummary) {
+      return { meta: serialized.meta, data: rows.map((employee) => this.toRow(employee)) }
+    }
+
+    // Una sola lectura para toda la página; el alcance es el mismo del índice.
+    const summaries = await this.summarizePage(scope, rows)
     return {
       meta: serialized.meta,
-      data: (employees.all() as Employee[]).map((employee) => this.toRow(employee)),
+      data: rows.map((employee) =>
+        this.toRowWithSupplies(employee, summaries.get(employee.employeeId))
+      ),
+    }
+  }
+
+  /**
+   * Resumen de insumos de la página en UNA llamada por lote. Página vacía o
+   * alcance vacío → mapa vacío sin consultar (el servicio de insumos también
+   * devolvería vacío, pero la llamada sobra).
+   */
+  private async summarizePage(
+    scope: number[],
+    employees: Employee[]
+  ): Promise<Map<number, TeleworkSuppliesSummary>> {
+    if (employees.length === 0 || scope.length === 0) {
+      return new Map<number, TeleworkSuppliesSummary>()
+    }
+    return this.suppliesSummary.summarizeForEmployees(
+      scope,
+      employees.map((employee) => employee.employeeId)
+    )
+  }
+
+  /** Fila con el slug de la ficha y, solo si el colaborador trae resumen, el resumen. */
+  private toRowWithSupplies(
+    employee: Employee,
+    summary: TeleworkSuppliesSummary | undefined
+  ): TeleworkWorkerRowWithSupplies {
+    return {
+      ...this.toRow(employee),
+      employeeSlug: employee.employeeSlug,
+      ...(summary ? { teleworkSuppliesSummary: summary } : {}),
     }
   }
 

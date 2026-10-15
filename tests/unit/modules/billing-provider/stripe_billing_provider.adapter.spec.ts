@@ -3,6 +3,7 @@ import { Writable } from 'node:stream'
 import { test } from '@japa/runner'
 import { pino } from 'pino'
 import Stripe from 'stripe'
+import { BILLING_STRIPE_ERROR_ENTRIES } from '#constants/billing_stripe_error_catalog'
 import {
   BILLING_PROVIDER_OPERATION_NOT_AVAILABLE_DETAIL,
   BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL,
@@ -17,9 +18,11 @@ import ManualBillingProviderAdapter from '#modules/billing-provider/manual_billi
 import {
   BILLING_PROVIDER_KEYS,
   isBillingInvoiceProvider,
+  isBillingCustomerIdentityProvider,
   isBillingPaymentMethodProvider,
   isBillingSubscriptionStateProvider,
   type BillingProviderPort,
+  type ProviderCustomerIdentity,
 } from '#modules/billing-provider/billing_provider.port'
 import StripeBillingProviderAdapter, {
   buildInvoiceItemParams,
@@ -27,6 +30,8 @@ import StripeBillingProviderAdapter, {
   buildStripeSetupIntentParams,
   buildStripePriceParams,
   buildStripeProductParams,
+  buildStripeCustomerIdentityParams,
+  customerIdentityIdempotencyKey,
   catalogIdempotencyKey,
   billingSubscriptionCardSetupIdempotencyKey,
   buildStripeBillingSubscriptionSetupIntentParams,
@@ -1035,10 +1040,78 @@ test.group('StripeBillingProviderAdapter — factura borrador (USRH1790718243208
       } catch (error) {
         const typed = assertProviderError(error)
         assert.equal(typed.errorCode, BILLING_PROVIDER_ERROR_CODES.PROVIDER_REQUEST_FAILED)
-        assert.equal(typed.detail, BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL)
+        assert.equal(
+          typed.detail,
+          BILLING_STRIPE_ERROR_ENTRIES['fallo-del-proveedor-de-cobro'].detail
+        )
         assert.notInclude(JSON.stringify(typed), 'prospecto.fixture@correo.test')
         assert.notInclude(typed.message, 'No such invoice')
       }
+    }
+  })
+})
+
+test.group('StripeBillingProviderAdapter — #wrap catálogo (VLRH-H1791925350337)', () => {
+  test('CA-1: card_error insufficient_funds → 422 y entrada del catálogo', async ({ assert }) => {
+    const stripeError = new Stripe.errors.StripeCardError({
+      message: 'Your card has insufficient funds.',
+      type: 'card_error',
+      code: 'card_declined',
+      decline_code: 'insufficient_funds',
+      requestId: 'req_fixture0337a',
+      statusCode: 402,
+    })
+
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () =>
+      ({
+        invoices: {
+          retrieve: async () => {
+            throw stripeError
+          },
+        },
+      }) as unknown as Stripe
+    )
+
+    try {
+      await adapter.readInvoice('in_sim1')
+      assert.fail('Debió lanzar')
+    } catch (error) {
+      const typed = assertProviderError(error)
+      assert.equal(typed.httpStatus, 422)
+      assert.equal(typed.key, 'tarjeta-sin-fondos-suficientes')
+      assert.equal(typed.title, 'La tarjeta no tiene fondos suficientes')
+      assert.equal(typed.errorCode, BILLING_PROVIDER_ERROR_CODES.PROVIDER_REQUEST_FAILED)
+      assert.notInclude(JSON.stringify(typed), 'insufficient_funds')
+    }
+  })
+
+  test('CA-4: invalid_request desconocido → 500 sin código crudo en JSON', async ({ assert }) => {
+    const stripeError = new Stripe.errors.StripeInvalidRequestError({
+      message: 'Unknown',
+      type: 'invalid_request_error',
+      code: 'codigo_que_no_existe',
+      requestId: 'req_fixture0337b',
+      statusCode: 400,
+    })
+
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () =>
+      ({
+        invoices: {
+          retrieve: async () => {
+            throw stripeError
+          },
+        },
+      }) as unknown as Stripe
+    )
+
+    try {
+      await adapter.readInvoice('in_sim1')
+      assert.fail('Debió lanzar')
+    } catch (error) {
+      const typed = assertProviderError(error)
+      assert.equal(typed.httpStatus, 500)
+      assert.equal(typed.key, 'fallo-del-proveedor-de-cobro')
+      assert.notInclude(JSON.stringify(typed), 'codigo_que_no_existe')
     }
   })
 })
@@ -1672,5 +1745,133 @@ test.group('StripeBillingProviderAdapter — tarjeta vigente (USRH1790724549203)
     const manual = new ManualBillingProviderAdapter()
     assert.isTrue(isBillingPaymentMethodProvider(stripe))
     assert.isFalse(isBillingPaymentMethodProvider(manual))
+  })
+})
+
+test.group('StripeBillingProviderAdapter — identidad tenant (VLRH-H1791925351695)', () => {
+  const baseIdentity = (): ProviderCustomerIdentity => ({
+    customerRef: 'cus_fx',
+    subscriptionRef: 'sub_fx',
+    billingSubscriptionId: 4510,
+    businessUnitId: 12,
+    businessUnitPublicId: 'bu_public_fx',
+    billingPlanId: 3,
+    billingPlanPriceId: 9,
+    name: 'Comercializadora Norte SA de CV',
+    contact: null,
+    version: '1-none',
+  })
+
+  test('CA-2: perfil capturado arma customer con domicilio y metadata', ({ assert }) => {
+    const { customer, subscription } = buildStripeCustomerIdentityParams({
+      ...baseIdentity(),
+      contact: {
+        billingEmail: 'facturas@norte.mx',
+        address: {
+          line1: 'Av. Juárez 120',
+          line2: '4B, Centro',
+          city: 'Monterrey',
+          state: 'Nuevo León',
+          postalCode: '64000',
+        },
+      },
+    })
+    assert.equal(customer.name, 'Comercializadora Norte SA de CV')
+    assert.equal(customer.email, 'facturas@norte.mx')
+    assert.deepEqual(customer.address, {
+      line1: 'Av. Juárez 120',
+      line2: '4B, Centro',
+      city: 'Monterrey',
+      state: 'Nuevo León',
+      postal_code: '64000',
+      country: 'MX',
+    })
+    const metadata = customer.metadata as Record<string, string>
+    assert.equal(metadata.valanserh_billing_plan_price_id, '9')
+    assert.deepEqual(customer.metadata, subscription.metadata)
+    assert.notProperty(subscription, 'items')
+  })
+
+  test('CA-3: sin contacto no envía email ni address', ({ assert }) => {
+    const { customer } = buildStripeCustomerIdentityParams(baseIdentity())
+    assert.equal(customer.name, 'Comercializadora Norte SA de CV')
+    assert.notProperty(customer, 'email')
+    assert.notProperty(customer, 'address')
+  })
+
+  test('CA-4: domicilio vacío manda address como cadena vacía', ({ assert }) => {
+    const { customer } = buildStripeCustomerIdentityParams({
+      ...baseIdentity(),
+      contact: {
+        billingEmail: null,
+        address: {
+          line1: 'Calle 1',
+          line2: '',
+          city: 'Monterrey',
+          state: 'NL',
+          postalCode: '64000',
+        },
+      },
+    })
+    assert.notProperty(customer, 'email')
+    assert.isObject(customer.address)
+    assert.equal((customer.address as { line2: string }).line2, '')
+  })
+
+  test('CA-7: metadata solo cinco llaves Valanserh', ({ assert }) => {
+    const { customer } = buildStripeCustomerIdentityParams(baseIdentity())
+    assert.deepEqual(Object.keys(customer.metadata ?? {}).sort(), [
+      'valanserh_billing_plan_id',
+      'valanserh_billing_plan_price_id',
+      'valanserh_billing_subscription_id',
+      'valanserh_business_unit_id',
+      'valanserh_business_unit_public_id',
+    ])
+    assert.notInclude(JSON.stringify(customer), 'valanserh_signup_draft_id')
+  })
+
+  test('CA-8: perfil fiscal no filtra RFC al JSON de params', ({ assert }) => {
+    const serialized = JSON.stringify(buildStripeCustomerIdentityParams(baseIdentity()))
+    assert.notInclude(serialized, 'RFC')
+    assert.notInclude(serialized, 'tax_id')
+  })
+
+  test('CA-9: llaves idempotentes distintas por versión', ({ assert }) => {
+    const params = buildStripeCustomerIdentityParams(baseIdentity()).customer
+    const a = customerIdentityIdempotencyKey(1, 'customer', params, 'v1')
+    const b = customerIdentityIdempotencyKey(1, 'customer', params, 'v2')
+    const c = customerIdentityIdempotencyKey(1, 'customer', params, 'v1')
+    assert.notEqual(a, b)
+    assert.equal(a, c)
+  })
+
+  test('syncCustomerIdentity llama customers.update y subscriptions.update', async ({ assert }) => {
+    const order: string[] = []
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () =>
+      ({
+        customers: {
+          update: async () => {
+            order.push('customer')
+            return {}
+          },
+        },
+        subscriptions: {
+          update: async () => {
+            order.push('subscription')
+            return {}
+          },
+        },
+      }) as unknown as Stripe
+    )
+
+    await adapter.syncCustomerIdentity(baseIdentity())
+    assert.deepEqual(order, ['customer', 'subscription'])
+  })
+
+  test('isBillingCustomerIdentityProvider distingue stripe y manual', ({ assert }) => {
+    const stripe = new StripeBillingProviderAdapter(DISABLED_SETTINGS)
+    const manual = new ManualBillingProviderAdapter()
+    assert.isTrue(isBillingCustomerIdentityProvider(stripe))
+    assert.isFalse(isBillingCustomerIdentityProvider(manual))
   })
 })
