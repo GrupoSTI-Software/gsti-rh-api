@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import type { ApiResponse } from '@japa/api-client'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
 import BusinessUnit from '#models/business_unit'
@@ -24,6 +25,7 @@ import {
 import {
   anotherLiveEmployee,
   createSharedAccessPointFixture,
+  seedPendingPinPivot,
   seedUnmappedPin,
   type SharedFixture,
 } from '#tests/helpers/shared_access_point_fixture'
@@ -34,6 +36,49 @@ const unscoped = <T>(fn: () => Promise<T>) =>
   TenantContext.runUnscoped(async () => await fn(), TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
 
 let commandSeq = 0
+
+/** Lo que respondio una peticion lanzada en paralelo. */
+interface Outcome {
+  status: number
+  body: unknown
+}
+
+/**
+ * Lanza `request` mientras una revocacion de la invitacion de `own` tiene el
+ * aparato bloqueado (el aparato primero, despues la invitacion: el mismo orden
+ * del servicio), espera a que la peticion choque con ESE candado y entonces
+ * confirma la revocacion. Devuelve lo que respondio la peticion.
+ */
+async function duringRevocation(
+  own: SharedFixture,
+  request: () => PromiseLike<ApiResponse>
+): Promise<Outcome> {
+  const revokeTrx = await db.transaction()
+  let pending: Promise<Outcome> | null = null
+  try {
+    const holder = await lockHolderOf(revokeTrx)
+    await new AccessPointShareRepositoryMysql().lockAccessPoint(
+      own.accessPoint.accessPointId,
+      revokeTrx
+    )
+    await revokeTrx
+      .from('access_point_shares')
+      .where('access_point_share_id', own.share.accessPointShareId)
+      .update({ access_point_share_revoked_at: new Date() })
+
+    pending = Promise.resolve(request()).then(
+      (res) => ({ status: res.status(), body: res.body() as unknown }),
+      // El cliente rechaza un 5xx: se conserva como respuesta para afirmar sobre ella.
+      (error: unknown) => ({ status: 500, body: { error: String(error) } as unknown })
+    )
+    await waitForLockWaitOn(holder, 'access_points', pending)
+    await revokeTrx.commit()
+    return await pending
+  } finally {
+    if (!revokeTrx.isCompleted) await revokeTrx.rollback()
+    if (pending) await pending
+  }
+}
 
 interface Actor {
   user: UnitUser
@@ -272,32 +317,17 @@ test.group('Checador compartido: Backoffice', (group) => {
   }) => {
     const own = await createSharedAccessPointFixture()
     const apId = own.accessPoint.accessPointId
-    const revokeTrx = await db.transaction()
-    let assigning: Promise<{ status: number; body: unknown }> | null = null
     try {
       const actor = await actorFor(own.guestBu)
       const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
-      const holder = await lockHolderOf(revokeTrx)
-      // La revocacion: el aparato primero, despues la invitacion (el mismo orden del servicio).
-      await new AccessPointShareRepositoryMysql().lockAccessPoint(apId, revokeTrx)
-      await revokeTrx
-        .from('access_point_shares')
-        .where('access_point_share_id', own.share.accessPointShareId)
-        .update({ access_point_share_revoked_at: new Date() })
 
-      assigning = client
-        .post(`/api/access-points/${apId}/employee/${extra.employeeId}`)
-        .loginAs(actor.user.user)
-        .header('X-Business-Unit-Id', actor.publicId)
-        .then(
-          (res) => ({ status: res.status(), body: res.body() as unknown }),
-          // El cliente rechaza un 5xx: se conserva como respuesta para afirmar sobre ella.
-          (error: unknown) => ({ status: 500, body: { error: String(error) } as unknown })
-        )
-      await waitForLockWaitOn(holder, 'access_points', assigning)
-      await revokeTrx.commit()
+      const res = await duringRevocation(own, () =>
+        client
+          .post(`/api/access-points/${apId}/employee/${extra.employeeId}`)
+          .loginAs(actor.user.user)
+          .header('X-Business-Unit-Id', actor.publicId)
+      )
 
-      const res = await assigning
       assert.equal(res.status, 404, JSON.stringify(res.body))
       assert.containsSubset(res.body, { key: 'punto-acceso-no-encontrado' })
       const pivots = await unscoped(() =>
@@ -308,8 +338,86 @@ test.group('Checador compartido: Backoffice', (group) => {
       )
       assert.lengthOf(pivots, 0)
     } finally {
-      if (!revokeTrx.isCompleted) await revokeTrx.rollback()
-      if (assigning) await assigning.catch(() => null)
+      await own.cleanup()
+    }
+  })
+
+  /**
+   * El mismo hueco que A2-14 al fijar el PIN de un vinculo sin numero: sin
+   * cambio de PIN no se encola nada, asi que la guarda de la cola no lo cubre
+   * y el vinculo pasaba a `pending` para una empresa que ya no participa.
+   */
+  test('una revocacion concurrente no deja a la ex-invitada fijar un PIN en el aparato', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    try {
+      const actor = await actorFor(own.guestBu)
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+      await seedPendingPinPivot(own, extra, own.guestBu)
+
+      const res = await duringRevocation(own, () =>
+        client
+          .put(`/api/access-points/${apId}/employee/${extra.employeeId}/pin`)
+          .json({ pin: '7777' })
+          .loginAs(actor.user.user)
+          .header('X-Business-Unit-Id', actor.publicId)
+      )
+
+      assert.equal(res.status, 404, JSON.stringify(res.body))
+      assert.containsSubset(res.body, { key: 'punto-acceso-no-encontrado' })
+      const pivot = await unscoped(() =>
+        AccessPointEmployee.query()
+          .where('access_point_id', apId)
+          .where('employee_id', extra.employeeId)
+          .firstOrFail()
+      )
+      assert.equal(pivot.accessPointEmployeeSyncStatus, 'pending_pin')
+      assert.equal(pivot.accessPointEmployeePin, '')
+    } finally {
+      await own.cleanup()
+    }
+  })
+
+  /** El mismo hueco que A2-14 en el reclamo de un PIN no mapeado por la invitada. */
+  test('una revocacion concurrente no deja a la ex-invitada reclamar un PIN no mapeado', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    try {
+      const pending = await seedUnmappedPin(own, '9131')
+      const actor = await actorFor(own.guestBu)
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+
+      const res = await duringRevocation(own, () =>
+        client
+          .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/link`)
+          .json({ employeeId: extra.employeeId })
+          .loginAs(actor.user.user)
+          .header('X-Business-Unit-Id', actor.publicId)
+      )
+
+      assert.equal(res.status, 404, JSON.stringify(res.body))
+      assert.containsSubset(res.body, { key: 'colaborador-no-encontrado' })
+      const pivots = await unscoped(() =>
+        AccessPointEmployee.query()
+          .withTrashed()
+          .where('access_point_id', apId)
+          .where('employee_id', extra.employeeId)
+      )
+      assert.lengthOf(pivots, 0)
+      const row = await unscoped(() =>
+        db
+          .from('adms_unmapped_pins')
+          .where('adms_unmapped_pin_id', pending.admsUnmappedPinId)
+          .first()
+      )
+      assert.equal(row?.adms_unmapped_pin_status, 'pending')
+    } finally {
       await own.cleanup()
     }
   })

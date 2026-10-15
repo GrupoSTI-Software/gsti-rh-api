@@ -5,6 +5,7 @@ import {
   requireStoredEmployeeBusinessUnitId,
 } from '#modules/access-point/employee_business_unit'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import logger from '@adonisjs/core/services/logger'
 import AccessPointEmployee from '#models/access_point_employee'
 import AdmsHeldBiometric from '#models/adms_held_biometric'
@@ -20,6 +21,8 @@ import type { AccessPointScopePort } from '#modules/access-point/sharing/access_
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import { TenantContext } from '#utils/tenant_context'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 
 export interface UnmappedPinRow {
   unmappedPinId: number
@@ -74,7 +77,10 @@ export default class UnmappedPinsService {
   constructor(
     private readonly assists: AssistIngestionService = new AssistIngestionService(),
     private readonly templates: TemplateService = new TemplateService(),
-    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql(),
+    /** Candado de la fila del aparato: el mismo que toman el alta, el PIN y la revocacion. */
+    private readonly deviceLock: Pick<EmployeeSyncRepository, 'inDeviceTransaction'> =
+      new EmployeeSyncRepositoryMysql()
   ) {}
 
   async list(businessUnitIds: number[], status?: string): Promise<UnmappedPinRow[]> {
@@ -236,37 +242,9 @@ export default class UnmappedPinsService {
     userId: number | null,
     now: DateTime
   ): Promise<LinkResult> {
-    /** El PIN no puede quedarse con dos dueños en el mismo equipo. */
-    const taken = await AccessPointEmployee.query()
-      .where('access_point_id', row.accessPointId)
-      .where('access_point_employee_pin', row.admsUnmappedPinPin)
-      .whereNot('employee_id', employee.employeeId)
-      .first()
-    if (taken) {
-      throw new AdmsError(
-        'Ese numero ya es de otro colaborador en este equipo',
-        ADMS_ERROR_CODES.PIN_TAKEN,
-        409,
-        'pin-ocupado',
-        'Revoca primero al colaborador que tiene ese numero.'
-      )
-    }
-
-    const pivot =
-      (await AccessPointEmployee.query()
-        .where('access_point_id', row.accessPointId)
-        .where('employee_id', employee.employeeId)
-        .first()) ?? new AccessPointEmployee()
-
-    pivot.accessPointId = row.accessPointId
-    /** El pivote es de la empresa del empleado, no de la responsable del aparato. */
-    pivot.businessUnitId = requireStoredEmployeeBusinessUnitId(employee)
-    pivot.employeeId = employee.employeeId
-    pivot.accessPointEmployeePin = row.admsUnmappedPinPin
-    pivot.accessPointEmployeePinSource = 'device'
-    pivot.accessPointEmployeeSyncStatus = 'confirmed'
-    pivot.accessPointEmployeeSyncConfirmedAt = now
-    await pivot.save()
+    await this.deviceLock.inDeviceTransaction(row.accessPointId, (trx) =>
+      this.claimPivot(row, employee, now, trx)
+    )
 
     const attributedPunches = await this.attributeHeldPunches(row, employee, now)
     const movedBiometrics = await this.moveHeldBiometrics(row, employee, now)
@@ -286,6 +264,62 @@ export default class UnmappedPinsService {
       attributedPunches,
       movedBiometrics,
     }
+  }
+
+  /**
+   * El vinculo del reclamo, con el aparato bloqueado en `trx`.
+   *
+   * La participacion de la empresa del colaborador se valido en `link` sin
+   * candado. Aqui se vuelve a preguntar con la fila del aparato tomada (el
+   * candado que la revocacion toma primero) y el pivote se escribe en esa
+   * misma transaccion: una revocacion que confirmo mientras tanto no deja a
+   * la ex-invitada con un numero confirmado en el aparato (A2-14).
+   *
+   * @throws EmployeeOutOfScopeError 404 si la empresa ya no participa.
+   */
+  private async claimPivot(
+    row: AdmsUnmappedPin,
+    employee: Employee,
+    now: DateTime,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const businessUnitId = requireStoredEmployeeBusinessUnitId(employee)
+    if (!(await this.scope.isParticipant(row.accessPointId, businessUnitId))) {
+      throw new EmployeeOutOfScopeError()
+    }
+
+    /** El PIN no puede quedarse con dos dueños en el mismo equipo. */
+    const taken = await AccessPointEmployee.query({ client: trx })
+      .where('access_point_id', row.accessPointId)
+      .where('access_point_employee_pin', row.admsUnmappedPinPin)
+      .whereNot('employee_id', employee.employeeId)
+      .first()
+    if (taken) {
+      throw new AdmsError(
+        'Ese numero ya es de otro colaborador en este equipo',
+        ADMS_ERROR_CODES.PIN_TAKEN,
+        409,
+        'pin-ocupado',
+        'Revoca primero al colaborador que tiene ese numero.'
+      )
+    }
+
+    const pivot =
+      (await AccessPointEmployee.query({ client: trx })
+        .where('access_point_id', row.accessPointId)
+        .where('employee_id', employee.employeeId)
+        .first()) ?? new AccessPointEmployee()
+
+    pivot.useTransaction(trx)
+    pivot.accessPointId = row.accessPointId
+    /** El pivote es de la empresa del empleado, no de la responsable del aparato. */
+    pivot.businessUnitId = businessUnitId
+    pivot.employeeId = employee.employeeId
+    pivot.accessPointEmployeePin = row.admsUnmappedPinPin
+    pivot.accessPointEmployeePinSource = 'device'
+    pivot.accessPointEmployeeSyncStatus = 'confirmed'
+    pivot.accessPointEmployeeSyncConfirmedAt = now
+    await pivot.save()
   }
 
   /**

@@ -524,6 +524,57 @@ test.group('Alta con la participacion revalidada bajo el candado del aparato (A2
   })
 })
 
+test.group('PIN con la participacion revalidada bajo el candado del aparato', () => {
+  test('bloquea el aparato, vuelve a preguntar y escribe pivote, baja y evento en esa transaccion', async ({
+    assert,
+  }) => {
+    const { service, steps, trxSeen, saveTrx, deviceTrx } = makeService({
+      pivot: pivotOf({ accessPointEmployeePin: '4' }),
+    })
+    await service.setPin({
+      accessPointId: 12,
+      businessUnitId: 2,
+      employeeId: 77,
+      pin: '8',
+      actor: ACTOR,
+    })
+
+    assert.deepEqual(steps.slice(0, 2), ['lock-aparato', 'participa:12:2'])
+    assert.isAbove(saveTrx.length, 0)
+    for (const trx of saveTrx) assert.strictEqual(trx, deviceTrx, 'save')
+    const writes = trxSeen.filter((seen) => seen.step === 'enqueue' || seen.step === 'recordEvent')
+    assert.lengthOf(writes, 2)
+    for (const write of writes) assert.strictEqual(write.trx, deviceTrx, write.step)
+  })
+
+  test('si la empresa dejo de participar es 404 del checador y no escribe nada', async ({
+    assert,
+  }) => {
+    const { service, saved, events, enqueued } = makeService({
+      pivot: pivotOf({ accessPointEmployeePin: '' }),
+      participant: false,
+    })
+    let capturado: unknown = null
+    try {
+      await service.setPin({
+        accessPointId: 12,
+        businessUnitId: 2,
+        employeeId: 77,
+        pin: '8',
+        actor: ACTOR,
+      })
+    } catch (error) {
+      capturado = error
+    }
+
+    assert.equal((capturado as AdmsError | null)?.key, 'punto-acceso-no-encontrado')
+    assert.equal((capturado as AdmsError).httpStatus, 404)
+    assert.lengthOf(saved, 0)
+    assert.lengthOf(events, 0)
+    assert.lengthOf(enqueued, 0)
+  })
+})
+
 test.group('Reasignacion', () => {
   test('una fila revocada revive en vez de crear otra', async ({ assert }) => {
     const revocada = pivotOf({

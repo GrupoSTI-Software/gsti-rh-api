@@ -21,6 +21,7 @@ import {
 import type { EmployeeSyncRepository } from './employee_sync.repository.js'
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import { AccessPointOutOfScopeError } from '#modules/access-point/access_point_out_of_scope_error'
 
 /**
  * Tope del correlativo: nueve digitos es lo que acepta el patron del PIN, y
@@ -99,14 +100,7 @@ export default class EmployeeSyncService {
     input: AssignInput,
     trx: TransactionClientContract
   ): Promise<AccessPointEmployee> {
-    if (!(await this.scope.isParticipant(input.accessPointId, input.businessUnitId))) {
-      throw new AdmsError(
-        'El checador no existe para la empresa del colaborador',
-        ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
-        404,
-        'punto-acceso-no-encontrado'
-      )
-    }
+    await this.assertStillParticipates(input.accessPointId, input.businessUnitId)
 
     const existing = await this.repository.findPivotWithTrashed(
       input.accessPointId,
@@ -164,7 +158,30 @@ export default class EmployeeSyncService {
     return this.applyProposedPin(pivot, proposedPin, input, trx)
   }
 
-  /** Fija o cambia el PIN. Un cambio borra el registro anterior del equipo. */
+  /**
+   * Con el aparato ya bloqueado, la empresa sigue participando de el. La
+   * autorizacion lo valido antes y sin candado; una revocacion que confirmo
+   * mientras tanto la saco, y para ella el checador ya no existe (A2-14).
+   *
+   * @throws AccessPointOutOfScopeError 404 `punto-acceso-no-encontrado`.
+   */
+  private async assertStillParticipates(accessPointId: number, businessUnitId: number) {
+    if (!(await this.scope.isParticipant(accessPointId, businessUnitId))) {
+      throw new AccessPointOutOfScopeError()
+    }
+  }
+
+  /**
+   * Fija o cambia el PIN. Un cambio borra el registro anterior del equipo.
+   *
+   * Mismos candados y en el mismo orden que `assign`: cerrojo con nombre,
+   * fila del aparato y revalidacion de la participacion, con pivote, baja y
+   * evento escritos en la transaccion del aparato. Sin el candado, fijar el
+   * numero de un vinculo `pending_pin` (que no encola nada) dejaba en
+   * `pending` a una empresa que una revocacion acababa de sacar.
+   *
+   * @throws AccessPointOutOfScopeError 404 si la empresa ya no participa.
+   */
   async setPin(input: SetPinInput): Promise<AccessPointEmployee> {
     if (!ACCESS_POINT_PIN_PATTERN.test(input.pin)) {
       throw new AdmsError(
@@ -175,20 +192,31 @@ export default class EmployeeSyncService {
       )
     }
 
-    return this.repository.withDeviceLock(input.accessPointId, async () => {
-      const pivot = await this.requirePivot(input.accessPointId, input.employeeId)
-      await this.assertPinFree(input.accessPointId, input.pin, pivot.accessPointEmployeeId)
+    return this.repository.withDeviceLock(input.accessPointId, () =>
+      this.repository.inDeviceTransaction(input.accessPointId, (trx) => this.setPinIn(input, trx))
+    )
+  }
 
-      const previousPin = pivot.accessPointEmployeePin
-      const isChange = previousPin.length > 0 && previousPin !== input.pin
+  /** `setPin` con el aparato bloqueado en `trx`. */
+  private async setPinIn(
+    input: SetPinInput,
+    trx: TransactionClientContract
+  ): Promise<AccessPointEmployee> {
+    await this.assertStillParticipates(input.accessPointId, input.businessUnitId)
+    const pivot = await this.requirePivot(input.accessPointId, input.employeeId, trx)
+    await this.assertPinFree(input.accessPointId, input.pin, pivot.accessPointEmployeeId)
 
-      /**
-       * Un cambio de PIN borra primero el registro anterior del equipo. Si no,
-       * el aparato se queda con dos registros del mismo colaborador y el PIN
-       * viejo sigue generando checadas a su nombre.
-       */
-      if (isChange) {
-        await this.commands.enqueue({
+    const previousPin = pivot.accessPointEmployeePin
+    const isChange = previousPin.length > 0 && previousPin !== input.pin
+
+    /**
+     * Un cambio de PIN borra primero el registro anterior del equipo. Si no,
+     * el aparato se queda con dos registros del mismo colaborador y el PIN
+     * viejo sigue generando checadas a su nombre.
+     */
+    if (isChange) {
+      await this.commands.enqueue(
+        {
           accessPointId: input.accessPointId,
           businessUnitId: input.businessUnitId,
           kind: DEVICE_COMMAND_KIND.USER_DELETE,
@@ -197,23 +225,26 @@ export default class EmployeeSyncService {
           employeeId: input.employeeId,
           accessPointEmployeeId: pivot.accessPointEmployeeId,
           requestedByUserId: input.actor.userId,
-        })
-      }
+        },
+        trx
+      )
+    }
 
-      pivot.accessPointEmployeePin = input.pin
-      pivot.accessPointEmployeePinSource = ACCESS_POINT_EMPLOYEE_PIN_SOURCE.ASSIGNED
-      if (pivot.accessPointEmployeeSyncStatus === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN) {
-        pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING
-      } else if (isChange) {
-        assertTransition(
-          pivot.accessPointEmployeeSyncStatus,
-          ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING
-        )
-        pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING
-      }
-      await this.repository.save(pivot)
+    pivot.accessPointEmployeePin = input.pin
+    pivot.accessPointEmployeePinSource = ACCESS_POINT_EMPLOYEE_PIN_SOURCE.ASSIGNED
+    if (pivot.accessPointEmployeeSyncStatus === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN) {
+      pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING
+    } else if (isChange) {
+      assertTransition(
+        pivot.accessPointEmployeeSyncStatus,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING
+      )
+      pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING
+    }
+    await this.repository.save(pivot, trx)
 
-      await this.repository.recordEvent({
+    await this.repository.recordEvent(
+      {
         accessPointEmployeeId: pivot.accessPointEmployeeId,
         businessUnitId: input.businessUnitId,
         kind: isChange
@@ -223,10 +254,11 @@ export default class EmployeeSyncService {
         toPin: input.pin,
         toStatus: pivot.accessPointEmployeeSyncStatus,
         actorUserId: input.actor.userId,
-      })
+      },
+      trx
+    )
 
-      return pivot
-    })
+    return pivot
   }
 
   /**

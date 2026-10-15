@@ -4,6 +4,7 @@ import { ADMS_ERROR_CODES, type AdmsErrorCode } from '#constants/adms_error_code
 import type { DeviceCommandErrorCode } from '#constants/device_command_error_codes'
 import { AdmsError } from '#exceptions/adms_error'
 import { EmployeeOutOfScopeError } from '#modules/access-point/employee_business_unit'
+import { AccessPointOutOfScopeError } from '#modules/access-point/access_point_out_of_scope_error'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { BiometricVaultError } from '#exceptions/biometric_vault_error'
 import type { BiometricVaultErrorCode } from '#constants/biometric_vault_error_codes'
@@ -66,6 +67,17 @@ export function resolveAdmsApiError(error: unknown, i18n: I18n): ResolvedAdmsApi
       title: i18n.formatMessage('access_point_employee_employee_not_found_title'),
       detail: i18n.formatMessage('access_point_employee_employee_not_found_message'),
       key: 'colaborador-no-encontrado',
+      code: ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+    }
+  }
+
+  /** Checador fuera del alcance: el mismo 404 lo lance la autorizacion o la revalidacion. */
+  if (error instanceof AccessPointOutOfScopeError) {
+    return {
+      status: 404,
+      title: i18n.formatMessage('adms_not_found_title'),
+      detail: i18n.formatMessage('adms_not_found_message'),
+      key: 'punto-acceso-no-encontrado',
       code: ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
     }
   }

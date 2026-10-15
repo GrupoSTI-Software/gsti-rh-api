@@ -11,6 +11,7 @@ import type {
   AccessPointVisibility,
   VisibilityOptions,
 } from '#modules/access-point/sharing/access_point_scope.port'
+import { AccessPointOutOfScopeError } from '#modules/access-point/access_point_out_of_scope_error'
 import {
   EmployeeOutOfScopeError,
   requireEmployeeBusinessUnitId,
@@ -83,14 +84,9 @@ export async function resolveScopedEmployee(
   throw new EmployeeOutOfScopeError()
 }
 
-function accessPointNotFound(ctx: HttpContext): AdmsError {
-  return new AdmsError(
-    ctx.i18n.formatMessage('adms_not_found_title'),
-    ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
-    404,
-    'punto-acceso-no-encontrado',
-    ctx.i18n.formatMessage('adms_not_found_message')
-  )
+function accessPointNotFound(): AdmsError {
+  // Titulo y detalle i18n los pone `resolveAdmsApiError`.
+  return new AccessPointOutOfScopeError()
 }
 
 /**
@@ -120,7 +116,7 @@ export async function resolveParticipantAccessPoint(
     ctx.businessUnitScope ?? [],
     options
   )
-  if (!participant) throw accessPointNotFound(ctx)
+  if (!participant) throw accessPointNotFound()
   return participant
 }
 
@@ -178,7 +174,7 @@ export async function resolveParticipantEmployee(
 ): Promise<Employee> {
   const employee = await resolveScopedEmployee(ctx, employeeId)
   if (participant.deviceScope.includes(requireEmployeeBusinessUnitId(employee))) return employee
-  throw accessPointNotFound(ctx)
+  throw accessPointNotFound()
 }
 
 /**
