@@ -194,3 +194,43 @@ export async function createSharedAccessPointFixture(): Promise<SharedFixture> {
     }
   }, reason)
 }
+
+/**
+ * Otro empleado vivo de la empresa, distinto de los dados (VLRH-P0065, Tarea 7).
+ *
+ * Se prefiere uno sin biometricos resguardados ni foto biometrica: el alta en el
+ * checador copia lo que tenga, y una prueba de autorizacion no debe dejar
+ * lecturas de boveda ni comandos de copia como rastro.
+ */
+export async function anotherLiveEmployee(
+  businessUnitId: number,
+  excludeIds: number[]
+): Promise<Employee> {
+  return TenantContext.runUnscoped(async () => {
+    const base = () => {
+      const query = Employee.query()
+        .whereNull('employee_deleted_at')
+        .where('business_unit_id', businessUnitId)
+      if (excludeIds.length > 0) query.whereNotIn('employee_id', excludeIds)
+      return query
+    }
+    const clean = await base()
+      .whereNotExists((sub) =>
+        sub
+          .from('biometric_templates')
+          .whereColumn('biometric_templates.employee_id', 'employees.employee_id')
+      )
+      .whereNotExists((sub) =>
+        sub
+          .from('employee_biometric_face_ids')
+          .whereColumn('employee_biometric_face_ids.employee_id', 'employees.employee_id')
+      )
+      .orderBy('employee_id', 'asc')
+      .first()
+    const employee = clean ?? (await base().orderBy('employee_id', 'asc').first())
+    if (!employee) {
+      throw new Error(`La empresa ${businessUnitId} no tiene otro empleado vivo para la prueba`)
+    }
+    return employee
+  }, TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
+}

@@ -24,8 +24,8 @@ function makeService(assignment: AccessPointEmployee | null) {
   const retiradas: AccessPointEmployee[] = []
 
   const repository: EmployeeAssignmentRepository = {
-    async accessPointExists() {
-      return true
+    async accessPointScope() {
+      return [1]
     },
     async employeeExists() {
       return true

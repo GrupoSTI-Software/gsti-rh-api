@@ -11,6 +11,7 @@ import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee
 import { canDetachAssignment } from '#modules/access-point/employee-sync/employee_sync_state'
 import Employee from '#models/employee'
 import logger from '@adonisjs/core/services/logger'
+import { TenantContext } from '#utils/tenant_context'
 import ReplicationService from '#modules/biometric-vault/replication/replication.service'
 import {
   REPLICATION_MODALITY,
@@ -74,18 +75,22 @@ export default class EmployeeAssignmentService {
    * Comprueba que ambos extremos existan dentro del alcance de la petición.
    *
    * Un identificador de otra unidad de negocio se trata como inexistente, para
-   * no revelar su existencia a quien no puede verlo.
+   * no revelar su existencia a quien no puede verlo. El checador compartido con
+   * la empresa del alcance si existe para ella (VLRH-P0065, 6); el colaborador
+   * se sigue buscando solo en el alcance.
    *
+   * @returns El scope del checador, en el que corre el resto de la operacion:
+   *   sus PIN son de todos los participantes.
    * @throws AccessPointEmployeeServiceError si alguno no existe.
    */
   private async assertBothExist(
     accessPointId: number,
     employeeId: number,
     scope: BusinessUnitScope
-  ): Promise<void> {
-    const accessPointExists = await this.repository.accessPointExists(accessPointId, scope)
+  ): Promise<number[]> {
+    const deviceScope = await this.repository.accessPointScope(accessPointId, scope)
 
-    if (!accessPointExists) {
+    if (!deviceScope) {
       throw new AccessPointEmployeeServiceError({
         key: 'punto-acceso-no-encontrado',
         errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.ACCESS_POINT_NOT_FOUND,
@@ -106,6 +111,8 @@ export default class EmployeeAssignmentService {
         detail: this.t('access_point_employee_employee_not_found_message'),
       })
     }
+
+    return deviceScope
   }
 
   /**
@@ -139,8 +146,20 @@ export default class EmployeeAssignmentService {
     actorUserId: number | null = null,
     trace: AssignmentTrace = {}
   ): Promise<AccessPointEmployeeDto> {
-    await this.assertBothExist(accessPointId, employeeId, scope)
+    const deviceScope = await this.assertBothExist(accessPointId, employeeId, scope)
+    return TenantContext.run(deviceScope, () =>
+      this.assignWithin(accessPointId, employeeId, scope, actorUserId, trace)
+    )
+  }
 
+  /** `assign` ya dentro del scope del checador. */
+  private async assignWithin(
+    accessPointId: number,
+    employeeId: number,
+    scope: BusinessUnitScope,
+    actorUserId: number | null,
+    trace: AssignmentTrace
+  ): Promise<AccessPointEmployeeDto> {
     const existing = await this.repository.findAssignment(accessPointId, employeeId, scope)
 
     if (
@@ -214,8 +233,18 @@ export default class EmployeeAssignmentService {
     employeeId: number,
     scope: BusinessUnitScope
   ): Promise<void> {
-    await this.assertBothExist(accessPointId, employeeId, scope)
+    const deviceScope = await this.assertBothExist(accessPointId, employeeId, scope)
+    return TenantContext.run(deviceScope, () =>
+      this.removeWithin(accessPointId, employeeId, scope)
+    )
+  }
 
+  /** `remove` ya dentro del scope del checador. */
+  private async removeWithin(
+    accessPointId: number,
+    employeeId: number,
+    scope: BusinessUnitScope
+  ): Promise<void> {
     const assignment = await this.repository.findAssignment(accessPointId, employeeId, scope)
 
     if (!assignment) {

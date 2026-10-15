@@ -1,6 +1,9 @@
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
 import Employee from '#models/employee'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 import type EmployeeAssignmentRepository from './employee_assignment.repository.js'
 import type { BusinessUnitScope } from './employee_assignment.repository.js'
 
@@ -23,10 +26,30 @@ export default class EmployeeAssignmentRepositoryMysql
     return query.whereIn('businessUnitId', scope)
   }
 
-  async accessPointExists(accessPointId: number, scope: BusinessUnitScope): Promise<boolean> {
-    const query = AccessPoint.query().where('accessPointId', accessPointId)
-    const found = await this.applyScope(query, scope).first()
-    return Boolean(found)
+  /**
+   * El equipo se lee sin el mixin porque el de otra empresa compartido con la
+   * del alcance tambien cuenta; la consulta se cierra dentro del bypass
+   * (VLRH-A0036, M12). Quien lo ve lo decide el scope del checador.
+   */
+  async accessPointScope(
+    accessPointId: number,
+    scope: BusinessUnitScope
+  ): Promise<number[] | null> {
+    const accessPoint = await TenantContext.runUnscoped(
+      () =>
+        AccessPoint.query()
+          .where('access_point_id', accessPointId)
+          .whereNull('access_point_deleted_at')
+          .first(),
+      TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
+    )
+    if (!accessPoint) return null
+    const participants = await AccessPointScope.participants(
+      accessPoint.accessPointId,
+      accessPoint.businessUnitId
+    )
+    if (!scope || scope.length === 0) return participants
+    return participants.some((id) => scope.includes(id)) ? participants : null
   }
 
   async employeeExists(employeeId: number, scope: BusinessUnitScope): Promise<boolean> {
