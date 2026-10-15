@@ -196,6 +196,7 @@ const SUPPLIES_ROUTE_FILES: RouteFileContract[] = [
       { method: 'get', path: '/employees/:employeeId/assets', handler: '#modules/assets/employee_assets.controller.assets', declaration: supplies('indexEmployeeAssets') },
       { method: 'get', path: '/employees/:employeeId/telework-supplies', handler: '#modules/assets/employee_assets.controller.teleworkSupplies', declaration: supplies('showEmployeeTeleworkSupplies') },
       { method: 'post', path: '/employees/:employeeId/own-equipment-declarations', handler: '#modules/assets/own_equipment_declarations.controller.store', declaration: 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.storeOwnEquipmentDeclaration' },
+      { method: 'put', path: '/own-equipment-declarations/:declarationId', handler: '#modules/assets/own_equipment_declarations.controller.update', declaration: 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateOwnEquipmentDeclaration' },
     ],
     open: [],
   },

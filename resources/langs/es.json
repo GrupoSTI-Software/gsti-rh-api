@@ -3484,6 +3484,8 @@
   "asset_own_equipment_declaration_not_active_detail": "La declaración ya está cerrada; consulta la versión vigente en la ficha del colaborador.",
   "own_equipment_declaration_created_title": "Declaración de equipo propio",
   "own_equipment_declaration_created_message": "Declaración de equipo propio guardada",
+  "own_equipment_declaration_adjusted_title": "Declaración de equipo propio",
+  "own_equipment_declaration_adjusted_message": "Declaración de equipo propio ajustada",
   "asset_employee_telework_supplies_title": "Insumos de teletrabajo del colaborador",
   "asset_employee_telework_supplies_successfully": "Insumos de teletrabajo obtenidos correctamente",
   "vacation_period_not_started_title": "El período aún no inicia",

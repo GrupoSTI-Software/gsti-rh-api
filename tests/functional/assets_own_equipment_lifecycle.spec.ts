@@ -10,6 +10,7 @@ import {
 } from '#tests/helpers/employee_fixture'
 import {
   assertModuleEnforced,
+  assertPermissionDenied,
   cleanupTenantActor,
   createTenantActor,
   grantModulePermissions,
@@ -293,12 +294,17 @@ test.group('Ciclo de vida de la declaración de equipo propio — puerto (sin HT
 test.group('Ciclo de vida de la declaración de equipo propio — endpoint HTTP', (group) => {
   let actorA: TenantActor | null = null
   let actorB: TenantActor | null = null
+  let readerActor: TenantActor | null = null
   let employeeA: EmployeeFixture | null = null
   let employeeB: EmployeeFixture | null = null
   let previousEmployeesEnforcement = false
 
   const createdDeclarationIds: number[] = []
   const settingsBusinessUnitIds: number[] = []
+  const createdSupplyTypeIds: number[] = []
+  const createdSupplyIds: number[] = []
+  const createdEmployeeSupplyIds: number[] = []
+  let fixtureSeq = 0
 
   const actorAUser = () => required(actorA, 'el actor A').user
   const actorBUser = () => required(actorB, 'el actor B').user
@@ -414,6 +420,11 @@ test.group('Ciclo de vida de la declaración de equipo propio — endpoint HTTP'
     await grantModulePermissions(actorA, 'employees', ['manage-employee-supplies'])
     actorB = await createTenantActor('equipo-propio-vida-http-b')
     await grantModulePermissions(actorB, 'employees', ['manage-employee-supplies'])
+    // Actor lector (CA-16): `supplies:read` en el módulo supplies, SIN el permiso
+    // de escritura de Empleados. Prueba que el gate del ajuste es por permiso y
+    // no por módulo, y lee la matriz sobre su propio colaborador (Tarea 6).
+    readerActor = await createTenantActor('equipo-propio-vida-http-lector')
+    await grantModulePermissions(readerActor, 'supplies', ['read'])
 
     employeeA = await createEmployeeFixture(
       actorA.businessUnit.businessUnitId,
@@ -442,11 +453,27 @@ test.group('Ciclo de vida de la declaración de equipo propio — endpoint HTTP'
         .delete()
       settingsBusinessUnitIds.length = 0
     }
+    if (createdEmployeeSupplyIds.length > 0) {
+      await db
+        .from('employee_supplies')
+        .whereIn('employee_supply_id', createdEmployeeSupplyIds)
+        .delete()
+      createdEmployeeSupplyIds.length = 0
+    }
+    if (createdSupplyIds.length > 0) {
+      await db.from('supplies').whereIn('supply_id', createdSupplyIds).delete()
+      createdSupplyIds.length = 0
+    }
+    if (createdSupplyTypeIds.length > 0) {
+      await db.from('supply_types').whereIn('supply_type_id', createdSupplyTypeIds).delete()
+      createdSupplyTypeIds.length = 0
+    }
   })
 
   group.teardown(async () => {
     await cleanupEmployeeFixture(employeeB)
     await cleanupEmployeeFixture(employeeA)
+    await cleanupTenantActor(readerActor)
     await cleanupTenantActor(actorB)
     await cleanupTenantActor(actorA)
     await setModuleEnforcement('employees', previousEmployeesEnforcement)
@@ -527,5 +554,464 @@ test.group('Ciclo de vida de la declaración de equipo propio — endpoint HTTP'
     createdDeclarationIds.push(response.body().data.declarationId)
     // Sin estándar en A y con una cuota capturada, el servidor decide `adjusted`.
     assert.equal(response.body().data.feeSource, 'adjusted')
+  })
+
+  // ── Parte 3: el ajuste versionado por HTTP
+  //    (CA-5 a CA-8, CA-10, CA-11, CA-16 y los Review Focus 1/2). Reutiliza los
+  //    actores, la vigente del alta y `upsertTeleworkSettings` de la parte 2. ───
+
+  /** PUT del ajuste como el usuario dado, con la empresa indicada en la cabecera. */
+  function putAs(
+    client: ApiClient,
+    user: User,
+    buPublicId: string,
+    declarationId: number,
+    payload: Record<string, unknown>
+  ) {
+    return client
+      .put(`/api/own-equipment-declarations/${declarationId}`)
+      .loginAs(user)
+      .headers({ 'X-Business-Unit-Id': buPublicId })
+      .json(payload)
+  }
+
+  const putAsA = (client: ApiClient, declarationId: number, payload: Record<string, unknown>) =>
+    putAs(client, actorAUser(), buPublicIdA(), declarationId, payload)
+
+  const buIdB = () => required(actorB, 'el actor B').businessUnit.businessUnitId
+
+  /** Columnas que el caso puede variar sobre la fila mínima del ajuste. */
+  interface Part3DeclarationOverrides {
+    category?: OwnEquipmentCategory
+    employeeId?: number
+    businessUnitId?: number
+    status?: 'active' | 'closed'
+    startDate?: string
+    endDate?: string | null
+    monthlyFee?: number
+    description?: string
+    conditions?: string | null
+    file?: string | null
+    deletedAt?: Date | null
+  }
+
+  /**
+   * Inserta una declaración por tabla. El caso la usa cuando necesita la fila
+   * cerrada de antemano, con la evidencia ya puesta, con un origen `adjusted`
+   * desde el arranque o colgada de otra empresa (el aislamiento de CA-11).
+   */
+  async function insertDeclaration(overrides: Part3DeclarationOverrides = {}): Promise<number> {
+    const [declarationId] = await db.table('employee_own_equipment_declarations').insert({
+      employee_id: overrides.employeeId ?? employeeIdA(),
+      business_unit_id: overrides.businessUnitId ?? buIdA(),
+      employee_own_equipment_declaration_category: overrides.category ?? 'ergonomic_chair',
+      employee_own_equipment_declaration_description:
+        overrides.description ?? `Equipo propio ciclo ${RUN}`,
+      employee_own_equipment_declaration_conditions: overrides.conditions ?? null,
+      employee_own_equipment_declaration_start_date: overrides.startDate ?? '2026-09-01',
+      employee_own_equipment_declaration_end_date: overrides.endDate ?? null,
+      employee_own_equipment_declaration_monthly_fee: overrides.monthlyFee ?? 350,
+      employee_own_equipment_declaration_fee_source: 'adjusted',
+      employee_own_equipment_declaration_file: overrides.file ?? null,
+      employee_own_equipment_declaration_status: overrides.status ?? 'active',
+      employee_own_equipment_declaration_created_by_user_id: actorAUser().userId,
+      employee_own_equipment_declaration_created_at: new Date(),
+      employee_own_equipment_declaration_deleted_at: overrides.deletedAt ?? null,
+    })
+
+    const id = Number(declarationId)
+    createdDeclarationIds.push(id)
+    return id
+  }
+
+  /** Fila cruda de la declaración para las aserciones de la parte 3. */
+  interface Part3DeclarationRow {
+    employee_id: number
+    business_unit_id: number
+    employee_own_equipment_declaration_category: string
+    employee_own_equipment_declaration_description: string
+    employee_own_equipment_declaration_conditions: string | null
+    employee_own_equipment_declaration_start_date: string
+    employee_own_equipment_declaration_end_date: string | null
+    employee_own_equipment_declaration_monthly_fee: string
+    employee_own_equipment_declaration_fee_source: string
+    employee_own_equipment_declaration_file: string | null
+    employee_own_equipment_declaration_status: string
+    employee_own_equipment_declaration_closed_reason: string | null
+    employee_own_equipment_declaration_created_by_user_id: number
+    employee_own_equipment_declaration_closed_by_user_id: number | null
+  }
+
+  async function declarationRow(id: number): Promise<Part3DeclarationRow> {
+    // Las columnas `DATE` de este query builder llegan como `Date`; se formatean
+    // a `YYYY-MM-DD` como lo hace el puerto (`DATE_FORMAT`).
+    return db
+      .from('employee_own_equipment_declarations')
+      .where('employee_own_equipment_declaration_id', id)
+      .select(
+        'employee_id',
+        'business_unit_id',
+        'employee_own_equipment_declaration_category',
+        'employee_own_equipment_declaration_description',
+        'employee_own_equipment_declaration_conditions',
+        db.raw(
+          "DATE_FORMAT(employee_own_equipment_declaration_start_date, '%Y-%m-%d') as employee_own_equipment_declaration_start_date"
+        ),
+        db.raw(
+          "DATE_FORMAT(employee_own_equipment_declaration_end_date, '%Y-%m-%d') as employee_own_equipment_declaration_end_date"
+        ),
+        'employee_own_equipment_declaration_monthly_fee',
+        'employee_own_equipment_declaration_fee_source',
+        'employee_own_equipment_declaration_file',
+        'employee_own_equipment_declaration_status',
+        'employee_own_equipment_declaration_closed_reason',
+        'employee_own_equipment_declaration_created_by_user_id',
+        'employee_own_equipment_declaration_closed_by_user_id'
+      )
+      .firstOrFail()
+  }
+
+  /**
+   * Insumo de teletrabajo con su tipo y resguardo, por tabla: lo que necesita
+   * CA-8 para cubrir una categoría con un activo abierto (en envío).
+   */
+  async function createTeleworkSupply(
+    overrides: { category?: OwnEquipmentCategory; status?: 'active' | 'shipping' } = {}
+  ): Promise<{ employeeSupplyId: number; supplyId: number }> {
+    fixtureSeq += 1
+    const businessUnit = buIdA()
+
+    const [typeId] = await db.table('supply_types').insert({
+      business_unit_id: businessUnit,
+      supply_type_name: `Insumo ciclo ${RUN}-${fixtureSeq}`,
+      supply_type_slug: `insumo-ciclo-${RUN}-${fixtureSeq}`,
+      supply_type_telework_category: overrides.category ?? 'ergonomic_chair',
+      supply_type_created_at: new Date(),
+    })
+    createdSupplyTypeIds.push(Number(typeId))
+
+    const [supplyId] = await db.table('supplies').insert({
+      business_unit_id: businessUnit,
+      supply_file_number: 1_000_000_000 + (Date.now() % 500_000_000) + fixtureSeq,
+      supply_name: `Activo ciclo ${fixtureSeq}`,
+      supply_type_id: Number(typeId),
+      supply_status: 'active',
+      supply_created_at: new Date(),
+    })
+    createdSupplyIds.push(Number(supplyId))
+
+    const [employeeSupplyId] = await db.table('employee_supplies').insert({
+      employee_id: employeeIdA(),
+      supply_id: Number(supplyId),
+      business_unit_id: businessUnit,
+      employee_supply_status: overrides.status ?? 'active',
+      employee_supply_assignament_date: '2026-08-01 00:00:00',
+      employee_supply_created_at: new Date(),
+    })
+    createdEmployeeSupplyIds.push(Number(employeeSupplyId))
+
+    return { employeeSupplyId: Number(employeeSupplyId), supplyId: Number(supplyId) }
+  }
+
+  /** Alta de la vigente de silla del colaborador A, con su id. */
+  async function createOpenChair(client: ApiClient): Promise<number> {
+    const created = await postAsA(client, employeeIdA(), { ...BASE_PAYLOAD })
+    created.assertStatus(201)
+    const declarationId = created.body().data.declarationId
+    createdDeclarationIds.push(declarationId)
+    return declarationId
+  }
+
+  test('CA-5: el ajuste cierra la vigente y abre la nueva en un solo paso', async ({
+    client,
+    assert,
+  }) => {
+    await upsertTeleworkSettings(buIdA(), 350)
+    const oldId = await createOpenChair(client)
+
+    // La evidencia de la versión vieja (la hermana C): no debe moverse.
+    await db
+      .from('employee_own_equipment_declarations')
+      .where('employee_own_equipment_declaration_id', oldId)
+      .update({ employee_own_equipment_declaration_file: 'evidencia.png' })
+
+    const response = await putAsA(client, oldId, { monthlyFee: 420, effectiveDate: '2026-10-15' })
+    response.assertStatus(200)
+
+    const body = response.body()
+    assert.equal(body.type, 'success')
+    assert.equal(body.title, 'Declaración de equipo propio')
+    assert.equal(body.message, 'Declaración de equipo propio ajustada')
+
+    const newId = body.data.declarationId
+    createdDeclarationIds.push(newId)
+    assert.notEqual(newId, oldId)
+    assert.equal(body.data.employeeId, employeeIdA())
+    assert.equal(body.data.category, 'ergonomic_chair')
+    assert.equal(body.data.description, BASE_PAYLOAD.description)
+    assert.equal(body.data.conditions, BASE_PAYLOAD.conditions)
+    assert.equal(body.data.startDate, '2026-10-15')
+    assert.equal(body.data.monthlyFee, 420)
+    assert.equal(body.data.feeSource, 'adjusted')
+    assert.equal(body.data.status, 'active')
+
+    // La versión nueva: clona la vieja, nace sin archivo y con la autoría del actor.
+    const fresh = await declarationRow(newId)
+    assert.equal(fresh.employee_id, employeeIdA())
+    assert.equal(fresh.business_unit_id, buIdA())
+    assert.equal(fresh.employee_own_equipment_declaration_category, 'ergonomic_chair')
+    assert.equal(fresh.employee_own_equipment_declaration_description, BASE_PAYLOAD.description)
+    assert.equal(fresh.employee_own_equipment_declaration_conditions, BASE_PAYLOAD.conditions)
+    assert.equal(fresh.employee_own_equipment_declaration_start_date, '2026-10-15')
+    assert.equal(Number(fresh.employee_own_equipment_declaration_monthly_fee), 420)
+    assert.equal(fresh.employee_own_equipment_declaration_fee_source, 'adjusted')
+    assert.equal(fresh.employee_own_equipment_declaration_status, 'active')
+    assert.isNull(fresh.employee_own_equipment_declaration_file)
+    assert.equal(fresh.employee_own_equipment_declaration_created_by_user_id, actorAUser().userId)
+
+    // La vieja: cerrada el día civil anterior, por `adjusted`, con autor, y su
+    // evidencia intacta.
+    const closed = await declarationRow(oldId)
+    assert.equal(closed.employee_own_equipment_declaration_status, 'closed')
+    assert.equal(closed.employee_own_equipment_declaration_end_date, '2026-10-14')
+    assert.equal(closed.employee_own_equipment_declaration_closed_reason, 'adjusted')
+    assert.equal(closed.employee_own_equipment_declaration_closed_by_user_id, actorAUser().userId)
+    assert.equal(closed.employee_own_equipment_declaration_file, 'evidencia.png')
+
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 1)
+  })
+
+  test('CA-6: la vigencia debe ser posterior al inicio; el día siguiente es válido', async ({
+    client,
+    assert,
+  }) => {
+    await upsertTeleworkSettings(buIdA(), 350)
+    const oldId = await createOpenChair(client)
+
+    // El día siguiente al inicio de la vigente es válido.
+    const next = await putAsA(client, oldId, { monthlyFee: 420, effectiveDate: '2026-09-02' })
+    next.assertStatus(200)
+    const newId = next.body().data.declarationId
+    createdDeclarationIds.push(newId)
+
+    const closedOld = await declarationRow(oldId)
+    assert.equal(closedOld.employee_own_equipment_declaration_end_date, '2026-09-01')
+
+    // Anterior al inicio: 422 de fecha (el chequeo va ANTES que el de cambios:
+    // sin cuota en el body, la versión vigente hereda la suya).
+    const beforeStart = await putAsA(client, newId, { effectiveDate: '2026-09-01' })
+    beforeStart.assertStatus(422)
+    assert.equal(beforeStart.body().key, 'entrada-invalida')
+    assert.equal(
+      beforeStart.body().detail,
+      'La fecha de vigencia debe ser posterior al inicio de la declaración vigente'
+    )
+
+    const before = await putAsA(client, newId, { effectiveDate: '2026-08-31' })
+    before.assertStatus(422)
+    assert.equal(before.body().key, 'entrada-invalida')
+    assert.equal(
+      before.body().detail,
+      'La fecha de vigencia debe ser posterior al inicio de la declaración vigente'
+    )
+
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 1)
+    const afterRejects = await declarationRow(newId)
+    assert.equal(afterRejects.employee_own_equipment_declaration_status, 'active')
+  })
+
+  test('CA-7: el ajuste sin cambios se rechaza y no nace una versión', async ({
+    client,
+    assert,
+  }) => {
+    await upsertTeleworkSettings(buIdA(), 350)
+    const oldId = await createOpenChair(client)
+
+    const response = await putAsA(client, oldId, {
+      monthlyFee: 350,
+      description: BASE_PAYLOAD.description,
+    })
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'entrada-invalida')
+    assert.equal(
+      response.body().detail,
+      'El ajuste no cambia nada: cuota, descripción o condiciones deben diferir de la versión vigente'
+    )
+
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 1)
+    const unchanged = await declarationRow(oldId)
+    assert.equal(unchanged.employee_own_equipment_declaration_status, 'active')
+  })
+
+  test('Review Focus 1: conditions null limpia y es un cambio válido', async ({
+    client,
+    assert,
+  }) => {
+    await upsertTeleworkSettings(buIdA(), 350)
+    const oldId = await createOpenChair(client)
+
+    const response = await putAsA(client, oldId, { monthlyFee: 350, conditions: null })
+    response.assertStatus(200)
+    const newId = response.body().data.declarationId
+    createdDeclarationIds.push(newId)
+
+    const cleared = await declarationRow(newId)
+    assert.isNull(cleared.employee_own_equipment_declaration_conditions)
+    // La vieja conserva sus condiciones.
+    const previous = await declarationRow(oldId)
+    assert.equal(previous.employee_own_equipment_declaration_conditions, BASE_PAYLOAD.conditions)
+  })
+
+  test('Review Focus 2: ajustar al monto de la estándar recalcula el origen a default', async ({
+    client,
+    assert,
+  }) => {
+    await upsertTeleworkSettings(buIdA(), 350)
+
+    // La vigente nace con el origen capturado (`adjusted`), no con la estándar:
+    // el ajuste a 350 debe recalcularlo a `default`.
+    const oldId = await insertDeclaration({ monthlyFee: 350, description: 'Silla propia' })
+
+    const response = await putAsA(client, oldId, { monthlyFee: 350, description: 'otra' })
+    response.assertStatus(200)
+    const newId = response.body().data.declarationId
+    createdDeclarationIds.push(newId)
+
+    assert.equal(response.body().data.feeSource, 'default')
+    const fresh = await declarationRow(newId)
+    assert.equal(fresh.employee_own_equipment_declaration_fee_source, 'default')
+    assert.equal(Number(fresh.employee_own_equipment_declaration_monthly_fee), 350)
+  })
+
+  test('CA-8: ajustar una categoría cubierta por un activo se rechaza', async ({
+    client,
+    assert,
+  }) => {
+    await upsertTeleworkSettings(buIdA(), 350)
+    const oldId = await insertDeclaration({ category: 'ergonomic_chair' })
+
+    // Resguardo en envío de la misma categoría: la cubre (R6).
+    await createTeleworkSupply({ category: 'ergonomic_chair', status: 'shipping' })
+
+    const response = await putAsA(client, oldId, { monthlyFee: 420, effectiveDate: '2026-10-15' })
+    response.assertStatus(409)
+    assert.equal(response.body().key, 'categoria-cubierta-por-activo')
+
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 1)
+    const stillActive = await declarationRow(oldId)
+    assert.equal(stillActive.employee_own_equipment_declaration_status, 'active')
+  })
+
+  test('CA-10: sobre una cerrada, 409 sin efecto; dos PUT concurrentes dejan una sola versión', async ({
+    client,
+    assert,
+  }) => {
+    // Cerrada de antemano: el ajuste no procede.
+    const closedId = await insertDeclaration({
+      category: 'ergonomic_chair',
+      status: 'closed',
+      endDate: '2026-09-30',
+    })
+
+    const overClosed = await putAsA(client, closedId, {
+      monthlyFee: 420,
+      effectiveDate: '2026-10-15',
+    })
+    overClosed.assertStatus(409)
+    assert.equal(overClosed.body().key, 'declaracion-de-equipo-propio-no-vigente')
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 0)
+
+    // Vigente para el par concurrente: el candado del colaborador serializa y
+    // deja una sola versión nueva.
+    const activeId = await insertDeclaration({ category: 'ergonomic_chair' })
+    const payload = { monthlyFee: 420, effectiveDate: '2026-10-15' }
+    const [first, second] = await Promise.all([
+      putAsA(client, activeId, payload),
+      putAsA(client, activeId, payload),
+    ])
+
+    const statuses = [first.status(), second.status()].sort((a, b) => a - b)
+    assert.deepEqual(statuses, [200, 409])
+
+    const conflict = first.status() === 409 ? first : second
+    assert.include(
+      ['declaracion-de-equipo-propio-no-vigente', 'declaracion-de-equipo-propio-vigente-existente'],
+      conflict.body().key
+    )
+
+    const created = first.status() === 200 ? first : second
+    createdDeclarationIds.push(created.body().data.declarationId)
+
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 1)
+  })
+
+  test('CA-11: ajena, inexistente y borrada responden el mismo 404', async ({
+    client,
+    assert,
+  }) => {
+    const foreignId = await insertDeclaration({
+      employeeId: employeeIdB(),
+      businessUnitId: buIdB(),
+    })
+    const deletedId = await insertDeclaration({ category: 'computing_equipment', deletedAt: new Date() })
+
+    const payload = { monthlyFee: 420, effectiveDate: '2026-10-15' }
+    const foreign = await putAsA(client, foreignId, payload)
+    const missing = await putAsA(client, 2_000_000_000, payload)
+    const deleted = await putAsA(client, deletedId, payload)
+
+    for (const response of [foreign, missing, deleted]) response.assertStatus(404)
+
+    const expected = {
+      type: 'error',
+      title: 'Declaración de equipo propio no encontrada',
+      message: 'La declaración no existe o no pertenece a la empresa.',
+      detail: 'La declaración no existe o no pertenece a la empresa.',
+      key: 'declaracion-de-equipo-propio-no-encontrada',
+      data: null,
+    }
+    assert.deepEqual(foreign.body(), expected)
+    assert.deepEqual(missing.body(), expected)
+    assert.deepEqual(deleted.body(), expected)
+  })
+
+  test('RF: el ajuste con el colaborador dado de baja responde 404 colaborador-no-encontrado', async ({
+    client,
+    assert,
+  }) => {
+    const oldId = await insertDeclaration({ category: 'ergonomic_chair' })
+
+    // Baja lógica temporal del colaborador A: se restaura al terminar el caso.
+    await db
+      .from('employees')
+      .where('employee_id', employeeIdA())
+      .update({ employee_deleted_at: new Date() })
+    const response = await putAsA(client, oldId, { monthlyFee: 420, effectiveDate: '2026-10-15' })
+    await db
+      .from('employees')
+      .where('employee_id', employeeIdA())
+      .update({ employee_deleted_at: null })
+
+    response.assertStatus(404)
+    assert.equal(response.body().key, 'colaborador-no-encontrado')
+
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 1)
+    const stillOpen = await declarationRow(oldId)
+    assert.equal(stillOpen.employee_own_equipment_declaration_status, 'active')
+    assert.isNull(stillOpen.employee_own_equipment_declaration_end_date)
+  })
+
+  test('CA-16: sin manage-employee-supplies el gate responde 403', async ({ client, assert }) => {
+    const reader = required(readerActor, 'el actor lector')
+
+    // `supplies:read` no abre el gate de Empleados: el 403 corre antes del
+    // handler (no hace falta un `:declarationId` válido).
+    const denied = await putAs(client, reader.user, reader.businessUnit.businessUnitPublicId, 2_000_000_000, {
+      monthlyFee: 420,
+      effectiveDate: '2026-10-15',
+    })
+    assertPermissionDenied(assert, denied)
+
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 0)
   })
 })

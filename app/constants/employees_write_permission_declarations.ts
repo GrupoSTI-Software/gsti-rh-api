@@ -224,6 +224,7 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   ]),
   createEmployeeSupply: employeesStandard('manage-employee-supplies'),
   storeOwnEquipmentDeclaration: employeesStandard('manage-employee-supplies'),
+  updateOwnEquipmentDeclaration: employeesStandard('manage-employee-supplies'),
   updateEmployeeSupply: employeesStandard('manage-employee-supplies'),
   retireEmployeeSupply: employeesStandard('manage-employee-supplies'),
   deleteEmployeeSupply: employeesStandard('manage-employee-supplies'),

@@ -3481,6 +3481,8 @@
   "asset_own_equipment_declaration_not_active_detail": "The declaration is already closed; check the current version on the employee profile.",
   "own_equipment_declaration_created_title": "Own equipment declaration",
   "own_equipment_declaration_created_message": "Own equipment declaration saved",
+  "own_equipment_declaration_adjusted_title": "Own equipment declaration",
+  "own_equipment_declaration_adjusted_message": "Own equipment declaration adjusted",
   "asset_employee_telework_supplies_title": "Employee telework supplies",
   "asset_employee_telework_supplies_successfully": "Employee telework supplies retrieved successfully",
   "vacation_period_not_started_title": "The period has not started",

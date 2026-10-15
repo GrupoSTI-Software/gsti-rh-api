@@ -5,7 +5,11 @@ import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework
 import { AssetError, respondAssetsModuleError } from './assets.error.js'
 import OwnEquipmentDeclarationsService from './own_equipment_declarations.service.js'
 import { employeeIdParamsValidator } from './validators/assets.validator.js'
-import { createOwnEquipmentDeclarationValidator } from './validators/own_equipment_declarations.validator.js'
+import {
+  adjustOwnEquipmentDeclarationValidator,
+  createOwnEquipmentDeclarationValidator,
+  declarationIdParamsValidator,
+} from './validators/own_equipment_declarations.validator.js'
 
 /**
  * Alta de la declaración del uso de equipo propio con su cuota
@@ -149,6 +153,108 @@ export default class OwnEquipmentDeclarationsController {
           'own_equipment_declaration_created_message',
           undefined,
           'Declaración de equipo propio guardada'
+        ),
+        data,
+      })
+    } catch (error) {
+      return respondAssetsModuleError(ctx, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/own-equipment-declarations/{declarationId}:
+   *   put:
+   *     summary: Ajustar la declaración de equipo propio (versionado)
+   *     description: |
+   *       Cierra la declaración vigente el día civil anterior a la fecha de
+   *       vigencia y abre la versión nueva en la misma transacción. La cuota, la
+   *       descripción y las condiciones son opcionales: lo que no llega se
+   *       hereda de la versión vigente (`conditions: null` limpia). El ajuste
+   *       debe cambiar algo y la fecha de vigencia debe ser posterior al inicio
+   *       de la vigente. La empresa, el colaborador y la categoría salen de la
+   *       fila vieja; `fee_source` y `status` los fija el servidor.
+   *     tags: [Assets]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - { in: header, name: X-Business-Unit-Id, required: true, schema: { type: string } }
+   *       - { in: path, name: declarationId, required: true, schema: { type: integer } }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               effectiveDate: { type: string, format: date, example: "2026-11-01", description: "Opcional: posterior al inicio de la vigente. Si falta, el día de hoy." }
+   *               description: { type: string, maxLength: 255 }
+   *               conditions: { type: string, maxLength: 2000, nullable: true, description: "Opcional: `null` limpia las condiciones." }
+   *               monthlyFee: { type: number, example: 420, description: "Opcional: si falta, hereda la cuota de la versión vigente. 0 o más, hasta dos decimales." }
+   *           example:
+   *             effectiveDate: "2026-11-01"
+   *             monthlyFee: 420
+   *     responses:
+   *       '200':
+   *         description: Versión nueva guardada; la anterior quedó cerrada.
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: success
+   *               title: Declaración de equipo propio
+   *               message: Declaración de equipo propio ajustada
+   *               data:
+   *                 declarationId: 42
+   *                 employeeId: 57
+   *                 category: ergonomic_chair
+   *                 description: Silla de oficina con respaldo ajustable
+   *                 conditions: Buen estado; uso exclusivo para trabajo
+   *                 startDate: "2026-11-01"
+   *                 endDate: null
+   *                 monthlyFee: 420
+   *                 feeSource: adjusted
+   *                 status: active
+   *                 closedReason: null
+   *                 createdAt: "2026-11-01T16:02:11.000Z"
+   *       '403': { description: "Sin `employees:manage-employee-supplies` (gate)." }
+   *       '404':
+   *         description: "`declaracion-de-equipo-propio-no-encontrada` (ajena, inexistente o borrada) o `colaborador-no-encontrado` (dado de baja)."
+   *         content: { application/json: { schema: { $ref: '#/components/schemas/AssetError' } } }
+   *       '409':
+   *         description: "`declaracion-de-equipo-propio-no-vigente`, `categoria-cubierta-por-activo` o `declaracion-de-equipo-propio-vigente-existente`."
+   *         content: { application/json: { schema: { $ref: '#/components/schemas/AssetError' } } }
+   *       '422':
+   *         description: |
+   *           `cuota-de-equipo-propio-invalida`, `colaborador-sin-teletrabajo` o
+   *           `entrada-invalida` (fecha de vigencia o ajuste sin cambios).
+   *         content: { application/json: { schema: { $ref: '#/components/schemas/AssetError' } } }
+   *       '500':
+   *         description: "`key: error-inesperado` (detalle fijo, sin `error.message`)."
+   *         content: { application/json: { schema: { $ref: '#/components/schemas/AssetError' } } }
+   */
+  async update(ctx: HttpContext) {
+    const { params, request, response, auth, i18n } = ctx
+    try {
+      const { declarationId } = await declarationIdParamsValidator.validate(params)
+      const input = await request.validateUsing(adjustOwnEquipmentDeclarationValidator)
+
+      // La cuota no pasa por Vine: se entrega cruda para validarla por texto.
+      const rawMonthlyFee = request.input('monthlyFee')
+      const userId = auth.getUserOrFail().userId
+
+      const data = await this.service.adjust(declarationId, input, rawMonthlyFee, userId)
+
+      return response.status(200).json({
+        type: 'success',
+        title: i18n.t(
+          'own_equipment_declaration_adjusted_title',
+          undefined,
+          'Declaración de equipo propio'
+        ),
+        message: i18n.t(
+          'own_equipment_declaration_adjusted_message',
+          undefined,
+          'Declaración de equipo propio ajustada'
         ),
         data,
       })

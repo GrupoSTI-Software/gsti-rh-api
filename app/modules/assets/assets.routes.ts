@@ -63,6 +63,15 @@ router
       .use(
         middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.storeOwnEquipmentDeclaration)
       )
+    // Ajuste versionado de la declaración: cierra la vigente y abre la nueva.
+    router
+      .put(
+        '/own-equipment-declarations/:declarationId',
+        '#modules/assets/own_equipment_declarations.controller.update'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateOwnEquipmentDeclaration)
+      )
   })
   .prefix('/api')
   .use(middleware.auth())
