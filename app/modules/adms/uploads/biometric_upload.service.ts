@@ -243,7 +243,11 @@ export default class BiometricUploadService {
       }
       const result = await this.templates.store({
         employeeId: resolution.employeeId,
-        businessUnitId: device.businessUnitId,
+        /**
+         * Empresa del colaborador, no del aparato (VLRH-P0065, 3.3): en un
+         * checador compartido el template de la invitada es de la invitada.
+         */
+        businessUnitId: resolution.businessUnitId,
         bioType: row.bioType,
         bioNo: row.bioNo,
         bioIndex: row.bioIndex,
@@ -302,7 +306,12 @@ export default class BiometricUploadService {
        */
       if (result.created) {
         try {
-          await this.spreadToPeers(device, resolution.employeeId, requestedByUserId, row)
+          await this.spreadToPeers(
+            device,
+            { employeeId: resolution.employeeId, businessUnitId: resolution.businessUnitId },
+            requestedByUserId,
+            row
+          )
         } catch (error) {
           logger.warn(
             { accessPointId: device.accessPointId, error: (error as Error).message.slice(0, 200) },
@@ -341,19 +350,18 @@ export default class BiometricUploadService {
    */
   private async spreadToPeers(
     device: ResolvedAdmsDevice,
-    employeeId: number,
+    owner: { employeeId: number; businessUnitId: number },
     requestedByUserId: number | null,
     row: NormalizedBiometric
   ): Promise<void> {
+    const { employeeId } = owner
     const live = await this.pivots.listLiveByEmployee(employeeId)
     /**
      * La copia es a nombre de la empresa del colaborador, no de la responsable
      * del aparato (VLRH-P0065, 3.3): en un checador compartido son distintas.
-     * El pivote del equipo que capturo lleva la del colaborador.
+     * La trae la resolucion del PIN, que la lee del pivote.
      */
-    const employeeBusinessUnitId =
-      live.find((pivot) => pivot.accessPointId === device.accessPointId)?.businessUnitId ??
-      device.businessUnitId
+    const employeeBusinessUnitId = owner.businessUnitId
     const peers = live.filter(
       (pivot) =>
         pivot.accessPointId !== device.accessPointId &&

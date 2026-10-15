@@ -133,6 +133,12 @@ export async function createSharedAccessPointFixture(): Promise<SharedFixture> {
         await step(() => db.from('adms_held_punches').where('access_point_id', apId).delete())
         await step(() => db.from('adms_unmapped_pins').where('access_point_id', apId).delete())
         await step(() => db.from('device_commands').where('access_point_id', apId).delete())
+        await step(() =>
+          db.from('biometric_photo_publications').where('access_point_id', apId).delete()
+        )
+        await step(() =>
+          db.from('biometric_templates').where('source_access_point_id', apId).delete()
+        )
         await step(() => db.from('adms_incidents').where('access_point_id', apId).delete())
         await step(() => db.from('access_point_stamps').where('access_point_id', apId).delete())
         await step(() =>

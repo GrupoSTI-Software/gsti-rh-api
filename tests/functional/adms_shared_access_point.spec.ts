@@ -9,6 +9,7 @@ import DeviceCommand from '#models/device_command'
 import AdmsHeldPunch from '#models/adms_held_punch'
 import AdmsUnmappedPin from '#models/adms_unmapped_pin'
 import { TenantContext } from '#utils/tenant_context'
+import PhotoPublicationService from '#modules/biometric-vault/photo/photo_publication.service'
 import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import type { CommandInsert } from '#modules/device-commands/device_command.repository'
@@ -208,6 +209,63 @@ test.group('Checador compartido: canal ADMS', (group) => {
     }
   })
 
+  test('la huella que sube el aparato de un empleado de la invitada es de la invitada', async ({
+    assert,
+  }) => {
+    // La boveda hace upsert por dedo: se usa uno libre para no pisar (ni luego borrar) un
+    // template real del empleado.
+    const taken = await unscoped(() =>
+      db
+        .from('biometric_templates')
+        .where('employee_id', fx.guestEmployee.employeeId)
+        .where('biometric_template_bio_type', 1)
+        .select('biometric_template_bio_no')
+    )
+    const takenNos = new Set(taken.map((row) => Number(row.biometric_template_bio_no)))
+    const bioNo = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9].find((no) => !takenNos.has(no))
+    assert.isDefined(bioNo, 'el empleado de la invitada no tiene un dedo libre para la prueba')
+    const blob = Buffer.from(`share-${Date.now()}-`.repeat(80)).toString('base64').slice(0, 1120)
+    const res = await admsChannelPost(
+      `/iclock/cdata?SN=${fx.accessPoint.accessPointSerialNumber}&table=BIODATA&Stamp=9999`,
+      `BIODATA Pin=${fx.guestPin}\tNo=${bioNo}\tIndex=0\tValid=1\tDuress=0\tType=1\tMajorVer=10\tMinorVer=0\tFormat=0\tTmp=${blob}\n`,
+      fx.accessPoint.accessPointChannelSecret
+    )
+    assert.equal(res.status, 200)
+    const rows = await unscoped(() =>
+      db
+        .from('biometric_templates')
+        .where('source_access_point_id', fx.accessPoint.accessPointId)
+        .where('employee_id', fx.guestEmployee.employeeId)
+        .select('business_unit_id')
+    )
+    assert.isAbove(rows.length, 0)
+    for (const row of rows) assert.equal(row.business_unit_id, fx.guestBu)
+  })
+
+  test('la foto publicada al empleado de la invitada lleva su empresa', async ({ assert }) => {
+    const pivot = await unscoped(() =>
+      AccessPointEmployee.query()
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .where('employee_id', fx.guestEmployee.employeeId)
+        .firstOrFail()
+    )
+    // Lo publica el flujo del Backoffice con la empresa del colaborador; la fila y su comando
+    // cuelgan del checador y los borra el cleanup de la fixture.
+    const published = await TenantContext.run([fx.ownerBu, fx.guestBu], () =>
+      new PhotoPublicationService().publish({
+        businessUnitId: fx.guestEmployee.businessUnitId as number,
+        employeeId: fx.guestEmployee.employeeId,
+        accessPointId: fx.accessPoint.accessPointId,
+        accessPointEmployeeId: pivot.accessPointEmployeeId,
+        pin: fx.guestPin,
+        derivativeVersion: 1,
+        requestedByUserId: null,
+        now: DateTime.utc(),
+      })
+    )
+    assert.equal(published.publication.businessUnitId, fx.guestBu)
+  })
+
   // Va al final del grupo: revisa lo que dejaron las pruebas anteriores. Regla 3.3 de VLRH-P0065:
   // lo del aparato lleva la empresa responsable; lo del empleado, la empresa del empleado.
   test('cada tabla del canal queda con la empresa que le toca', async ({ assert }) => {
@@ -232,16 +290,13 @@ test.group('Checador compartido: canal ADMS', (group) => {
       'adms_held_punches',
       'adms_unmapped_pins',
     ])
-    const withRows: string[] = []
     const withoutRows: string[] = []
     for (const table of deviceTables) {
       const rows = await rowsOf(table)
       for (const row of rows) {
         assert.equal(row.business_unit_id, fx.ownerBu, `${table}: debe llevar la responsable`)
       }
-      ;(rows.length > 0 ? withRows : withoutRows).push(
-        `${table}[${[...new Set(rows.map((r) => r.business_unit_id))].join('/')}]`
-      )
+      if (rows.length === 0) withoutRows.push(table)
       if (mustHaveRows.has(table))
         assert.isAbove(rows.length, 0, `${table}: sin filas, prueba vacua`)
     }
@@ -256,8 +311,8 @@ test.group('Checador compartido: canal ADMS', (group) => {
     const employeeTables: Array<{ table: string; apColumn: string; must: boolean }> = [
       { table: 'access_point_employees', apColumn: 'access_point_id', must: true },
       { table: 'device_commands', apColumn: 'access_point_id', must: false },
-      { table: 'biometric_templates', apColumn: 'source_access_point_id', must: false },
-      { table: 'biometric_photo_publications', apColumn: 'access_point_id', must: false },
+      { table: 'biometric_templates', apColumn: 'source_access_point_id', must: true },
+      { table: 'biometric_photo_publications', apColumn: 'access_point_id', must: true },
     ]
     for (const { table, apColumn, must } of employeeTables) {
       const all = await rowsOf(table, apColumn)
@@ -271,9 +326,7 @@ test.group('Checador compartido: canal ADMS', (group) => {
           `${table}: debe llevar la empresa del empleado ${row.employee_id}`
         )
       }
-      ;(rows.length > 0 ? withRows : withoutRows).push(
-        `${table}[${[...new Set(rows.map((r) => r.business_unit_id))].join('/')}]`
-      )
+      if (rows.length === 0) withoutRows.push(table)
       if (must) assert.isAbove(rows.length, 0, `${table}: sin filas, prueba vacua`)
     }
 
@@ -287,7 +340,6 @@ test.group('Checador compartido: canal ADMS', (group) => {
     assert.isAbove(assists.length, 0, 'assists: sin filas, prueba vacua')
     const assistOwners = await employeeBu(assists.map((a) => a.assist_emp_id as number))
     for (const a of assists) assert.equal(a.business_unit_id, assistOwners.get(a.assist_emp_id))
-    withRows.push('assists')
 
     // Ambas empresas deben aparecer en las tablas del empleado (si no, no se probo la particion).
     const pivots = await rowsOf('access_point_employees')
@@ -296,9 +348,10 @@ test.group('Checador compartido: canal ADMS', (group) => {
       [fx.ownerBu, fx.guestBu]
     )
 
-    // eslint-disable-next-line no-console
-    console.log(
-      `[aislamiento] (owner=${fx.ownerBu} guest=${fx.guestBu}) con filas: ${withRows.join(', ')} | sin filas: ${withoutRows.join(', ') || '-'}`
-    )
+    // Solo estas pueden quedar vacias: ninguna prueba del grupo provoca sus escrituras.
+    const allowedEmpty = ['adms_held_biometrics', 'adms_incidents']
+    for (const table of withoutRows) {
+      assert.include(allowedEmpty, table, `${table}: sin filas, prueba vacua`)
+    }
   })
 })
