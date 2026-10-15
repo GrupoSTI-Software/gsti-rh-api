@@ -506,6 +506,37 @@ test.group('Checador compartido: Backoffice', (group) => {
     assert.equal(pivot.accessPointEmployeePin, '9123')
   })
 
+  test('solo la responsable descarta el PIN no mapeado del aparato', async ({
+    client,
+    assert,
+  }) => {
+    const pending = await seedUnmappedPin(fx, '9127')
+    const guest = await actorFor(fx.guestBu)
+    const denied = await client
+      .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/dismiss`)
+      .json({ reason: 'no se de quien es' })
+      .loginAs(guest.user.user)
+      .header('X-Business-Unit-Id', guest.publicId)
+    denied.assertStatus(404)
+    denied.assertBodyContains({ key: 'pin-pendiente-no-encontrado' })
+
+    const owner = await actorFor(fx.ownerBu)
+    const done = await client
+      .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/dismiss`)
+      .json({ reason: 'no se de quien es' })
+      .loginAs(owner.user.user)
+      .header('X-Business-Unit-Id', owner.publicId)
+    done.assertStatus(200)
+    const row = await unscoped(() =>
+      db
+        .from('adms_unmapped_pins')
+        .where('adms_unmapped_pin_id', pending.admsUnmappedPinId)
+        .select('adms_unmapped_pin_status')
+        .first()
+    )
+    assert.equal(row?.adms_unmapped_pin_status, 'dismissed')
+  })
+
   test('una empresa ajena no ve ni reclama el PIN no mapeado del aparato', async ({
     client,
     assert,

@@ -299,6 +299,12 @@ export default class UnmappedPinsService {
     now?: DateTime
   }): Promise<AdmsUnmappedPin> {
     const row = await this.requirePendingRow(input.unmappedPinId, input.businessUnitIds)
+    /**
+     * Descartar es decidir sobre el numero del aparato, y la fila es de la
+     * responsable (VLRH-P0065, 3.3). La invitada puede reclamarlo con su
+     * personal, no descartarlo: para ella se comporta como inexistente.
+     */
+    if (!input.businessUnitIds.includes(row.businessUnitId as number)) throw pendingNotFound()
     row.admsUnmappedPinStatus = 'dismissed'
     row.admsUnmappedPinDismissReason = input.reason.slice(0, 200)
     row.admsUnmappedPinName = null
@@ -451,14 +457,18 @@ export default class UnmappedPinsService {
             TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
           )
     if (row) return row
-    throw new AdmsError(
-      'No se encontro ese numero pendiente',
-      ADMS_ERROR_CODES.PIN_PENDING_NOT_FOUND,
-      404,
-      'pin-pendiente-no-encontrado',
-      'El numero pendiente no existe o no esta en tu alcance.'
-    )
+    throw pendingNotFound()
   }
+}
+
+function pendingNotFound(): AdmsError {
+  return new AdmsError(
+    'No se encontro ese numero pendiente',
+    ADMS_ERROR_CODES.PIN_PENDING_NOT_FOUND,
+    404,
+    'pin-pendiente-no-encontrado',
+    'El numero pendiente no existe o no esta en tu alcance.'
+  )
 }
 
 function toCandidate(employee: Employee, matchedBy: 'code' | 'name'): CandidateRow {
