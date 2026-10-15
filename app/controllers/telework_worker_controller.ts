@@ -1,6 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import TeleworkWorkerService from '#services/telework_worker_service'
 import RoleService from '#services/role_service'
+import { SUPPLIES_PERMISSION_DECLARATIONS } from '#constants/supplies_permission_declarations'
 import {
   TELEWORK_WORKERS_MODULE_SLUG,
   TWK_ERROR_CODES,
@@ -12,6 +14,11 @@ import {
  * Solo lectura: el listado se calcula al momento (filtro >= 40% inclusivo,
  * solo empleados activos con modalidad Home Office o Híbrido, scope tenant).
  * No existen endpoints de escritura porque la vista es derivada.
+ *
+ * El detalle de insumos (`employeeSlug` y `teleworkSuppliesSummary`) solo se
+ * entrega con `supplies:read`; sin él la fila queda idéntica al contrato base.
+ * El error inesperado ya no expone el mensaje interno: lo manda al log y
+ * responde `detail: null`.
  *
  * Ref: USRH1782792802491.
  */
@@ -126,6 +133,27 @@ export default class TeleworkWorkerController {
    *                                       type: boolean
    *                                     hasAdequateEquipment:
    *                                       type: boolean
+   *                               employeeSlug:
+   *                                 type: string
+   *                                 description: Slug opaco de la ficha del colaborador. Solo con `supplies:read`.
+   *                               teleworkSuppliesSummary:
+   *                                 type: object
+   *                                 description: Resumen de insumos del colaborador (NOM-037 5.7). Solo con `supplies:read`.
+   *                                 properties:
+   *                                   applies:
+   *                                     type: boolean
+   *                                   isLegallyRequired:
+   *                                     type: boolean
+   *                                   deliveredCount:
+   *                                     type: integer
+   *                                   shippingCount:
+   *                                     type: integer
+   *                                   ownEquipmentCount:
+   *                                     type: integer
+   *                                   uncoveredCount:
+   *                                     type: integer
+   *                                   unsignedCustodyCount:
+   *                                     type: integer
    *       '403':
    *         description: Sin permiso del módulo de teletrabajo (code TWK.AUTH.001)
    *       default:
@@ -133,8 +161,11 @@ export default class TeleworkWorkerController {
    */
   async index(ctx: HttpContext) {
     const { request, response, i18n, businessUnitScope } = ctx
+    // El usuario se estrecha UNA vez: el gate de abajo y el permiso de insumos
+    // comparten la misma instancia, sin aserciones no-nulas.
+    const user = ctx.auth.user
     try {
-      if (!(await this.checkPermission(ctx))) {
+      if (!user || !(await this.checkPermission(ctx))) {
         response.status(403)
         return {
           type: 'error',
@@ -147,13 +178,23 @@ export default class TeleworkWorkerController {
         }
       }
 
+      // El dato de insumos es de Activos e insumos: sin `supplies:read` no viaja ni
+      // el resumen ni el slug de la ficha (el corte es del API, no del BO).
+      const canReadSupplies = await new RoleService().hasAccess(
+        user.roleId,
+        SUPPLIES_PERMISSION_DECLARATIONS.showEmployeeTeleworkSupplies.module,
+        'read'
+      )
+
       const qs = request.qs()
       const page = Math.max(Number(qs.page ?? 1) || 1, 1)
       const limit = Math.min(Math.max(Number(qs.limit ?? 50) || 50, 1), 200)
       const search = typeof qs.search === 'string' && qs.search.trim() ? qs.search.trim() : undefined
 
       const service = new TeleworkWorkerService()
-      const result = await service.list({ search, page, limit }, businessUnitScope ?? [])
+      const result = await service.list({ search, page, limit }, businessUnitScope ?? [], {
+        includeSuppliesSummary: canReadSupplies,
+      })
 
       response.status(200)
       return {
@@ -163,13 +204,15 @@ export default class TeleworkWorkerController {
         data: { teleworkWorkers: result },
       }
     } catch (error) {
+      // El mensaje interno NUNCA viaja al cliente: queda en el log.
+      logger.error({ err: error }, 'telework_workers.index')
       response.status(500)
       return {
         type: 'error',
         title: i18n.formatMessage('telework_workers_title'),
         message: i18n.formatMessage('telework_workers_unexpected_error'),
         key: 'error-inesperado',
-        detail: error instanceof Error ? error.message : null,
+        detail: null,
         code: TWK_ERROR_CODES.SYS_UNHANDLED,
         data: null,
       }

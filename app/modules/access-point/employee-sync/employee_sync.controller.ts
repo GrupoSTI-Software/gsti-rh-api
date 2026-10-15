@@ -245,6 +245,8 @@ export default class EmployeeSyncController {
          * es una espera, es un callejon, y la pantalla necesita distinguirlos.
          */
         const isIncompatible = (state: string) => state === BIOMETRIC_SLOT_STATE.INCOMPATIBLE
+        /** Lo que un humano puede llevar desde la ficha. */
+        const isCopyable = (state: string) => state === BIOMETRIC_SLOT_STATE.COPYABLE
         const faceState = scoped.face.state
         rows.push(
           toEmployeeAccessPointDto(
@@ -262,6 +264,10 @@ export default class EmployeeSyncController {
                 fingerprints: scoped.fingers.filter((finger) => isIncompatible(finger.state))
                   .length,
                 faces: faceState !== null && isIncompatible(faceState) ? 1 : 0,
+              },
+              copyable: {
+                fingerprints: scoped.fingers.filter((finger) => isCopyable(finger.state)).length,
+                faces: faceState !== null && isCopyable(faceState) ? 1 : 0,
               },
             },
             scoped.withheldBy,

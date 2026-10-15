@@ -198,6 +198,72 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     )
   }
 
+  /**
+   * "Usar tambien para reconocimiento facial en checadores" manda sobre el
+   * rostro: apagado, ni la foto ni el template viajan, aunque el destino lo
+   * soporte y la version cruce (decision de Wilvardo 2026-10-12).
+   */
+  test('con el uso en checadores apagado el rostro no se copia ni por template', async ({
+    assert,
+  }) => {
+    const faceTemplateId = await TenantContext.runUnscoped(async () => {
+      await AccessPointProfile.query()
+        .where('access_point_id', compatible.accessPointId)
+        .update({ access_point_profile_face_version: '39', access_point_profile_face_fun_on: 1 })
+      const template = new BiometricTemplate()
+      template.employeeId = employee.employeeId
+      template.businessUnitId = businessUnitId
+      template.biometricTemplateBioType = BIO_TYPE.FACE
+      template.biometricTemplateBioNo = 0
+      template.biometricTemplateBioIndex = 0
+      template.biometricTemplateBioFormat = 0
+      template.biometricTemplateMajorVer = '39'
+      template.biometricTemplateMinorVer = '0'
+      template.biometricTemplateValid = 1
+      template.biometricTemplateDuress = 0
+      template.biometricTemplateTemplate = TEMPLATE
+      template.biometricTemplateSize = TEMPLATE.length
+      template.sourceAccessPointId = source.accessPointId
+      template.biometricTemplateCapturedAt = DateTime.utc()
+      await template.save()
+      return template.biometricTemplateId
+    }, 'rostro en la boveda y destino con rostro')
+
+    try {
+      const result = await TenantContext.run([businessUnitId], () =>
+        new ReplicationService().replicate({
+          employeeId: employee.employeeId,
+          businessUnitId,
+          sourceAccessPointId: null,
+          targetAccessPointIds: [compatible.accessPointId],
+          modalities: ['face'],
+          actor: { userId, ip: '10.0.0.9', userAgent: 'japa', requestId: `test-${STAMP}` },
+          dryRun: false,
+        })
+      )
+      const face = result.targets[0]?.items.find((item) => item.modality === 'face')
+      assert.equal(face?.status, 'skipped')
+      assert.equal(face?.reason, 'face_use_off')
+
+      const commands = await TenantContext.runUnscoped(
+        () =>
+          DeviceCommand.query()
+            .where('access_point_id', compatible.accessPointId)
+            .where('biometric_template_id', faceTemplateId)
+            .exec(),
+        'sin orden de rostro'
+      )
+      assert.lengthOf(commands, 0)
+    } finally {
+      await TenantContext.runUnscoped(async () => {
+        await AccessPointProfile.query()
+          .where('access_point_id', compatible.accessPointId)
+          .update({ access_point_profile_face_version: null, access_point_profile_face_fun_on: null })
+        await deleteTemplate(faceTemplateId)
+      }, 'limpieza del rostro')
+    }
+  })
+
   test('la vista previa no encola nada y ya dice que va a pasar', async ({ assert }) => {
     const result = await replicate(true)
 

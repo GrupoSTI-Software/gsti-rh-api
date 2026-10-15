@@ -29,8 +29,8 @@ import EmployeeOffboardingItem from './employee_offboarding_item.js'
  *           description: Fecha tentativa de salida (solo referencia, no agenda nada)
  *         employeeOffboardingStatus:
  *           type: string
- *           enum: [open, closed]
- *           description: El cierre lo escribe USRH1786568279596
+ *           enum: [open, closed, cancelled]
+ *           description: El cierre lo escribe USRH1786568279596; cancelled lo escribe solo la reactivación (VLRH-H1790812613830)
  *         employeeOffboardingOrigin:
  *           type: string
  *           enum: [scheduled, termination]
@@ -51,6 +51,15 @@ import EmployeeOffboardingItem from './employee_offboarding_item.js'
  *           type: string
  *           nullable: true
  *           description: Copia del tipo de baja al reactivar
+ *         employeeOffboardingCancelledAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *           description: Cuándo se canceló el expediente al deshacer la baja (VLRH-H1790812613830)
+ *         employeeOffboardingCancelledByUserId:
+ *           type: number
+ *           nullable: true
+ *           description: Usuario que reactivó al colaborador y con ello canceló el expediente
  */
 export default class EmployeeOffboarding extends compose(BaseModel, SoftDeletes) {
   /**
@@ -109,6 +118,17 @@ export default class EmployeeOffboarding extends compose(BaseModel, SoftDeletes)
 
   @column.dateTime()
   declare employeeOffboardingClosedAt: DateTime | null
+
+  /**
+   * Rastro de la cancelación (VLRH-H1790812613830, regla 4): separado del
+   * cierre porque `reopen` limpia `closed_*` y son hechos distintos. Lo escribe
+   * una sola vez la reactivación; `null` en todo expediente no cancelado.
+   */
+  @column.dateTime()
+  declare employeeOffboardingCancelledAt: DateTime | null
+
+  @column()
+  declare employeeOffboardingCancelledByUserId: number | null
 
   @column.dateTime({ autoCreate: true })
   declare employeeOffboardingCreatedAt: DateTime

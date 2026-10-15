@@ -13,6 +13,8 @@ import DeviceCommand from '#models/device_command'
 import Employee from '#models/employee'
 import { TenantContext } from '#utils/tenant_context'
 import { generatePhotoToken, hashPhotoToken } from '#modules/biometric-vault/photo/photo_token'
+import PhotoCommandAdapter from '#modules/biometric-vault/photo/photo_command.adapter'
+import PhotoPublicationService from '#modules/biometric-vault/photo/photo_publication.service'
 import { admsChannelGet } from '#tests/helpers/adms_channel_request'
 
 /**
@@ -222,6 +224,73 @@ test.group('ADMS foto por token (rebanada 9)', (group) => {
       'incidentes tras token real'
     )
     assert.isAbove(Number(traReal[0].total), Number(antes[0].total))
+  })
+
+  /**
+   * El equipo puede acusar la orden de foto ANTES de bajar el archivo (el acuse
+   * es "recibi la orden", no "ya tengo la foto"). Esa orden quedaba `acked`
+   * esperando una prueba por contador que una foto nunca mueve. La descarga es
+   * la prueba: cierra la orden y, con ella, el enlace.
+   */
+  test('la descarga posterior al acuse cierra la orden y el enlace', async ({ assert }) => {
+    const token = await publish()
+    const publication = await TenantContext.runUnscoped(
+      () =>
+        BiometricPhotoPublication.query()
+          .where('biometric_photo_publication_token_hash', hashPhotoToken(token))
+          .firstOrFail(),
+      'publicacion recien creada'
+    )
+    const command = await TenantContext.runUnscoped(async () => {
+      const row = new DeviceCommand()
+      row.deviceCommandWireId = Number(`${Date.now()}${Math.trunc(performance.now())}`.slice(0, 15))
+      row.accessPointId = accessPoint.accessPointId
+      row.businessUnitId = businessUnitId
+      row.deviceCommandKind = 'biophoto_write'
+      row.deviceCommandPayload = 'DATA UPDATE BIOPHOTO ...'
+      row.deviceCommandStatus = 'acked'
+      row.deviceCommandPriority = 5
+      row.deviceCommandAttempts = 1
+      row.deviceCommandMaxAttempts = 3
+      row.biometricPhotoPublicationId = publication.biometricPhotoPublicationId
+      row.deviceCommandCorrelationKey = `biophoto:${PIN}:v1`
+      await row.save()
+      return row
+    }, 'orden acusada de prueba')
+
+    const now = DateTime.utc()
+    const closed = await TenantContext.runUnscoped(
+      () => new PhotoCommandAdapter().executeByPublication(publication.biometricPhotoPublicationId, now),
+      'descarga tras el acuse'
+    )
+    assert.equal(closed, 1)
+    await TenantContext.runUnscoped(
+      () => new PhotoPublicationService().closeAfterDownload(publication, now),
+      'cierre del enlace'
+    )
+
+    const { ordenReleida, publicacionReleida } = await TenantContext.runUnscoped(
+      async () => ({
+        ordenReleida: await DeviceCommand.query()
+          .where('device_command_id', command.deviceCommandId)
+          .firstOrFail(),
+        publicacionReleida: await BiometricPhotoPublication.query()
+          .where('biometric_photo_publication_id', publication.biometricPhotoPublicationId)
+          .firstOrFail(),
+      }),
+      'relectura'
+    )
+    assert.equal(ordenReleida.deviceCommandStatus, 'executed')
+    assert.equal(ordenReleida.deviceCommandExecutionEvidence, 'photo_downloaded')
+    assert.isNotNull(ordenReleida.deviceCommandExecutedAt)
+    assert.equal(publicacionReleida.biometricPhotoPublicationStatus, PHOTO_PUBLICATION_STATUS.EXPIRED)
+
+    // Una segunda descarga ya no tiene nada que cerrar.
+    const otraVez = await TenantContext.runUnscoped(
+      () => new PhotoCommandAdapter().executeByPublication(publication.biometricPhotoPublicationId, now),
+      'segunda descarga'
+    )
+    assert.equal(otraVez, 0)
   })
 
   test('el canal sigue respondiendo el resto de rutas con normalidad', async ({ assert }) => {

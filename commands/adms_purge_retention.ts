@@ -32,7 +32,7 @@ export default class AdmsPurgeRetention extends BaseCommand {
     this.logger.info(
       `Retencion vigente: crudo ${summary.rawDays}d (fallido ${summary.rawFailedDays}d), ` +
         `comandos ${summary.commandDays}d, publicaciones ${summary.photoPublicationDays}d, ` +
-        `cuarentena ${summary.quarantineDays}d`
+        `cuarentena ${summary.quarantineDays}d, avisos sin equipo ${summary.incidentOrphanDays}d`
     )
     if (this.dryRun) return
 
@@ -54,6 +54,7 @@ export default class AdmsPurgeRetention extends BaseCommand {
         crudos: await this.drain(() => service.purgeRawMessages(now), maxBatches),
         comandos: await this.drain(() => service.purgeCommands(now), maxBatches),
         cuarentenas: await this.drain(() => service.purgeQuarantine(now), maxBatches),
+        avisosSinEquipo: await this.drain(() => service.purgeOrphanIncidents(now), maxBatches),
       }
 
       const nada = Object.values(totals).every((count) => count === 0)
@@ -63,7 +64,8 @@ export default class AdmsPurgeRetention extends BaseCommand {
       }
       this.logger.info(
         `Retencion: ${totals.crudos} crudo(s), ${totals.comandos} comando(s), ` +
-          `${totals.publicaciones} publicacion(es), ${totals.cuarentenas} cuarentena(s)`
+          `${totals.publicaciones} publicacion(es), ${totals.cuarentenas} cuarentena(s), ` +
+          `${totals.avisosSinEquipo} aviso(s) sin equipo`
       )
     } catch (error) {
       this.logger.error(

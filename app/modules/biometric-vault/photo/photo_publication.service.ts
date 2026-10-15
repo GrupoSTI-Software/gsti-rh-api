@@ -23,7 +23,10 @@ export interface PublishInput {
 
 export interface PublishResult {
   publication: BiometricPhotoPublication
-  /** El token en claro. Solo existe aqui y en el payload; no se persiste. */
+  /**
+   * El token en claro. Solo existe aqui y en el payload; no se persiste.
+   * Vacio cuando la orden ya vivia y no se publico nada nuevo.
+   */
   token: string
   commandCreated: boolean
 }
@@ -66,6 +69,19 @@ export default class PhotoPublicationService {
   ) {}
 
   async publish(input: PublishInput): Promise<PublishResult> {
+    /**
+     * Si la orden ya vive, no se publica otra vez. Antes se creaba primero el
+     * permiso con su enlace y despues la orden; con una orden viva, el permiso
+     * nuevo quedaba 24 h abierto sin nadie que lo llevara. Se responde la orden
+     * y la publicacion que ya tenia; sin token nuevo, porque no hay enlace nuevo.
+     */
+    const correlationKey = photoCorrelationKey(input.pin, input.derivativeVersion)
+    const live = await this.commands.findLive(input.accessPointId, correlationKey)
+    if (live && live.biometricPhotoPublicationId !== null) {
+      const existing = await this.repository.findById(live.biometricPhotoPublicationId)
+      if (existing) return { publication: existing, token: '', commandCreated: false }
+    }
+
     const token = generatePhotoToken()
     const publication = await this.repository.create({
       businessUnitId: input.businessUnitId,
@@ -86,7 +102,7 @@ export default class PhotoPublicationService {
       employeeId: input.employeeId,
       accessPointEmployeeId: input.accessPointEmployeeId,
       biometricPhotoPublicationId: publication.biometricPhotoPublicationId,
-      correlationKey: photoCorrelationKey(input.pin, input.derivativeVersion),
+      correlationKey,
       requestedByUserId: input.requestedByUserId,
     })
 
@@ -131,6 +147,17 @@ export default class PhotoPublicationService {
     publication.biometricPhotoPublicationDownloadedAt =
       publication.biometricPhotoPublicationDownloadedAt ?? now
     publication.biometricPhotoPublicationDownloadCount += 1
+    await this.repository.save(publication)
+  }
+
+  /**
+   * Cierra el enlace cuando la descarga ya probo la entrega de una orden
+   * acusada: espejo de `PhotoDispatchService.closeAfterDelivery`, que hace lo
+   * mismo desde el acuse. Un permiso que ya cumplio no sigue abierto.
+   */
+  async closeAfterDownload(publication: BiometricPhotoPublication, now: DateTime): Promise<void> {
+    publication.biometricPhotoPublicationStatus = PHOTO_PUBLICATION_STATUS.EXPIRED
+    publication.biometricPhotoPublicationExpiresAt = now
     await this.repository.save(publication)
   }
 }

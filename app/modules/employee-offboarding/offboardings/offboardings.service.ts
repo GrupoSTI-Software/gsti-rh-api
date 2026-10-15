@@ -223,6 +223,10 @@ export default class OffboardingsService {
     if (!offboarding) {
       throw this.caseNotFoundError()
     }
+    // Regla 3 de VLRH-H1790812613830: el cancelado es terminal, no se cierra
+    if (offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CANCELLED) {
+      throw this.caseCancelledError()
+    }
     if (offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CLOSED) {
       throw this.alreadyClosedError()
     }
@@ -301,12 +305,12 @@ export default class OffboardingsService {
    * Primero la guarda R2 de VLRH-C0040 (VLRH-H1791055794596): una salida ya
    * concretada no se deshace. Después copia fecha, modalidad y tipo de baja al
    * expediente antes de que la reactivación los limpie del colaborador
-   * (regla 5); sin expediente abierto no hay copia. Se llama SIEMPRE, haya o no
-   * expediente: aquí se engancha también la cancelación del expediente
-   * (VLRH-H1790812613830). No atrapa nada: cualquier fallo revierte la
-   * reactivación completa.
+   * (regla 5) y lo deja cancelado (VLRH-H1790812613830): la baja deshecha no
+   * es una salida en curso. Sin expediente abierto no hay copia ni cancelación.
+   * Se llama SIEMPRE, haya o no expediente. No atrapa nada: cualquier fallo
+   * revierte la reactivación completa.
    *
-   * @param actorUserId - Quién reactiva; va al log del rechazo y lo consume la cancelación (VLRH-H1790812613830).
+   * @param actorUserId - Quién reactiva; va al log del rechazo y queda como quien canceló el expediente.
    */
   async onEmployeeReactivated(
     trx: TransactionClientContract,
@@ -324,7 +328,30 @@ export default class OffboardingsService {
     openCase.employeeOffboardingTerminationModality = employee.employeeTerminationModality ?? null
     openCase.employeeOffboardingTerminationType = employee.employeeTerminationType ?? null
     await this.repository.saveCase(openCase, trx)
-    // [cancelación del expediente — la agrega VLRH-H1790812613830 aquí, con actorUserId]
+    await this.cancelOnReactivation(openCase, actorUserId, trx)
+  }
+
+  /**
+   * Cancela el expediente abierto al deshacer la baja (VLRH-H1790812613830,
+   * reglas 1, 2 y 4): estado `cancelled` con quién y cuándo, sin tocar
+   * pendientes, evidencias ni documentos. Llega del candado del hook, ya
+   * afirmado de la empresa del colaborador; solo transita desde `open`.
+   *
+   * @internal Protegido, no privado, para que el spec de la reactivación pueda
+   * sustituirlo y probar el rollback total (CA-4).
+   */
+  protected async cancelOnReactivation(
+    offboarding: EmployeeOffboarding,
+    cancelledByUserId: number | null,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    if (offboarding.employeeOffboardingStatus !== EMPLOYEE_OFFBOARDING_STATUS.OPEN) {
+      throw new Error('cancelOnReactivation: solo se cancela un expediente abierto')
+    }
+    offboarding.employeeOffboardingStatus = EMPLOYEE_OFFBOARDING_STATUS.CANCELLED
+    offboarding.employeeOffboardingCancelledAt = DateTime.now()
+    offboarding.employeeOffboardingCancelledByUserId = cancelledByUserId
+    await this.repository.saveCase(offboarding, trx)
   }
 
   /**
@@ -483,11 +510,13 @@ export default class OffboardingsService {
           .filter((id): id is number => id !== null && id !== undefined)
       ),
     ]
+    // Autoría del cumplimiento y de la cancelación (VLRH-H1790812613830) con la misma regla de nombre
     const userIds = [
       ...new Set(
-        items
-          .map((item) => item.employeeOffboardingItemCompletedByUserId)
-          .filter((id): id is number => id !== null && id !== undefined)
+        [
+          ...items.map((item) => item.employeeOffboardingItemCompletedByUserId),
+          offboarding.employeeOffboardingCancelledByUserId,
+        ].filter((id): id is number => id !== null && id !== undefined)
       ),
     ]
     const [supplies, users, evidenceCountsByItemId] = await Promise.all([
@@ -545,6 +574,16 @@ export default class OffboardingsService {
       httpStatus: 409,
       title: this.t('employee_offboarding_case_already_closed_title'),
       detail: this.t('employee_offboarding_case_already_closed_message'),
+    })
+  }
+
+  private caseCancelledError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'expediente-cancelado',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_CANCELLED_READ_ONLY,
+      httpStatus: 409,
+      title: this.t('employee_offboarding_case_cancelled_read_only_title'),
+      detail: this.t('employee_offboarding_case_cancelled_read_only_message'),
     })
   }
 
