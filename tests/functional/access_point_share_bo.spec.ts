@@ -3,6 +3,9 @@ import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
 import BusinessUnit from '#models/business_unit'
 import DeviceCommand from '#models/device_command'
+import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
+import db from '@adonisjs/lucid/services/db'
+import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
 import { TenantContext } from '#utils/tenant_context'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
@@ -20,6 +23,8 @@ import {
 
 const unscoped = <T>(fn: () => Promise<T>) =>
   TenantContext.runUnscoped(async () => await fn(), TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
+
+let commandSeq = 0
 
 interface Actor {
   user: UnitUser
@@ -49,6 +54,42 @@ test.group('Checador compartido: Backoffice', (group) => {
     actors.push(actor.user)
     byBu.set(businessUnitId, actor)
     return actor
+  }
+
+  /**
+   * Comando pendiente en el checador de la fixture, a nombre de la empresa
+   * dada. Lo borra el cleanup de la fixture (cuelga de su `access_point_id`).
+   */
+  const pendingCommand = async (
+    businessUnitId: number,
+    employeeId: number,
+    pin: string
+  ): Promise<DeviceCommand> => {
+    commandSeq += 1
+    const stamp = Date.now() * 100 + commandSeq
+    const result = await TenantContext.run([fx.ownerBu, fx.guestBu], () =>
+      new DeviceCommandRepositoryMysql().enqueueIdempotent(
+        {
+          accessPointId: fx.accessPoint.accessPointId,
+          businessUnitId,
+          kind: DEVICE_COMMAND_KIND.USER_DELETE,
+          payload: `DATA DELETE USERINFO PIN=${pin}`,
+          pin,
+          bioNo: null,
+          priority: 0,
+          maxAttempts: null,
+          employeeId,
+          accessPointEmployeeId: null,
+          correlationKey: `test-share-bo-${stamp}`,
+          requestedByUserId: null,
+          biometricTemplateId: null,
+          biometricPhotoPublicationId: null,
+        },
+        [stamp]
+      )
+    )
+    if (!result) throw new Error('No se pudo encolar el comando de prueba')
+    return result.command
   }
 
   group.setup(async () => {
@@ -249,5 +290,164 @@ test.group('Checador compartido: Backoffice', (group) => {
         AccessPoint.query().where('access_point_id', foreignAp.accessPointId).delete()
       )
     }
+  })
+
+  test('la responsable no puede cancelar un comando del personal de la invitada', async ({
+    client,
+  }) => {
+    const command = await pendingCommand(fx.guestBu, fx.guestEmployee.employeeId, fx.guestPin)
+    const actor = await actorFor(fx.ownerBu)
+    const res = await client
+      .post(
+        `/api/v1/access-points/${fx.accessPoint.accessPointId}/commands/${command.deviceCommandId}/cancel`
+      )
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(404)
+    res.assertBodyContains({ key: 'comando-no-encontrado' })
+  })
+
+  test('la responsable si cancela un comando de su personal', async ({ client }) => {
+    const command = await pendingCommand(fx.ownerBu, fx.ownerEmployee.employeeId, fx.ownerPin)
+    const actor = await actorFor(fx.ownerBu)
+    const res = await client
+      .post(
+        `/api/v1/access-points/${fx.accessPoint.accessPointId}/commands/${command.deviceCommandId}/cancel`
+      )
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+  })
+
+  test('la invitada solo lista sus comandos y no cancela los de la responsable', async ({
+    client,
+    assert,
+  }) => {
+    const own = await pendingCommand(fx.guestBu, fx.guestEmployee.employeeId, fx.guestPin)
+    const foreign = await pendingCommand(fx.ownerBu, fx.ownerEmployee.employeeId, fx.ownerPin)
+    const actor = await actorFor(fx.guestBu)
+
+    const list = await client
+      .get(`/api/v1/access-points/${fx.accessPoint.accessPointId}/commands`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    list.assertStatus(200)
+    const ids = (list.body().data.commands as Array<{ id: number }>).map((row) => row.id)
+    assert.include(ids, own.deviceCommandId)
+    assert.notInclude(ids, foreign.deviceCommandId)
+    const businessUnits = await unscoped(async () => {
+      const rows = await DeviceCommand.query().whereIn('device_command_id', ids)
+      return [...new Set(rows.map((row) => row.businessUnitId))]
+    })
+    assert.deepEqual(businessUnits, [fx.guestBu])
+
+    const cancel = await client
+      .post(
+        `/api/v1/access-points/${fx.accessPoint.accessPointId}/commands/${foreign.deviceCommandId}/cancel`
+      )
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    cancel.assertStatus(404)
+    cancel.assertBodyContains({ key: 'comando-no-encontrado' })
+  })
+
+  test('la responsable ve el padron completo del aparato', async ({ client, assert }) => {
+    const actor = await actorFor(fx.ownerBu)
+    const res = await client
+      .get(`/api/v1/access-points/${fx.accessPoint.accessPointId}/employees`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const ids = (res.body().data.employees as Array<{ employeeId: number }>).map(
+      (row) => row.employeeId
+    )
+    assert.include(ids, fx.ownerEmployee.employeeId)
+    assert.include(ids, fx.guestEmployee.employeeId)
+  })
+
+  test('la ficha del empleado de la invitada muestra el checador compartido', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get(`/api/v1/employees/${fx.guestEmployee.employeeId}/access-points`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const ids = (
+      res.body().data.employeeDevices.accessPoints as Array<{ accessPointId: number }>
+    ).map((row) => row.accessPointId)
+    assert.include(ids, fx.accessPoint.accessPointId)
+  })
+
+  test('retirar el rostro de un empleado de la invitada alcanza el checador compartido', async ({
+    client,
+    assert,
+  }) => {
+    const employee = await anotherLiveEmployee(fx.guestBu, [fx.guestEmployee.employeeId])
+    const setup = await unscoped(async () => {
+      let pivot = await AccessPointEmployee.query()
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .where('employee_id', employee.employeeId)
+        .first()
+      if (!pivot) {
+        pivot = new AccessPointEmployee()
+        pivot.accessPointId = fx.accessPoint.accessPointId
+        pivot.employeeId = employee.employeeId
+        pivot.businessUnitId = fx.guestBu
+        pivot.accessPointEmployeePin = '77'
+        pivot.accessPointEmployeeSyncStatus = 'confirmed'
+        await pivot.save()
+      }
+      const face = new EmployeeBiometricFaceId()
+      face.employeeId = employee.employeeId
+      face.businessUnitId = fx.guestBu
+      face.employeeBiometricFaceIdPhotoUrl = `test/share-bo-${Date.now()}.jpg`
+      face.employeeBiometricFaceIdDeviceUse = true
+      face.employeeBiometricFaceIdDerivativeVersion = 0
+      await face.save()
+      return { pivot, face }
+    })
+    try {
+      const actor = await actorFor(fx.guestBu)
+      const res = await client
+        .post(`/api/v1/employees/${employee.employeeId}/device-biometrics/face/disable`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      res.assertStatus(200)
+
+      const command = await unscoped(() =>
+        DeviceCommand.query()
+          .where('access_point_id', fx.accessPoint.accessPointId)
+          .where('employee_id', employee.employeeId)
+          .where('device_command_kind', DEVICE_COMMAND_KIND.BIOPHOTO_DELETE)
+          .first()
+      )
+      assert.isNotNull(command)
+      assert.equal(command?.businessUnitId, fx.guestBu)
+    } finally {
+      await unscoped(async () => {
+        await db
+          .from('biometric_photo_publications')
+          .where('employee_id', employee.employeeId)
+          .where('access_point_id', fx.accessPoint.accessPointId)
+          .delete()
+        await db
+          .from('employee_biometric_face_ids')
+          .where('employee_biometric_face_id_id', setup.face.employeeBiometricFaceIdId)
+          .delete()
+      })
+    }
+  })
+
+  test('una empresa ajena recibe 404 en una ruta de configuracion', async ({ client }) => {
+    const actor = await actorFor(fx.outsiderBu)
+    const res = await client
+      .post(`/api/v1/access-points/${fx.accessPoint.accessPointId}/clock-sync`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(404)
+    res.assertBodyContains({ key: 'punto-acceso-no-encontrado' })
   })
 })

@@ -153,9 +153,14 @@ export default class DeviceCommandsController {
        * descifraba sus payloads --posibles templates biometricos-- para tirar
        * 199.
        */
-      // Con el mismo alcance de lectura: la invitada solo cancela o reintenta
-      // lo de su personal.
-      const scope = readScopeOf(ctx, participant)
+      /**
+       * Cancelar o reintentar es actuar sobre el comando: con cualquier rol,
+       * solo los de la empresa de la peticion. Los de usuario y biometria
+       * llevan la empresa del colaborador (VLRH-P0065, 3.3) y la responsable no
+       * opera al personal ajeno (D6); los del aparato llevan la suya.
+       */
+      const requestScope = ctx.businessUnitScope ?? []
+      const scope = participant.deviceScope.filter((id) => requestScope.includes(id))
       const target = await TenantContext.run(scope, () =>
         service.findForDevice(params.commandId, accessPoint.accessPointId)
       )
