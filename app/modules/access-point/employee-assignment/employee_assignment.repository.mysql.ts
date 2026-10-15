@@ -30,11 +30,15 @@ export default class EmployeeAssignmentRepositoryMysql
    * El equipo se lee sin el mixin porque el de otra empresa compartido con la
    * del alcance tambien cuenta; la consulta se cierra dentro del bypass
    * (VLRH-A0036, M12). Quien lo ve lo decide el scope del checador.
+   *
+   * Sin alcance falla cerrado: el bypass quita la barrera del mixin, y un
+   * llamador sin empresa (job, otra ruta) no debe ver cualquier checador.
    */
   async accessPointScope(
     accessPointId: number,
     scope: BusinessUnitScope
   ): Promise<number[] | null> {
+    if (!scope || scope.length === 0) return null
     const accessPoint = await TenantContext.runUnscoped(
       () =>
         AccessPoint.query()
@@ -48,7 +52,6 @@ export default class EmployeeAssignmentRepositoryMysql
       accessPoint.accessPointId,
       accessPoint.businessUnitId
     )
-    if (!scope || scope.length === 0) return participants
     return participants.some((id) => scope.includes(id)) ? participants : null
   }
 
