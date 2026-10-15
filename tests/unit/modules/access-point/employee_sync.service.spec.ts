@@ -6,11 +6,15 @@ import type {
 } from '#modules/access-point/employee-sync/employee_sync.repository'
 import type AccessPointEmployee from '#models/access_point_employee'
 import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
-import type { DeviceCommandPort, EnqueueCommandInput } from '#modules/device-commands/device_command_port'
+import type {
+  DeviceCommandPort,
+  EnqueueCommandInput,
+} from '#modules/device-commands/device_command_port'
 import type DeviceCommand from '#models/device_command'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { AdmsError } from '#exceptions/adms_error'
 import type PhotoPublicationService from '#modules/biometric-vault/photo/photo_publication.service'
+import type { ResyncPendingCloser } from '#modules/access-point/employee-sync/resync_pending.service'
 
 function pivotOf(overrides: Partial<AccessPointEmployee> = {}): AccessPointEmployee {
   return {
@@ -39,6 +43,8 @@ interface Options {
   withdrawThrows?: boolean
   /** La empresa sigue participando del aparato al tomar su candado (default: si). */
   participant?: boolean
+  /** El cerrador de marcas de checador pendiente falla (VLRH-H1790812613831). */
+  resolveThrows?: boolean
 }
 
 function makeService(options: Options = {}) {
@@ -50,6 +56,8 @@ function makeService(options: Options = {}) {
   const statuses: Array<{ id: number; status: string }> = []
   /** Colaboradores a los que se les retiraron las publicaciones de foto. */
   const withdrawnFor: number[] = []
+  /** Vinculos cuya marca de checador pendiente se pidio cerrar al revivir. */
+  const resolvedPivots: number[] = []
 
   /** Transaccion falsa del candado del aparato y lo que paso por ella. */
   const deviceTrx = { fake: 'trx-del-aparato' } as unknown as TransactionClientContract
@@ -176,8 +184,16 @@ function makeService(options: Options = {}) {
     },
   }
 
+  const resyncPendings: ResyncPendingCloser = {
+    async resolveForPivot(accessPointEmployeeId: number, trx?: unknown) {
+      if (options.resolveThrows) throw new Error('la tabla de marcas no respondio')
+      resolvedPivots.push(accessPointEmployeeId)
+      reads.push({ step: 'resolveForPivot', trx })
+    },
+  }
+
   return {
-    service: new EmployeeSyncService(repository, commands, publications, scope),
+    service: new EmployeeSyncService(repository, commands, publications, scope, resyncPendings),
     steps,
     saveTrx,
     detached,
@@ -190,6 +206,7 @@ function makeService(options: Options = {}) {
     deviceTrx,
     lockedDevices,
     trxSeen,
+    resolvedPivots,
   }
 }
 
@@ -656,6 +673,42 @@ test.group('Reasignacion', () => {
     assert.equal(events[0].kind, 'reassigned')
   })
 
+  test('revivir cierra la marca de checador pendiente de ese vinculo (VLRH-H1790812613831)', async ({
+    assert,
+  }) => {
+    const revocada = pivotOf({ accessPointEmployeeSyncStatus: 'revoked' })
+    const { service, resolvedPivots } = makeService({ withTrashed: revocada })
+    await service.assign({ accessPointId: 12, businessUnitId: 1, employeeId: 77, actor: ACTOR })
+    assert.deepEqual(resolvedPivots, [5])
+  })
+
+  test('un vinculo nuevo no toca las marcas', async ({ assert }) => {
+    const { service, resolvedPivots } = makeService()
+    await service.assign({ accessPointId: 12, businessUnitId: 1, employeeId: 77, actor: ACTOR })
+    assert.deepEqual(resolvedPivots, [])
+  })
+
+  test('la marca se cierra dentro de la transaccion del candado del aparato', async ({ assert }) => {
+    const revocada = pivotOf({ accessPointEmployeeSyncStatus: 'revoked' })
+    const { service, reads, deviceTrx } = makeService({ withTrashed: revocada })
+    await service.assign({ accessPointId: 12, businessUnitId: 1, employeeId: 77, actor: ACTOR })
+    const cierre = reads.find((read) => read.step === 'resolveForPivot')
+    assert.strictEqual(cierre?.trx, deviceTrx)
+  })
+
+  test('si cerrar la marca falla, la asignacion sigue completa', async ({ assert }) => {
+    const revocada = pivotOf({ accessPointEmployeeSyncStatus: 'revoked' })
+    const { service, events } = makeService({ withTrashed: revocada, resolveThrows: true })
+    const pivot = await service.assign({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      actor: ACTOR,
+    })
+    assert.equal(pivot.accessPointEmployeeId, 5)
+    assert.equal(events[0].kind, 'reassigned')
+  })
+
   test('el PIN correlativo queda asentado en el historial', async ({ assert }) => {
     const { service, events } = makeService({ withTrashed: null, pivot: null, takenPins: ['1'] })
     await service.assign({
@@ -764,7 +817,9 @@ test.group('PIN correlativo por equipo', () => {
 test.group('Cerrar a mano una baja que el equipo no confirma', () => {
   test('cierra la baja pedida y deja constancia de quien la forzo', async ({ assert }) => {
     const { service, saved, events } = makeService({
-      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'revoking' as AccessPointEmployeeSyncStatus }),
+      pivot: pivotOf({
+        accessPointEmployeeSyncStatus: 'revoking' as AccessPointEmployeeSyncStatus,
+      }),
     })
 
     const pivot = await service.forceRevoke({
@@ -829,7 +884,9 @@ test.group('Cerrar a mano una baja que el equipo no confirma', () => {
     // Con el alta viva la via es pedir la baja: cerrarla a mano aqui dejaria a
     // la persona dentro del aparato y fuera del sistema, sin que nadie lo sepa.
     const { service, saved } = makeService({
-      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'confirmed' as AccessPointEmployeeSyncStatus }),
+      pivot: pivotOf({
+        accessPointEmployeeSyncStatus: 'confirmed' as AccessPointEmployeeSyncStatus,
+      }),
     })
 
     let capturado: unknown = null

@@ -3253,6 +3253,8 @@
   "sensitive_data_write_import_forbidden_title": "El archivo contiene datos sensibles que no puedes modificar",
   "sensitive_data_write_import_forbidden_detail": "El archivo incluye columnas de {category} y no tienes permiso para modificarlos. No se procesó ningún registro.",
   "access_point_employee_title": "Punto de acceso del colaborador",
+  "access_point_resync_pending_title": "Checadores por volver a sincronizar",
+  "access_point_resync_pending_list_message": "Checadores pendientes del colaborador",
   "access_point_profile_title": "Perfil del checador",
   "employee_sync_pin_message": "El PIN del colaborador quedó fijado en el checador",
   "employee_sync_send_message": "Se encoló el alta del colaborador en el checador",

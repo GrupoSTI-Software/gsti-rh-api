@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import { isBillingCustomerIdentityProvider } from '#modules/billing-provider/billing_provider.port'
 import ManualBillingProviderAdapter from '#modules/billing-provider/manual_billing_provider.adapter'
 
 test.group('ManualBillingProviderAdapter (USRH1790708507467 / CA-7)', () => {
@@ -26,6 +27,10 @@ test.group('ManualBillingProviderAdapter (USRH1790708507467 / CA-7)', () => {
         method: 'transfer',
       })
     )
+  })
+
+  test('CA-12 VLRH-1695: isBillingCustomerIdentityProvider es false', ({ assert }) => {
+    assert.isFalse(isBillingCustomerIdentityProvider(new ManualBillingProviderAdapter()))
   })
 })
 

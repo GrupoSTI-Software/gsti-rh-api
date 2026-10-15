@@ -1,0 +1,73 @@
+{{-- Aviso interno: fallo recurrente resuelto por Valanserh (VLRH-H1791925352373) --}}<!DOCTYPE html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{ subject }}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f6fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f6fa;">
+    <tr>
+      <td align="center" style="padding: 24px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width: 640px;">
+          <tr>
+            <td style="background-color: {{ sidebarColor }}; padding: 18px 24px; border-top-left-radius: 12px; border-top-right-radius: 12px; color: #ffffff;">
+              <div style="font-size: 18px; font-weight: 700;">{{ tradeName }}</div>
+              <div style="font-size: 13px; color: #e0f2fe; margin-top: 4px;">Cuenta de Stripe — aviso interno</div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: #ffffff; padding: 24px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px;">
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.5;">
+                Un cobro recurrente falló por un motivo que debe resolver el equipo de Valanserh.
+              </p>
+              @if(resolvedByStripeSupport)
+              <p style="margin: 0 0 16px; font-size: 14px; line-height: 1.5; background: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 14px;">
+                <strong>Se resuelve con soporte de Stripe</strong> (subir el tope de la cuenta).
+              </p>
+              @end
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 13px;">
+                <tr>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; width: 42%;">Empresa</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 600;">{{ businessUnitTradeName }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6;">Suscripción Valanserh</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 600;">#{{ billingSubscriptionId }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6;">Factura Stripe</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 600;">{{ invoiceRef }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6;">Aviso Stripe</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 600;">{{ eventRef }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6;">Fecha del fallo (UTC)</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 600;">{{ failedAtIso }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6;">Código Stripe</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 600;">{{ code ?? '—' }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6;">Decline code</td>
+                  <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; font-weight: 600;">{{ declineCode ?? '—' }}</td>
+                </tr>
+                <tr>
+                  <td style="padding: 8px;">Entrada catálogo</td>
+                  <td style="padding: 8px; font-weight: 600;">{{ catalogKey }}</td>
+                </tr>
+              </table>
+              <p style="margin: 20px 0 0; font-size: 14px; line-height: 1.5;">
+                <a href="{{ landlordSubscriptionUrl }}" style="color: #0a3057; font-weight: 600;">Abrir ficha en landlord</a>
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

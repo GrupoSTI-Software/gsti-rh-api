@@ -9,6 +9,14 @@ import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
+import AccessPoint from '#models/access_point'
+import AccessPointEmployee, {
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
+} from '#models/access_point_employee'
+import AccessPointEmployeeEvent, {
+  ACCESS_POINT_EMPLOYEE_EVENT_KIND,
+} from '#models/access_point_employee_event'
+import AccessPointResyncPending from '#models/access_point_resync_pending'
 import Employee from '#models/employee'
 import EmployeeOffboarding from '#models/employee_offboarding'
 import EmployeeOffboardingDocument from '#models/employee_offboarding_document'
@@ -20,6 +28,8 @@ import SystemPermission from '#models/system_permission'
 import EmployeeService from '#services/employee_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
 import OffboardingsService from '#modules/employee-offboarding/offboardings/offboardings.service'
+import ResyncPendingService from '#modules/access-point/employee-sync/resync_pending.service'
+import { ACCESS_POINT_RESYNC_RESOLUTION } from '#modules/access-point/employee-sync/resync_pending.constants'
 import {
   EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE,
   REFERENCE_DATE_SOURCE,
@@ -49,6 +59,10 @@ import { TenantContext } from '#utils/tenant_context'
  * VLRH-H1790812613830 (tercer grupo) — al deshacer la baja, el expediente
  * abierto queda `cancelled` con quién y cuándo, conserva todo lo registrado y
  * la falla de la cancelación revierte la reactivación completa.
+ *
+ * VLRH-H1790812613831 (cuarto grupo) — al deshacer la baja quedan marcados los
+ * checadores de los que ESA baja sacó a la persona; la marca se recalcula en la
+ * siguiente reactivación y su falla revierte todo.
  */
 
 const TEST_PASSWORD = 'DeshacerBaja123!'
@@ -335,6 +349,17 @@ async function destroyFixtures(
 ): Promise<void> {
   const employeeIds = fixtures.map((fixture) => fixture.employee.employeeId)
   if (employeeIds.length > 0) {
+    const pivotIds = db
+      .from(AccessPointEmployee.table)
+      .whereIn('employee_id', employeeIds)
+      .select('access_point_employee_id')
+    await db.from(AccessPointResyncPending.table).whereIn('employee_id', employeeIds).delete()
+    await db
+      .from(AccessPointEmployeeEvent.table)
+      .whereIn('access_point_employee_id', pivotIds)
+      .delete()
+    await db.from('device_commands').whereIn('employee_id', employeeIds).delete()
+    await db.from(AccessPointEmployee.table).whereIn('employee_id', employeeIds).delete()
     const caseIds = db
       .from(OFFBOARDINGS_TABLE)
       .whereIn('employee_id', employeeIds)
@@ -379,6 +404,17 @@ async function destroyFixtures(
     }
   }
   for (const unit of units) {
+    await db
+      .from('device_commands')
+      .whereIn(
+        'access_point_id',
+        db
+          .from(AccessPoint.table)
+          .where('business_unit_id', unit.businessUnitId)
+          .select('access_point_id')
+      )
+      .delete()
+    await db.from(AccessPoint.table).where('business_unit_id', unit.businessUnitId).delete()
     await BusinessUnit.query().where('business_unit_id', unit.businessUnitId).delete()
   }
 }
@@ -1201,3 +1237,309 @@ test.group('Cancelar el expediente al deshacer la baja (VLRH-H1790812613830)', (
     assert.equal(dto.employeeOffboardingStatus, EMPLOYEE_OFFBOARDING_STATUS.OPEN)
   })
 })
+
+test.group(
+  'Checadores pendientes de sincronizar al deshacer la baja (VLRH-H1790812613831)',
+  (group) => {
+    let unit: BusinessUnit
+    let root: Actor
+    const fixtures: EmployeeFixture[] = []
+    const actors: Actor[] = []
+    const SERVER_ERROR_BODY = {
+      type: 'error',
+      title: 'Server error',
+      message: 'An unexpected error has occurred on the server',
+    }
+
+    const track = async (build: () => Promise<EmployeeFixture>): Promise<EmployeeFixture> => {
+      const fixture = await asFixture(build)
+      fixtures.push(fixture)
+      return fixture
+    }
+
+    const reactivate = (client: ApiClient, fixture: EmployeeFixture) =>
+      reactivateRequest(client, fixture, root, unit)
+
+    const createAccessPoint = async (name: string): Promise<AccessPoint> => {
+      const accessPoint = new AccessPoint()
+      accessPoint.accessPointName = name
+      accessPoint.businessUnitId = unit.businessUnitId
+      accessPoint.accessPointActive = 1
+      accessPoint.accessPointSerialNumber = `RS-${stamp()}`.slice(0, 50)
+      accessPoint.accessPointStatus = 0
+      await accessPoint.save()
+      return accessPoint
+    }
+
+    /** Vínculo vivo en el estado dado, con PIN: lo que `revokeAll` revoca al dar de baja. */
+    const createPivot = async (
+      accessPoint: AccessPoint,
+      fixture: EmployeeFixture,
+      status: string,
+      pin: string
+    ): Promise<AccessPointEmployee> => {
+      const pivot = new AccessPointEmployee()
+      pivot.accessPointId = accessPoint.accessPointId
+      pivot.businessUnitId = unit.businessUnitId
+      pivot.employeeId = fixture.employee.employeeId
+      pivot.accessPointEmployeePin = pin
+      pivot.accessPointEmployeeSyncStatus =
+        status as AccessPointEmployee['accessPointEmployeeSyncStatus']
+      await pivot.save()
+      return pivot
+    }
+
+    const setPivotStatus = (pivot: AccessPointEmployee, status: string) =>
+      db
+        .from(AccessPointEmployee.table)
+        .where('access_point_employee_id', pivot.accessPointEmployeeId)
+        .update({ access_point_employee_sync_status: status })
+
+    const marksOf = (fixture: EmployeeFixture) =>
+      db
+        .from(AccessPointResyncPending.table)
+        .where('employee_id', fixture.employee.employeeId)
+        .select(
+          'access_point_resync_pending_id',
+          'business_unit_id',
+          'access_point_employee_id',
+          'access_point_resync_pending_status_at_mark',
+          'access_point_resync_pending_marked_by_user_id',
+          'access_point_resync_pending_resolved_at',
+          'access_point_resync_pending_resolution'
+        )
+        .orderBy('access_point_resync_pending_id')
+
+    const openMarksOf = async (fixture: EmployeeFixture) => {
+      const marks = await marksOf(fixture)
+      return marks.filter((row) => row.access_point_resync_pending_resolved_at === null)
+    }
+
+    group.setup(async () => {
+      await asFixture(async () => {
+        unit = await createUnit('checadores')
+        root = await createRootActor([unit])
+        actors.push(root)
+      })
+    })
+
+    group.teardown(() => asFixture(() => destroyFixtures(fixtures, actors, [unit])))
+
+    test('CA-1 y CA-2: quedan marcados los checadores de los que esta baja sacó a la persona, con su estado y el actor', async ({
+      client,
+      assert,
+    }) => {
+      const fixture = await track(() => createEmployee(unit, 'Marcas', `RS-${stamp()}`))
+      const [p1, p2, p3, p4] = await asFixture(() =>
+        Promise.all(['P1', 'P2', 'P3', 'P4'].map((name) => createAccessPoint(`${name} ${stamp()}`)))
+      )
+      const pivot1 = await createPivot(
+        p1,
+        fixture,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED,
+        '1001'
+      )
+      const pivot2 = await createPivot(
+        p2,
+        fixture,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED,
+        '1002'
+      )
+      // P3: revocado a mano ANTES de la baja; su pedido de borrado es anterior
+      const pivot3 = await createPivot(
+        p3,
+        fixture,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+        '1003'
+      )
+      await AccessPointEmployeeEvent.create({
+        accessPointEmployeeId: pivot3.accessPointEmployeeId,
+        businessUnitId: unit.businessUnitId,
+        accessPointEmployeeEventKind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.REVOKE_REQUESTED,
+        accessPointEmployeeEventFromStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED,
+        accessPointEmployeeEventToStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING,
+        accessPointEmployeeEventCreatedAt: DateTime.utc().minus({ days: 2 }),
+      })
+
+      await terminateRequest(client, fixture, root, unit)
+      // La baja pidió el borrado en P1 y P2 (eventos revoke_requested); el aparato responde distinto
+      await setPivotStatus(pivot1, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+      await setPivotStatus(pivot2, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_FAILED)
+      // P4: alta hecha después de la baja, nunca revocada
+      const pivot4 = await createPivot(
+        p4,
+        fixture,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED,
+        '1004'
+      )
+
+      const response = await reactivate(client, fixture)
+      response.assertStatus(200)
+
+      const marks = await openMarksOf(fixture)
+      assert.sameMembers(
+        marks.map((row) => Number(row.access_point_employee_id)),
+        [pivot1.accessPointEmployeeId, pivot2.accessPointEmployeeId]
+      )
+      const byPivot = new Map(marks.map((row) => [Number(row.access_point_employee_id), row]))
+      assert.equal(
+        byPivot.get(pivot1.accessPointEmployeeId)!.access_point_resync_pending_status_at_mark,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
+      )
+      assert.equal(
+        byPivot.get(pivot2.accessPointEmployeeId)!.access_point_resync_pending_status_at_mark,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_FAILED
+      )
+      for (const row of marks) {
+        assert.equal(row.business_unit_id, unit.businessUnitId)
+        assert.equal(row.access_point_resync_pending_marked_by_user_id, root.user.userId)
+      }
+      assert.notInclude(
+        marks.map((row) => Number(row.access_point_employee_id)),
+        pivot3.accessPointEmployeeId
+      )
+      assert.notInclude(
+        marks.map((row) => Number(row.access_point_employee_id)),
+        pivot4.accessPointEmployeeId
+      )
+    })
+
+    test('CA-3: sin checadores la reactivación procede y no se crea ninguna marca', async ({
+      client,
+      assert,
+    }) => {
+      const fixture = await track(() => createEmployee(unit, 'SinChecador', `RS-${stamp()}`))
+      await terminateRequest(client, fixture, root, unit)
+      const response = await reactivate(client, fixture)
+      response.assertStatus(200)
+      assert.lengthOf(await marksOf(fixture), 0)
+    })
+
+    test('CA-4: si la escritura de marcas falla, la reactivación completa revierte con el 500 genérico', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      const fixture = await track(() => createEmployee(unit, 'Rollback', `RS-${stamp()}`))
+      const p1 = await asFixture(() => createAccessPoint(`P1 rollback ${stamp()}`))
+      const pivot1 = await createPivot(
+        p1,
+        fixture,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED,
+        '2001'
+      )
+      await terminateRequest(client, fixture, root, unit)
+      await setPivotStatus(pivot1, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+      const before = await employeeRow(fixture.employee.employeeId)
+      const original = ResyncPendingService.prototype.recordOnReactivation
+      cleanup(() => {
+        ResyncPendingService.prototype.recordOnReactivation = original
+      })
+      ResyncPendingService.prototype.recordOnReactivation = async () => {
+        throw new Error('fallo simulado al marcar checadores')
+      }
+
+      const response = await reactivate(client, fixture)
+      response.assertStatus(500)
+      assert.deepEqual(response.body(), SERVER_ERROR_BODY)
+
+      assert.deepEqual(await employeeRow(fixture.employee.employeeId), before)
+      assert.isNotNull(before.employee_deleted_at)
+      assert.match(String(before.employee_code), /-IN\d+$/)
+      assert.lengthOf(await marksOf(fixture), 0)
+      // El expediente tampoco quedó cancelado ni con la copia (R3)
+      const [offboarding] = await offboardingRows(fixture.employee.employeeId)
+      assert.equal(offboarding.employee_offboarding_status, EMPLOYEE_OFFBOARDING_STATUS.OPEN)
+      assert.isNull(offboarding.employee_offboarding_termination_date)
+    })
+
+    test('CA-10: la siguiente reactivación conserva, agrega y cierra marcas sin duplicar vínculos', async ({
+      client,
+      assert,
+    }) => {
+      const fixture = await track(() => createEmployee(unit, 'Recalculo', `RS-${stamp()}`))
+      const [p1, p5, p6] = await asFixture(() =>
+        Promise.all(
+          ['P1', 'P5', 'P6'].map((name) => createAccessPoint(`${name} recalculo ${stamp()}`))
+        )
+      )
+      const pivot1 = await createPivot(
+        p1,
+        fixture,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED,
+        '3001'
+      )
+      const pivot6 = await createPivot(
+        p6,
+        fixture,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED,
+        '3006'
+      )
+
+      // Primera baja y reactivación: P1 y P6 quedan marcados
+      await terminateRequest(client, fixture, root, unit)
+      await setPivotStatus(pivot1, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+      await setPivotStatus(pivot6, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+      const first = await reactivate(client, fixture)
+      first.assertStatus(200)
+      const firstMarks = await openMarksOf(fixture)
+      assert.sameMembers(
+        firstMarks.map((row) => Number(row.access_point_employee_id)),
+        [pivot1.accessPointEmployeeId, pivot6.accessPointEmployeeId]
+      )
+      const originalP1MarkId = firstMarks.find(
+        (row) => Number(row.access_point_employee_id) === pivot1.accessPointEmployeeId
+      )!.access_point_resync_pending_id
+
+      // Entre reactivaciones: P6 volvió a quedar confirmado por otra vía; P5 se da de alta
+      await setPivotStatus(pivot6, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED)
+      const pivot5 = await createPivot(
+        p5,
+        fixture,
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED,
+        '3005'
+      )
+
+      // Segunda baja: P1 sigue revoked sin evento nuevo; P5 lo revoca esta baja; P6 también
+      await terminateRequest(client, fixture, root, unit)
+      await setPivotStatus(pivot5, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+      // P6 vuelve a confirmado antes de reactivar: su marca vieja ya no procede
+      await setPivotStatus(pivot6, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED)
+
+      const second = await reactivate(client, fixture)
+      second.assertStatus(200)
+
+      const all = await marksOf(fixture)
+      const open = all.filter((row) => row.access_point_resync_pending_resolved_at === null)
+      assert.sameMembers(
+        open.map((row) => Number(row.access_point_employee_id)),
+        [pivot1.accessPointEmployeeId, pivot5.accessPointEmployeeId]
+      )
+      // P1 conserva su marca original abierta (no se duplicó ni se reabrió)
+      const p1Marks = all.filter(
+        (row) => Number(row.access_point_employee_id) === pivot1.accessPointEmployeeId
+      )
+      assert.lengthOf(p1Marks, 1)
+      assert.equal(p1Marks[0].access_point_resync_pending_id, originalP1MarkId)
+      // P6 quedó cerrada como superseded
+      const p6Mark = all.find(
+        (row) => Number(row.access_point_employee_id) === pivot6.accessPointEmployeeId
+      )!
+      assert.isNotNull(p6Mark.access_point_resync_pending_resolved_at)
+      assert.equal(
+        p6Mark.access_point_resync_pending_resolution,
+        ACCESS_POINT_RESYNC_RESOLUTION.SUPERSEDED
+      )
+
+      // El UNIQUE impide una segunda marca abierta del mismo vínculo
+      await assert.rejects(() =>
+        db.table(AccessPointResyncPending.table).insert({
+          business_unit_id: unit.businessUnitId,
+          employee_id: fixture.employee.employeeId,
+          access_point_employee_id: pivot1.accessPointEmployeeId,
+          access_point_resync_pending_status_at_mark: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+        })
+      )
+    })
+  }
+)

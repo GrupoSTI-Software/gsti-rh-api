@@ -22,6 +22,7 @@ import type { EmployeeSyncRepository } from './employee_sync.repository.js'
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
 import { AccessPointOutOfScopeError } from '#modules/access-point/access_point_out_of_scope_error'
+import ResyncPendingService, { type ResyncPendingCloser } from './resync_pending.service.js'
 
 /**
  * Tope del correlativo: nueve digitos es lo que acepta el patron del PIN, y
@@ -66,7 +67,9 @@ export default class EmployeeSyncService {
     private readonly commands: DeviceCommandPort = new DeviceCommandService(),
     private readonly publications: PhotoPublicationService = new PhotoPublicationService(),
     private readonly scope: Pick<AccessPointScopePort, 'isParticipant'> =
-      new AccessPointScopeRepositoryMysql()
+      new AccessPointScopeRepositoryMysql(),
+    /** Marcas de checadores pendientes tras deshacer una baja (VLRH-H1790812613831). */
+    private readonly resyncPendings: ResyncPendingCloser = new ResyncPendingService()
   ) {}
 
   /**
@@ -149,7 +152,26 @@ export default class EmployeeSyncService {
         },
         trx
       )
-      return this.applyProposedPin(existing, proposedPin, input, trx)
+      const revived = await this.applyProposedPin(existing, proposedPin, input, trx)
+      /**
+       * La marca de "checador pendiente de sincronizar" (VLRH-H1790812613831)
+       * se cierra aqui: la persona volvio a quedar asignada. Va por la `trx`
+       * del candado: si la asignacion revierte, la marca sigue abierta, y no se
+       * pide otra conexion mientras se retiene esta. Es dato derivado, asi que
+       * un fallo al cerrarla nunca rompe la asignacion.
+       */
+      try {
+        await this.resyncPendings.resolveForPivot(existing.accessPointEmployeeId, trx)
+      } catch (error) {
+        logger.warn(
+          {
+            accessPointEmployeeId: existing.accessPointEmployeeId,
+            error: error instanceof Error ? error.message.slice(0, 200) : String(error),
+          },
+          'EmployeeSyncService.assign: no se pudo cerrar la marca de checador pendiente'
+        )
+      }
+      return revived
     }
 
     if (existing) return existing

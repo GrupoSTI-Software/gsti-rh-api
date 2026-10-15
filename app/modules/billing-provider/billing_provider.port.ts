@@ -314,3 +314,42 @@ export function isBillingPaymentMethodProvider(
     typeof candidate.setDefaultPaymentMethod === 'function'
   )
 }
+
+export interface ProviderCustomerAddress {
+  line1: string | null
+  line2: string | null
+  city: string | null
+  state: string | null
+  postalCode: string | null
+}
+
+export interface ProviderCustomerContact {
+  billingEmail: string | null
+  address: ProviderCustomerAddress
+}
+
+/** Identidad del tenant para sincronizar con Stripe (VLRH-H1791925351695). */
+export interface ProviderCustomerIdentity {
+  customerRef: string
+  subscriptionRef: string
+  billingSubscriptionId: number
+  businessUnitId: number
+  businessUnitPublicId: string
+  billingPlanId: number
+  billingPlanPriceId: number
+  name: string | null
+  /** null = no tocar correo ni domicilio en Stripe. */
+  contact: ProviderCustomerContact | null
+  version: string
+}
+
+export interface BillingCustomerIdentityProviderPort {
+  syncCustomerIdentity(identity: ProviderCustomerIdentity): Promise<void>
+}
+
+export function isBillingCustomerIdentityProvider(
+  provider: BillingProviderPort
+): provider is BillingProviderPort & BillingCustomerIdentityProviderPort {
+  return typeof (provider as Partial<BillingCustomerIdentityProviderPort>).syncCustomerIdentity ===
+    'function'
+}

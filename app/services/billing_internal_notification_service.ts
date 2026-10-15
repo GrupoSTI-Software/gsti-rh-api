@@ -20,6 +20,8 @@ import BillingProviderPaymentUnsettledMail, {
 } from '../mails/billing_provider_payment_unsettled_mail.js'
 import BillingProviderPaymentMisalignedMail from '../mails/billing_provider_payment_misaligned_mail.js'
 import BillingProviderSubscriptionStateMail from '../mails/billing_provider_subscription_state_mail.js'
+import BillingProviderAccountIssueMail from '../mails/billing_provider_account_issue_mail.js'
+import type { StripeErrorEntryKey } from '#constants/billing_stripe_error_catalog'
 import type { ProviderSettlementPeriod } from '#services/billing_payment_service'
 import type { BillingSubscriptionStatus } from '#models/billing_subscription'
 import type { ProviderSubscriptionStatus } from '#modules/billing-provider/billing_provider.port'
@@ -56,6 +58,18 @@ export type NotifyProviderSubscriptionStateUnexpectedParams = {
   providerStatus: ProviderSubscriptionStatus
   localStatus: BillingSubscriptionStatus
   alert: ProviderSubscriptionStateAlert
+}
+
+export type NotifyProviderAccountIssueParams = {
+  billingSubscriptionId: number
+  businessUnitId: number
+  invoiceRef: string
+  eventRef: string
+  failedAt: string
+  code: string | null
+  declineCode: string | null
+  catalogKey: StripeErrorEntryKey
+  resolvedByStripeSupport: boolean
 }
 
 export type NotifyProviderPaymentMisalignedParams = {
@@ -655,6 +669,80 @@ export default class BillingInternalNotificationService {
   /**
    * Estado de Stripe inesperado o suscripción cancelada local (USRH1790708507723). Nunca lanza.
    */
+  /**
+   * Fallo recurrente resuelto por Valanserh (VLRH-H1791925352373). Nunca lanza.
+   */
+  async notifyProviderAccountIssue(params: NotifyProviderAccountIssueParams): Promise<void> {
+    const {
+      billingSubscriptionId,
+      businessUnitId,
+      invoiceRef,
+      eventRef,
+      failedAt,
+      code,
+      declineCode,
+      catalogKey,
+      resolvedByStripeSupport,
+    } = params
+
+    try {
+      const recipients = this.resolveRecipients()
+      if (recipients.length === 0) {
+        logger.warn(
+          { billingSubscriptionId, eventRef, catalogKey },
+          'BillingInternalNotificationService: sin destinatarios; se omite aviso de cuenta Stripe.'
+        )
+        return
+      }
+
+      const recipientsToSend = this.filterRecipientsForDelivery(recipients, {
+        billingSubscriptionId,
+        eventRef,
+        catalogKey,
+      })
+      if (recipientsToSend.length === 0) {
+        return
+      }
+
+      const businessUnit = await BusinessUnit.query()
+        .where('business_unit_id', businessUnitId)
+        .whereNull('business_unit_deleted_at')
+        .first()
+
+      const businessUnitTradeName = businessUnit?.businessUnitName ?? `Empresa #${businessUnitId}`
+      const landlordBase = (env.get('LANDLORD_URL') ?? 'http://localhost:3001').replace(/\/$/, '')
+      const landlordSubscriptionUrl = `${landlordBase}/subscriptions/${billingSubscriptionId}`
+
+      const from = resolveMailSender()
+      await mail.send(
+        new BillingProviderAccountIssueMail({
+          to: recipientsToSend,
+          from,
+          tradeName: SENDER_TRADE_NAME,
+          billingSubscriptionId,
+          businessUnitTradeName,
+          invoiceRef,
+          eventRef,
+          failedAtIso: failedAt,
+          code,
+          declineCode,
+          catalogKey,
+          resolvedByStripeSupport,
+          landlordSubscriptionUrl,
+        })
+      )
+    } catch {
+      logger.error(
+        {
+          billingSubscriptionId,
+          eventRef,
+          catalogKey,
+        },
+        'BillingInternalNotificationService: fallo al enviar aviso de cuenta Stripe.'
+      )
+    }
+  }
+
   async notifyProviderSubscriptionStateUnexpected(
     params: NotifyProviderSubscriptionStateUnexpectedParams
   ): Promise<void> {
