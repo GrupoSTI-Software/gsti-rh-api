@@ -57,6 +57,8 @@ function makeService(options: Options = {}) {
   const trxSeen: Array<{ step: string; trx: TransactionClientContract | undefined }> = []
   /** Orden de candados, revalidacion y escrituras del alta. */
   const steps: string[] = []
+  /** Vinculos desprendidos (baja logica sin pasar por el aparato). */
+  const detached: AccessPointEmployee[] = []
   /** Transaccion con la que se guardo cada pivote. */
   const saveTrx: Array<TransactionClientContract | undefined> = []
 
@@ -101,7 +103,9 @@ function makeService(options: Options = {}) {
       trxSeen.push({ step: 'recordEvent', trx })
       events.push(input)
     },
-    async detach() {},
+    async detach(pivot) {
+      detached.push(pivot)
+    },
     async findByCommandTarget() {
       return options.pivot ?? null
     },
@@ -167,6 +171,7 @@ function makeService(options: Options = {}) {
     service: new EmployeeSyncService(repository, commands, publications, scope),
     steps,
     saveTrx,
+    detached,
     saved,
     events,
     enqueued,
@@ -716,6 +721,34 @@ test.group('Cerrar a mano una baja que el equipo no confirma', () => {
     assert.equal(events[0].toStatus, 'revoked')
     assert.equal(events[0].actorUserId, ACTOR.userId)
     assert.include(events[0].detail ?? '', 'el checador se reemplazo')
+  })
+
+  test('un vinculo sin PIN se desprende con su evento y sin encolar nada', async ({ assert }) => {
+    // Nunca llego al aparato: no hay baja que pedir ni que esperar.
+    const { service, detached, events, enqueued, cancelledFor, saved } = makeService({
+      pivot: pivotOf({
+        accessPointEmployeePin: '',
+        accessPointEmployeeSyncStatus: 'pending_pin' as AccessPointEmployeeSyncStatus,
+      }),
+    })
+
+    await service.forceRevoke({
+      accessPointId: 12,
+      businessUnitId: 2,
+      employeeId: 77,
+      reason: 'la invitacion se revoco',
+      actor: ACTOR,
+    })
+
+    assert.lengthOf(detached, 1)
+    assert.lengthOf(enqueued, 0)
+    assert.lengthOf(cancelledFor, 0)
+    assert.lengthOf(saved, 0)
+    assert.lengthOf(events, 1)
+    assert.equal(events[0].fromStatus, 'pending_pin')
+    assert.isNull(events[0].toStatus ?? null)
+    assert.equal(events[0].actorUserId, ACTOR.userId)
+    assert.include(events[0].detail ?? '', 'la invitacion se revoco')
   })
 
   test('no cierra una baja que nadie ha pedido', async ({ assert }) => {

@@ -496,6 +496,23 @@ export default class EmployeeSyncService {
     const pivot = await this.requirePivot(input.accessPointId, input.employeeId)
     const from = pivot.accessPointEmployeeSyncStatus
 
+    /**
+     * Un vinculo sin PIN nunca llego al aparato: no hay baja que pedir ni que
+     * esperar. Se desprende con su evento y sin encolar nada, por el mismo
+     * camino que la revocacion de una invitacion. Sin esto, el `pending_pin`
+     * de una ex-invitada quedaba huerfano y bloqueaba el borrado del checador.
+     */
+    if (from === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN) {
+      await this.detachUnsent({
+        accessPointId: input.accessPointId,
+        businessUnitId: input.businessUnitId,
+        employeeId: input.employeeId,
+        actor: input.actor,
+        detail: `Vinculo sin PIN retirado a mano: ${input.reason}`,
+      })
+      return pivot
+    }
+
     if (!REVOKING_STATUSES.includes(from)) {
       throw new AdmsError(
         'Solo se puede cerrar a mano una baja que ya se pidio',

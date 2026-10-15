@@ -1492,6 +1492,66 @@ test.group('Checador compartido: Backoffice', (group) => {
     }
   })
 
+  /**
+   * Un `pending_pin` de una ex-invitada (la carrera de A2-14 anterior a la
+   * correccion, o cualquier vinculo sin numero que quedo al revocar) nunca
+   * llego al aparato. Cerrarlo a mano lo desprende con su evento, sin encolar
+   * nada, y deja de bloquear el borrado del checador.
+   */
+  test('la ex-invitada cierra a mano un vinculo sin PIN y el checador ya se puede borrar', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    try {
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+      await seedPendingPinPivot(own, extra, own.guestBu)
+      // Invitacion revocada y la baja de su otro colaborador ya confirmada: solo queda el huerfano.
+      await unscoped(async () => {
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', own.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: new Date() })
+        await db
+          .from('access_point_employees')
+          .where('access_point_id', apId)
+          .where('employee_id', own.guestEmployee.employeeId)
+          .update({ access_point_employee_sync_status: 'revoked' })
+      })
+      const guest = await actorFor(own.guestBu)
+
+      const forced = await client
+        .post(`/api/access-points/${apId}/employee/${extra.employeeId}/revoke/force`)
+        .loginAs(guest.user.user)
+        .header('X-Business-Unit-Id', guest.publicId)
+        .json({ reason: 'la invitacion se revoco' })
+      forced.assertStatus(200)
+
+      const pivot = await unscoped(() =>
+        AccessPointEmployee.query()
+          .withTrashed()
+          .where('access_point_id', apId)
+          .where('employee_id', extra.employeeId)
+          .firstOrFail()
+      )
+      assert.isNotNull(pivot.deletedAt)
+      const commands = await unscoped(() =>
+        DeviceCommand.query().where('access_point_id', apId).where('employee_id', extra.employeeId)
+      )
+      assert.lengthOf(commands, 0)
+
+      const owner = await actorFor(own.ownerBu)
+      const destroy = await client
+        .delete(`/api/access-points/${apId}`)
+        .loginAs(owner.user.user)
+        .header('X-Business-Unit-Id', owner.publicId)
+      destroy.assertStatus(201)
+    } finally {
+      await own.cleanup()
+    }
+  })
+
   test('apagar el rostro de la ex-invitada salta el ex-compartido y llega a su checador propio', async ({
     client,
     assert,
