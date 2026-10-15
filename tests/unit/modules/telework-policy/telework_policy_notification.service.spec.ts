@@ -8,6 +8,8 @@ import Employee from '#models/employee'
 import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
+import SystemSetting from '#models/system_setting'
+import { MAIL_BRAND_LOGO_URL } from '#constants/mail_branding'
 import TeleworkPolicy from '#models/telework_policy'
 import TeleworkPolicyNotificationLog from '#models/telework_policy_notification_log'
 import TeleworkPolicyNotificationService from '#modules/telework-policy/telework_policy_notification.service'
@@ -125,10 +127,13 @@ test.group('TeleworkPolicyNotificationService.send', (group) => {
 
   group.teardown(async () => {
     if (policy) {
-      await TeleworkPolicyNotificationLog.query()
-        .where('telework_policy_id', policy.teleworkPolicyId)
-        .delete()
-      await TeleworkPolicy.query().where('telework_policy_id', policy.teleworkPolicyId).delete()
+      const policyId = policy.teleworkPolicyId
+      await TenantContext.runUnscoped(
+        () =>
+          TeleworkPolicyNotificationLog.query().where('telework_policy_id', policyId).delete(),
+        TENANT_UNSCOPED_REASON.TEST_FIXTURE
+      )
+      await TeleworkPolicy.query().where('telework_policy_id', policyId).delete()
     }
     if (employee) {
       await Employee.query().where('employee_id', employee.employeeId).delete()
@@ -158,11 +163,15 @@ test.group('TeleworkPolicyNotificationService.send', (group) => {
       assert.equal(summary.failed, 0)
       fake.messages.assertNoneSent()
 
-      const log = await TeleworkPolicyNotificationLog.query()
-        .where('telework_policy_id', policy!.teleworkPolicyId)
-        .where('employee_id', employee!.employeeId)
-        .orderBy('telework_policy_notification_log_id', 'desc')
-        .firstOrFail()
+      const log = await TenantContext.runUnscoped(
+        () =>
+          TeleworkPolicyNotificationLog.query()
+            .where('telework_policy_id', policy!.teleworkPolicyId)
+            .where('employee_id', employee!.employeeId)
+            .orderBy('telework_policy_notification_log_id', 'desc')
+            .firstOrFail(),
+        TENANT_UNSCOPED_REASON.TEST_FIXTURE
+      )
       assert.equal(log.teleworkPolicyNotificationLogStatus, 'skipped')
       assert.equal(log.teleworkPolicyNotificationLogError, 'sin-correo')
     } finally {
@@ -189,11 +198,15 @@ test.group('TeleworkPolicyNotificationService.send', (group) => {
       // Gate dev: nunca debe salir un correo real a quien no está en la lista blanca.
       fake.messages.assertNoneSent()
 
-      const log = await TeleworkPolicyNotificationLog.query()
-        .where('telework_policy_id', policy!.teleworkPolicyId)
-        .where('employee_id', employee!.employeeId)
-        .orderBy('telework_policy_notification_log_id', 'desc')
-        .firstOrFail()
+      const log = await TenantContext.runUnscoped(
+        () =>
+          TeleworkPolicyNotificationLog.query()
+            .where('telework_policy_id', policy!.teleworkPolicyId)
+            .where('employee_id', employee!.employeeId)
+            .orderBy('telework_policy_notification_log_id', 'desc')
+            .firstOrFail(),
+        TENANT_UNSCOPED_REASON.TEST_FIXTURE
+      )
       assert.equal(log.teleworkPolicyNotificationLogStatus, 'sent')
     } finally {
       mail.restore()
@@ -216,12 +229,16 @@ test.group('TeleworkPolicyNotificationService.send', (group) => {
       assert.equal(summary.sent, 1)
       fake.messages.assertSent((message) => message.hasTo('wilvardo@gmail.com'))
 
-      const log = await TeleworkPolicyNotificationLog.query()
-        .where('telework_policy_id', policy!.teleworkPolicyId)
-        .where('employee_id', employee!.employeeId)
-        .where('telework_policy_notification_log_type', 'reminder')
-        .orderBy('telework_policy_notification_log_id', 'desc')
-        .firstOrFail()
+      const log = await TenantContext.runUnscoped(
+        () =>
+          TeleworkPolicyNotificationLog.query()
+            .where('telework_policy_id', policy!.teleworkPolicyId)
+            .where('employee_id', employee!.employeeId)
+            .where('telework_policy_notification_log_type', 'reminder')
+            .orderBy('telework_policy_notification_log_id', 'desc')
+            .firstOrFail(),
+        TENANT_UNSCOPED_REASON.TEST_FIXTURE
+      )
       assert.equal(log.teleworkPolicyNotificationLogStatus, 'sent')
     } finally {
       mail.restore()
@@ -251,12 +268,16 @@ test.group('TeleworkPolicyNotificationService.send', (group) => {
       assert.equal(summary.failed, 1)
       assert.equal(summary.sent, 0)
 
-      const log = await TeleworkPolicyNotificationLog.query()
-        .where('telework_policy_id', policy!.teleworkPolicyId)
-        .where('employee_id', employee!.employeeId)
-        .where('telework_policy_notification_log_status', 'failed')
-        .orderBy('telework_policy_notification_log_id', 'desc')
-        .firstOrFail()
+      const log = await TenantContext.runUnscoped(
+        () =>
+          TeleworkPolicyNotificationLog.query()
+            .where('telework_policy_id', policy!.teleworkPolicyId)
+            .where('employee_id', employee!.employeeId)
+            .where('telework_policy_notification_log_status', 'failed')
+            .orderBy('telework_policy_notification_log_id', 'desc')
+            .firstOrFail(),
+        TENANT_UNSCOPED_REASON.TEST_FIXTURE
+      )
       assert.equal(log.teleworkPolicyNotificationLogError, 'SMTP caído (simulado)')
     } finally {
       ;(mail as unknown as { send: typeof mail.send }).send = originalSend
@@ -286,6 +307,93 @@ test.group('TeleworkPolicyNotificationService.send', (group) => {
     }
   })
 
+  test('T-marca el encabezado es Valanserh y el texto conserva el nombre comercial de la empresa', async ({
+    assert,
+  }) => {
+    const logo = 'https://cdn.empresa-a.test/logo-politica.png'
+    const setting = await SystemSetting.create({
+      businessUnitId: businessUnit!.businessUnitId,
+      systemSettingTradeName: 'Empresa A Comercial',
+      systemSettingLogo: logo,
+      systemSettingSidebarColor: '#FF0000',
+      systemSettingActive: 1,
+      systemSettingMonthlyConversionFactor: 30.4,
+    })
+    const fake = mail.fake()
+
+    try {
+      const service = new TeleworkPolicyNotificationService()
+      const recipient = makeRecipient({
+        employeeId: employee!.employeeId,
+        email: 'wilvardo@gmail.com',
+      })
+      await service.send(policy!, [recipient], 'publication', user!.userId)
+      const published = sentHtml(fake)
+      assert.include(String(published.subject), 'Política de Teletrabajo v1 — Empresa A Comercial')
+      assert.include(published.from, 'Valanserh')
+      assert.include(published.html, MAIL_BRAND_LOGO_URL)
+      assert.include(published.html, 'Empresa A Comercial ha publicado la versión 1')
+      assert.include(published.html, 'enviada por Valanserh')
+      assert.notInclude(published.html, logo)
+
+      mail.restore()
+      const reminderFake = mail.fake()
+      await service.send(policy!, [recipient], 'reminder', user!.userId)
+      const reminded = sentHtml(reminderFake)
+      assert.include(
+        String(reminded.subject),
+        'Recordatorio: acusa la Política de Teletrabajo v1 — Empresa A Comercial'
+      )
+      assert.include(reminded.html, 'Política de Teletrabajo de Empresa A Comercial')
+    } finally {
+      mail.restore()
+      await db.from('system_settings').where('system_setting_id', setting.systemSettingId).delete()
+    }
+  })
+
+  test('T-sin-setting el nombre sale del alta de la empresa y no de una ficha sin dueño', async ({
+    assert,
+  }) => {
+    const orphan = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_active', 1)
+      .whereNull('business_unit_id')
+      .first()
+    const other = await createTestBusinessUnit()
+    const otherPolicy = await createTestPolicy(other.businessUnitId, user!.userId)
+    const fake = mail.fake()
+
+    try {
+      const service = new TeleworkPolicyNotificationService()
+      await service.send(
+        otherPolicy,
+        [makeRecipient({ employeeId: employee!.employeeId, email: 'wilvardo@gmail.com' })],
+        'publication',
+        user!.userId
+      )
+      const sent = sentHtml(fake)
+      assert.include(String(sent.subject), `— ${other.businessUnitName}`)
+      assert.include(sent.html, `${other.businessUnitName} ha publicado`)
+      assert.notInclude(sent.html, 'Valanserh ha publicado')
+      assert.notInclude(sent.html, 'Ficha Sin Dueño')
+      const orphanName = orphan?.systemSettingTradeName?.trim()
+      if (orphanName && orphanName !== 'Valanserh' && !other.businessUnitName.includes(orphanName)) {
+        assert.notInclude(sent.html, orphanName)
+      }
+    } finally {
+      mail.restore()
+      await TenantContext.runUnscoped(
+        () =>
+          TeleworkPolicyNotificationLog.query()
+            .where('telework_policy_id', otherPolicy.teleworkPolicyId)
+            .delete(),
+        TENANT_UNSCOPED_REASON.TEST_FIXTURE
+      )
+      await TeleworkPolicy.query().where('telework_policy_id', otherPolicy.teleworkPolicyId).delete()
+      await BusinessUnit.query().where('business_unit_id', other.businessUnitId).delete()
+    }
+  })
+
   test('conjunto vacío de destinatarios: no crea bitácora y responde el resumen en ceros', async ({
     assert,
   }) => {
@@ -302,3 +410,13 @@ test.group('TeleworkPolicyNotificationService.send', (group) => {
     }
   })
 })
+
+function sentHtml(fake: ReturnType<typeof mail.fake>): { html: string; subject: unknown; from: string } {
+  const found = fake.messages.sent().find((message) => message.hasTo('wilvardo@gmail.com'))
+  const raw = found?.nodeMailerMessage
+  return {
+    html: String(raw?.html ?? ''),
+    subject: raw?.subject,
+    from: JSON.stringify(raw?.from ?? ''),
+  }
+}

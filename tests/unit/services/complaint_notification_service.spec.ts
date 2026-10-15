@@ -8,6 +8,8 @@ import User from '#models/user'
 import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 import { TenantContext } from '#utils/tenant_context'
 import ComplaintNotificationService from '#services/complaint_notification_service'
+import SystemSetting from '#models/system_setting'
+import { MAIL_BRAND_LOGO_URL } from '#constants/mail_branding'
 
 const stamp = () => `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
 
@@ -232,6 +234,47 @@ test.group('Aviso de queja nueva', (group) => {
     } finally {
       mail.restore()
       await cleanup([created.id], [worker], [user], [plain], [a])
+    }
+  })
+
+  test('M-marca el aviso sale con Valanserh aunque la empresa tenga nombre y logo propios', async ({
+    assert,
+  }) => {
+    const a = await unit('marca')
+    const logo = 'https://cdn.empresa-a.test/logo-propio.png'
+    const setting = await SystemSetting.create({
+      businessUnitId: a.businessUnitId,
+      systemSettingTradeName: 'Empresa A Comercial',
+      systemSettingLogo: logo,
+      systemSettingSidebarColor: '#FF0000',
+      systemSettingActive: 1,
+      systemSettingMonthlyConversionFactor: 30.4,
+    })
+    const manager = await role('gestor-marca', a.businessUnitId)
+    await grant(manager.roleId, permissionId)
+    const user = await account(manager.roleId, 'gestor-marca')
+    await pivot(a.businessUnitId, user.user.userId, manager.roleId)
+    const worker = await employee(a.businessUnitId, 'PersonaMarca', 'QuejaMarca')
+    const created = await complaint(a.businessUnitId, worker.employeeId, 'Texto de marca')
+    const fake = mail.fake()
+
+    try {
+      await TenantContext.run([a.businessUnitId], () =>
+        new ComplaintNotificationService().notifyOnNewComplaint(created.id)
+      )
+      const sent = fake.mails.sent().find((item) => item.message.hasTo(user.user.userEmail))
+      const raw = sent?.message.nodeMailerMessage
+      const html = String(raw?.html ?? '')
+      const from = JSON.stringify(raw?.from ?? '')
+      assert.include(from, 'Valanserh')
+      assert.include(String(raw?.subject ?? ''), `[NOM-035] Valanserh · Nueva queja ${created.folio}`)
+      assert.include(html, MAIL_BRAND_LOGO_URL)
+      assert.notInclude(html, 'Empresa A Comercial')
+      assert.notInclude(html, logo)
+    } finally {
+      mail.restore()
+      await db.from('system_settings').where('system_setting_id', setting.systemSettingId).delete()
+      await cleanup([created.id], [worker], [user], [manager], [a])
     }
   })
 

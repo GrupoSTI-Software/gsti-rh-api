@@ -3,6 +3,7 @@ import {
   BILLING_PROVIDER_ADAPTER_NOT_REGISTERED_DETAIL,
   BILLING_PROVIDER_ERROR_CODES,
 } from '#constants/billing_provider_error_codes'
+import { BILLING_STRIPE_ERROR_ENTRIES } from '#constants/billing_stripe_error_catalog'
 import { BillingProviderServiceError } from '#exceptions/billing_provider_service_error'
 import { resolveBillingProviderApiError } from '#helpers/billing_provider_api_error'
 import { resolveAdditionalBusinessUnitApiError } from '#helpers/business_unit_signup_api_error'
@@ -51,5 +52,24 @@ test.group('resolveBillingProviderApiError (USRH1790708507467 / CA-9)', () => {
     assert.equal(resolved.code, 'PLT.PRV.ADAPTER_NOT_REGISTERED')
     assert.equal(resolved.status, 500)
     assert.equal(resolved.title, 'Proveedor de cobro')
+  })
+
+  test('VLRH-0337: usa title de la entrada del catálogo cuando viene en la excepción', ({
+    assert,
+  }) => {
+    const entry = BILLING_STRIPE_ERROR_ENTRIES['tarjeta-sin-fondos-suficientes']
+    const error = new BillingProviderServiceError(
+      'Stripe setDefaultPaymentMethod falló',
+      BILLING_PROVIDER_ERROR_CODES.PROVIDER_REQUEST_FAILED,
+      422,
+      entry.key,
+      entry.detail,
+      entry.title
+    )
+    const resolved = resolveBillingProviderApiError(error)
+    assert.equal(resolved.title, entry.title)
+    assert.equal(resolved.detail, entry.detail)
+    assert.equal(resolved.key, entry.key)
+    assert.equal(resolved.status, 422)
   })
 })

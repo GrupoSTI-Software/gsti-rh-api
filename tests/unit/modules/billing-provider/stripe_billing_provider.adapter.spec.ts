@@ -3,6 +3,7 @@ import { Writable } from 'node:stream'
 import { test } from '@japa/runner'
 import { pino } from 'pino'
 import Stripe from 'stripe'
+import { BILLING_STRIPE_ERROR_ENTRIES } from '#constants/billing_stripe_error_catalog'
 import {
   BILLING_PROVIDER_OPERATION_NOT_AVAILABLE_DETAIL,
   BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL,
@@ -1039,10 +1040,78 @@ test.group('StripeBillingProviderAdapter — factura borrador (USRH1790718243208
       } catch (error) {
         const typed = assertProviderError(error)
         assert.equal(typed.errorCode, BILLING_PROVIDER_ERROR_CODES.PROVIDER_REQUEST_FAILED)
-        assert.equal(typed.detail, BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL)
+        assert.equal(
+          typed.detail,
+          BILLING_STRIPE_ERROR_ENTRIES['fallo-del-proveedor-de-cobro'].detail
+        )
         assert.notInclude(JSON.stringify(typed), 'prospecto.fixture@correo.test')
         assert.notInclude(typed.message, 'No such invoice')
       }
+    }
+  })
+})
+
+test.group('StripeBillingProviderAdapter — #wrap catálogo (VLRH-H1791925350337)', () => {
+  test('CA-1: card_error insufficient_funds → 422 y entrada del catálogo', async ({ assert }) => {
+    const stripeError = new Stripe.errors.StripeCardError({
+      message: 'Your card has insufficient funds.',
+      type: 'card_error',
+      code: 'card_declined',
+      decline_code: 'insufficient_funds',
+      requestId: 'req_fixture0337a',
+      statusCode: 402,
+    })
+
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () =>
+      ({
+        invoices: {
+          retrieve: async () => {
+            throw stripeError
+          },
+        },
+      }) as unknown as Stripe
+    )
+
+    try {
+      await adapter.readInvoice('in_sim1')
+      assert.fail('Debió lanzar')
+    } catch (error) {
+      const typed = assertProviderError(error)
+      assert.equal(typed.httpStatus, 422)
+      assert.equal(typed.key, 'tarjeta-sin-fondos-suficientes')
+      assert.equal(typed.title, 'La tarjeta no tiene fondos suficientes')
+      assert.equal(typed.errorCode, BILLING_PROVIDER_ERROR_CODES.PROVIDER_REQUEST_FAILED)
+      assert.notInclude(JSON.stringify(typed), 'insufficient_funds')
+    }
+  })
+
+  test('CA-4: invalid_request desconocido → 500 sin código crudo en JSON', async ({ assert }) => {
+    const stripeError = new Stripe.errors.StripeInvalidRequestError({
+      message: 'Unknown',
+      type: 'invalid_request_error',
+      code: 'codigo_que_no_existe',
+      requestId: 'req_fixture0337b',
+      statusCode: 400,
+    })
+
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () =>
+      ({
+        invoices: {
+          retrieve: async () => {
+            throw stripeError
+          },
+        },
+      }) as unknown as Stripe
+    )
+
+    try {
+      await adapter.readInvoice('in_sim1')
+      assert.fail('Debió lanzar')
+    } catch (error) {
+      const typed = assertProviderError(error)
+      assert.equal(typed.httpStatus, 500)
+      assert.equal(typed.key, 'fallo-del-proveedor-de-cobro')
+      assert.notInclude(JSON.stringify(typed), 'codigo_que_no_existe')
     }
   })
 })

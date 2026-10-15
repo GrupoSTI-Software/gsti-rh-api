@@ -20,6 +20,7 @@ import type {
   TeleworkSupplyAssetDto,
   TeleworkSupplyCategoryDto,
 } from './dto/telework_supplies.dto.js'
+import type { OwnEquipmentDeclarationDto } from './dto/own_equipment_declarations.dto.js'
 
 /**
  * Reglas puras del cumplimiento de insumos de teletrabajo (NOM-037-STPS-2023
@@ -103,11 +104,17 @@ export function resolveCategoryStatus(
  * arma las tres categorías en el orden de la norma, mapea `hasContract` a
  * `custodyStatus` y embebe el resumen. Con `applies: false` retorna
  * `categories` vacío y resumen en ceros.
+ *
+ * `ownEquipmentDeclarations` es el punto de extensión del equipo propio
+ * (VLRH-H1791306075599): mapea cada categoría a su declaración vigente. Las
+ * LLAVES del mapa alimentan a `resolveCategoryStatus` (el estado lo sigue
+ * decidiendo la regla pura) y el valor se adjunta como `ownEquipment` a la
+ * categoría. Vacío por defecto: los callers existentes no cambian.
  */
 export function buildEmployeeTeleworkSupplies(
   profile: TeleworkProfile,
   rows: readonly TeleworkCoverageRow[],
-  ownEquipmentCategories: ReadonlySet<SupplyTypeTeleworkCategory> = new Set()
+  ownEquipmentDeclarations: ReadonlyMap<SupplyTypeTeleworkCategory, OwnEquipmentDeclarationDto> = new Map()
 ): EmployeeTeleworkSuppliesDto {
   const applicability = resolveTeleworkApplicability(profile)
   const ownRows = rows.filter((row) => row.employeeId === profile.employeeId)
@@ -129,7 +136,7 @@ export function buildEmployeeTeleworkSupplies(
     buildCategoryDto(
       category,
       ownRows.filter((row) => row.category === category),
-      ownEquipmentCategories
+      ownEquipmentDeclarations
     )
   ) as [TeleworkSupplyCategoryDto, TeleworkSupplyCategoryDto, TeleworkSupplyCategoryDto]
 
@@ -202,13 +209,19 @@ export function summarizeTeleworkSupplies(
  * pero `Array.map` no puede producir la tupla no vacía que exige la unión
  * discriminada, así que se hace un cast controlado — nunca `any`. El resto
  * de estados viajan con `assets` vacío.
+ *
+ * El estado lo decide `resolveCategoryStatus` con las LLAVES del mapa (el
+ * mismo origen con el que luego se adjunta `ownEquipment`): en
+ * `delivered`/`shipping` la declaración puede existir o no, en
+ * `own_equipment` existe por construcción y en `uncovered`/`not_delivered`
+ * es `null`.
  */
 function buildCategoryDto(
   category: SupplyTypeTeleworkCategory,
   rows: readonly TeleworkCoverageRow[],
-  ownEquipmentCategories: ReadonlySet<SupplyTypeTeleworkCategory>
+  ownEquipmentDeclarations: ReadonlyMap<SupplyTypeTeleworkCategory, OwnEquipmentDeclarationDto>
 ): TeleworkSupplyCategoryDto {
-  const status = resolveCategoryStatus(category, rows, ownEquipmentCategories)
+  const status = resolveCategoryStatus(category, rows, new Set(ownEquipmentDeclarations.keys()))
 
   if (status === 'delivered' || status === 'shipping') {
     const assets = rows.map(toAssetDto)
@@ -216,19 +229,33 @@ function buildCategoryDto(
       category,
       status,
       assets: assets as [TeleworkSupplyAssetDto, ...TeleworkSupplyAssetDto[]],
+      ownEquipment: ownEquipmentDeclarations.get(category) ?? null,
     }
   }
 
   if (status === 'own_equipment') {
-    return { category, status, assets: [] }
+    // Cast controlado: `status === 'own_equipment'` solo cuando `category`
+    // está en las llaves del mapa (de ahí sale el set que recibió el
+    // resolver), así que `get` no es `undefined` por construcción. Nunca `any`.
+    return {
+      category,
+      status,
+      assets: [],
+      ownEquipment: ownEquipmentDeclarations.get(category) as OwnEquipmentDeclarationDto,
+    }
   }
 
   if (status === 'uncovered' && category !== SUPPLY_TYPE_TELEWORK_CATEGORY.ACCESSORY) {
-    return { category, status, assets: [] }
+    return { category, status, assets: [], ownEquipment: null }
   }
 
   // Inalcanzable por construcción: el resolver solo da `not_delivered` al aditamento, así que `category` ya es ACCESSORY aquí; se deja explícito por la unión discriminada, no como sustitución silenciosa.
-  return { category: SUPPLY_TYPE_TELEWORK_CATEGORY.ACCESSORY, status: 'not_delivered', assets: [] }
+  return {
+    category: SUPPLY_TYPE_TELEWORK_CATEGORY.ACCESSORY,
+    status: 'not_delivered',
+    assets: [],
+    ownEquipment: null,
+  }
 }
 
 /** Mapea una fila de cobertura al activo del DTO, con el resguardo firmado o no. */
