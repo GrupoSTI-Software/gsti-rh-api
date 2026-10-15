@@ -1,5 +1,9 @@
 import { DateTime } from 'luxon'
-import { requireEmployeeBusinessUnitId } from '#modules/access-point/employee_business_unit'
+import {
+  EmployeeOutOfScopeError,
+  requireEmployeeBusinessUnitId,
+  requireStoredEmployeeBusinessUnitId,
+} from '#modules/access-point/employee_business_unit'
 import db from '@adonisjs/lucid/services/db'
 import logger from '@adonisjs/core/services/logger'
 import AccessPointEmployee from '#models/access_point_employee'
@@ -213,13 +217,7 @@ export default class UnmappedPinsService {
       !employee ||
       !(await this.scope.isParticipant(row.accessPointId, requireEmployeeBusinessUnitId(employee)))
     ) {
-      throw new AdmsError(
-        'El colaborador no existe en tu alcance o no participa de este equipo',
-        ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
-        404,
-        'colaborador-no-encontrado',
-        'No se encontro el colaborador.'
-      )
+      throw new EmployeeOutOfScopeError()
     }
 
     /**
@@ -262,7 +260,7 @@ export default class UnmappedPinsService {
 
     pivot.accessPointId = row.accessPointId
     /** El pivote es de la empresa del empleado, no de la responsable del aparato. */
-    pivot.businessUnitId = requireEmployeeBusinessUnitId(employee)
+    pivot.businessUnitId = requireStoredEmployeeBusinessUnitId(employee)
     pivot.employeeId = employee.employeeId
     pivot.accessPointEmployeePin = row.admsUnmappedPinPin
     pivot.accessPointEmployeePinSource = 'device'
@@ -402,7 +400,7 @@ export default class UnmappedPinsService {
       }
       const result = await this.templates.store({
         employeeId: employee.employeeId,
-        businessUnitId: requireEmployeeBusinessUnitId(employee),
+        businessUnitId: requireStoredEmployeeBusinessUnitId(employee),
         bioType: biometric.admsHeldBiometricBioType,
         bioNo: biometric.admsHeldBiometricBioNo,
         bioIndex: 0,

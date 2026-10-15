@@ -11,7 +11,10 @@ import type {
   AccessPointVisibility,
   VisibilityOptions,
 } from '#modules/access-point/sharing/access_point_scope.port'
-import { requireEmployeeBusinessUnitId } from '#modules/access-point/employee_business_unit'
+import {
+  EmployeeOutOfScopeError,
+  requireEmployeeBusinessUnitId,
+} from '#modules/access-point/employee_business_unit'
 
 export type { AccessPointRole }
 
@@ -76,13 +79,8 @@ export async function resolveScopedEmployee(
           .whereIn('business_unit_id', scope)
           .first()
   if (employee) return employee
-  throw new AdmsError(
-    ctx.i18n.formatMessage('adms_not_found_title'),
-    ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
-    404,
-    'colaborador-no-encontrado',
-    ctx.i18n.formatMessage('adms_not_found_message')
-  )
+  // Titulo y detalle i18n los pone `resolveAdmsApiError`: el mismo 404 que un colaborador sin empresa.
+  throw new EmployeeOutOfScopeError()
 }
 
 function accessPointNotFound(ctx: HttpContext): AdmsError {
