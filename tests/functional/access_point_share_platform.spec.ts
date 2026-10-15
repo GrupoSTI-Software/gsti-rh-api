@@ -14,12 +14,22 @@ import {
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { admsChannelPost } from '#tests/helpers/adms_channel_request'
+import AccessPointEmployeeEvent from '#models/access_point_employee_event'
+import { PlatformDeviceServiceError } from '#exceptions/platform_device_service_error'
+import { PLATFORM_DEVICE_ERROR_CODES } from '#constants/platform_device_error_codes'
+import PlatformDeviceAssignment from '#models/platform_device_assignment'
+import PlatformTenantGroup from '#models/platform_tenant_group'
+import PlatformDeviceAccessPointService, {
+  type AccessPointDeactivateOutcome,
+} from '#services/platform_device_access_point_service'
 import {
+  anotherLiveEmployee,
   commandsOf,
   countTemplates,
   createPlatformConsoleActor,
   createSharedAccessPointFixture,
   enqueuePendingUpsertForGuest,
+  seedPendingPinPivot,
   sharesUrl,
   type PlatformConsoleActor,
   type SharedFixture,
@@ -142,6 +152,9 @@ test.group('Checador compartido: landlord', (group) => {
     const own = await ownFixture()
     const { token, user } = await consoleToken(client)
     const upsert = await enqueuePendingUpsertForGuest(own) // alta de la invitada todavia en cola
+    // Vinculo de la invitada que nunca llego al aparato: se desprende sin encolar.
+    const unsentEmployee = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+    const unsent = await seedPendingPinPivot(own, unsentEmployee, own.guestBu)
     const templatesBefore = await countTemplates(own.guestEmployee.employeeId)
 
     const res = await client
@@ -187,6 +200,26 @@ test.group('Checador compartido: landlord', (group) => {
       new EmployeeSyncRepositoryMysql().listTakenPins(own.accessPoint.accessPointId)
     )
     assert.include(taken, own.guestPin)
+
+    // El `pending_pin` queda desprendido, con su evento y sin comandos.
+    const detached = await unscoped(() =>
+      AccessPointEmployee.query()
+        .withTrashed()
+        .where('access_point_employee_id', unsent.accessPointEmployeeId)
+        .firstOrFail()
+    )
+    assert.isNotNull(detached.deletedAt)
+    const unsentEvents = await unscoped(() =>
+      AccessPointEmployeeEvent.query()
+        .where('access_point_employee_id', unsent.accessPointEmployeeId)
+        .exec()
+    )
+    assert.lengthOf(unsentEvents, 1)
+    const allDeletes = await commandsOf(own, DEVICE_COMMAND_KIND.USER_DELETE)
+    const unsentCommands = allDeletes.filter(
+      (command) => command.employeeId === unsentEmployee.employeeId
+    )
+    assert.lengthOf(unsentCommands, 0)
 
     // Revocada, la invitada vuelve a ser candidata y se le puede otorgar de nuevo.
     const again = await client
@@ -236,6 +269,73 @@ test.group('Checador compartido: landlord', (group) => {
       .json({ businessUnitPublicId: own.guestPublicId })
     res.assertStatus(409)
     res.assertBodyContains({ key: 'unidad-sin-asignacion' })
+  })
+
+  test('si apagar el punto de acceso falla, desasignar no deja bajas en cola ni revoca', async ({
+    assert,
+  }) => {
+    const own = await ownFixture()
+    class FailingAccessPointService extends PlatformDeviceAccessPointService {
+      async deactivateForDevice(): Promise<AccessPointDeactivateOutcome> {
+        throw new Error('falla forzada al apagar el punto de acceso')
+      }
+    }
+    const service = new PlatformDeviceAssignmentService(new FailingAccessPointService())
+    let failure: unknown = null
+    try {
+      await service.unassign(own.platformDeviceId, {
+        releasedAt: new Date(),
+        releaseReason: own.releaseReason,
+      })
+    } catch (error) {
+      failure = error
+    }
+    assert.instanceOf(failure, PlatformDeviceServiceError)
+    assert.equal(
+      (failure as PlatformDeviceServiceError).errorCode,
+      PLATFORM_DEVICE_ERROR_CODES.AP_DEACTIVATE_FAILED
+    )
+
+    assert.lengthOf(await commandsOf(own, DEVICE_COMMAND_KIND.USER_DELETE), 0)
+    const pivot = await unscoped(() =>
+      AccessPointEmployee.query()
+        .where('access_point_id', own.accessPoint.accessPointId)
+        .where('employee_id', own.guestEmployee.employeeId)
+        .firstOrFail()
+    )
+    assert.equal(pivot.accessPointEmployeeSyncStatus, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED)
+    const share = await unscoped(() =>
+      AccessPointShare.query()
+        .where('access_point_share_id', own.share.accessPointShareId)
+        .firstOrFail()
+    )
+    assert.isNull(share.accessPointShareRevokedAt)
+    const assignment = await unscoped(() =>
+      PlatformDeviceAssignment.query()
+        .where('platform_device_assignment_id', own.platformDeviceAssignmentId)
+        .firstOrFail()
+    )
+    assert.isNull(assignment.platformDeviceAssignmentReleasedAt)
+  })
+
+  test('otorgar con el grupo apagado es 422', async ({ client }) => {
+    const own = await ownFixture()
+    const { token } = await consoleToken(client)
+    await unscoped(async () => {
+      // Se libera la invitacion de la fixture para que la invitada sea candidata.
+      await AccessPointShare.query()
+        .where('access_point_share_id', own.share.accessPointShareId)
+        .update({ access_point_share_revoked_at: new Date() })
+      await PlatformTenantGroup.query()
+        .where('platform_tenant_group_id', own.groupId)
+        .update({ platform_tenant_group_active: 0 })
+    })
+    const res = await client
+      .post(sharesUrl(own))
+      .bearerToken(token)
+      .json({ businessUnitPublicId: own.guestPublicId })
+    res.assertStatus(422)
+    res.assertBodyContains({ key: 'empresa-fuera-del-grupo' })
   })
 
   test('sacar a la invitada del grupo avisa, no revoca y crea discrepancia', async ({

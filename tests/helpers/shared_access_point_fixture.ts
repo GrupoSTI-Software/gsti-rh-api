@@ -357,7 +357,7 @@ export async function seedUnmappedPin(fx: SharedFixture, pin: string): Promise<A
 
 /** Ruta de invitaciones de la entrega de la fixture en el landlord (Tarea 10). */
 export function sharesUrl(fx: SharedFixture): string {
-  return `/api/platform/device-assignments/${fx.platformDeviceAssignmentId}/shares`
+  return `/api/platform/devices/assignments/${fx.platformDeviceAssignmentId}/shares`
 }
 
 /** Comandos del checador de la fixture por tipo y, si se pide, por estado. */
@@ -474,4 +474,25 @@ export async function createPlatformConsoleActor(client: ApiClient): Promise<Pla
     throw new Error(`Login de plataforma sin token (HTTP ${response.status()})`)
   }
   return { user, token, cleanup }
+}
+
+/**
+ * Vinculo `pending_pin` (sin numero, nunca llego al aparato) de un colaborador
+ * en el checador de la fixture. Lo borra el cleanup (cuelga de su checador).
+ */
+export async function seedPendingPinPivot(
+  fx: SharedFixture,
+  employee: Employee,
+  businessUnitId: number
+): Promise<AccessPointEmployee> {
+  return TenantContext.runUnscoped(async () => {
+    const pivot = new AccessPointEmployee()
+    pivot.accessPointId = fx.accessPoint.accessPointId
+    pivot.employeeId = employee.employeeId
+    pivot.businessUnitId = businessUnitId
+    pivot.accessPointEmployeePin = ''
+    pivot.accessPointEmployeeSyncStatus = 'pending_pin'
+    await pivot.save()
+    return pivot
+  }, TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
 }
