@@ -20,17 +20,14 @@ export interface SyncEventInput {
 /** Puerto del pivote y su historial. */
 export interface EmployeeSyncRepository {
   /**
-   * Corre `fn` con la fila del punto de acceso bloqueada. La unicidad del PIN
-   * se comprueba dentro: dos altas simultaneas no pueden quedarse con el mismo.
-   */
-  withDeviceLock<T>(accessPointId: number, fn: () => Promise<T>): Promise<T>
-  /**
    * Corre `fn` en una transaccion que primero bloquea la fila del punto de
-   * acceso (`FOR UPDATE`). Todo lo que escriba `fn` tiene que ir por `trx`:
-   * una escritura desde otra conexion que referencie al punto de acceso se
-   * quedaria esperando este mismo candado. Es el candado que toma el
-   * encolado y la revocacion de invitaciones: el orden es siempre el aparato
-   * primero (VLRH-P0065, 3.2.4).
+   * acceso (`FOR UPDATE`). Todo lo que lea y escriba `fn` tiene que ir por
+   * `trx`: una escritura desde otra conexion que referencie al punto de acceso
+   * se quedaria esperando este mismo candado, y cualquier consulta fuera de
+   * `trx` pide otra conexion del pool mientras esta retiene la suya. Es el
+   * candado de todo lo que escribe PIN o vinculos del aparato (alta, PIN,
+   * reclamo, encolado, revocacion, borrado): el orden es siempre el aparato
+   * primero (VLRH-P0065, 3.2.4). La unicidad del PIN se comprueba dentro.
    */
   inDeviceTransaction<T>(
     accessPointId: number,
@@ -45,10 +42,15 @@ export interface EmployeeSyncRepository {
   /** Incluye filas revocadas: una reasignacion revive la que ya existia. */
   findPivotWithTrashed(
     accessPointId: number,
-    employeeId: number
+    employeeId: number,
+    trx?: TransactionClientContract
   ): Promise<AccessPointEmployee | null>
   /** Filas vivas del dispositivo que ocupan ese PIN, incluidas las de cuarentena. */
-  findByPin(accessPointId: number, pin: string): Promise<AccessPointEmployee[]>
+  findByPin(
+    accessPointId: number,
+    pin: string,
+    trx?: TransactionClientContract
+  ): Promise<AccessPointEmployee[]>
   /**
    * PINs que ese equipo ya no puede volver a dar.
    *
@@ -62,7 +64,11 @@ export interface EmployeeSyncRepository {
    * al que se le esta proponiendo numero. Sin eso nadie podria recuperar el
    * suyo al volver al equipo: su vinculo anterior figura como ocupante.
    */
-  listTakenPins(accessPointId: number, exceptPivotId?: number): Promise<string[]>
+  listTakenPins(
+    accessPointId: number,
+    exceptPivotId?: number,
+    trx?: TransactionClientContract
+  ): Promise<string[]>
   listLiveByEmployee(employeeId: number): Promise<AccessPointEmployee[]>
   /**
    * Cuantos deberian estar DENTRO del aparato a una hora dada.

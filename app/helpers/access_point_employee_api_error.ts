@@ -63,7 +63,7 @@ export function resolveAccessPointEmployeeApiError(
   }
 
   /**
-   * El alta delega en el modulo de sincronizacion (PIN, cerrojo del aparato,
+   * El alta delega en el modulo de sincronizacion (PIN, candado del aparato,
    * participacion), que lanza `AdmsError` con su propio triplete: se responde
    * tal cual, con el mismo resolutor del canal, en vez de un 500.
    */

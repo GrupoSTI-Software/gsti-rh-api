@@ -61,11 +61,13 @@ function makeService(options: Options = {}) {
   const detached: AccessPointEmployee[] = []
   /** Transaccion con la que se guardo cada pivote. */
   const saveTrx: Array<TransactionClientContract | undefined> = []
+  /**
+   * Cada lectura de `assign`/`setPin` con la transaccion que recibio: una sin
+   * `trx` pide otra conexion del pool mientras esta operacion retiene la suya.
+   */
+  const reads: Array<{ step: string; trx: unknown }> = []
 
   const repository: EmployeeSyncRepository = {
-    async withDeviceLock(_id, fn) {
-      return fn()
-    },
     async inDeviceTransaction(accessPointId, fn) {
       lockedDevices.push(accessPointId)
       steps.push('lock-aparato')
@@ -73,15 +75,19 @@ function makeService(options: Options = {}) {
     },
     async findPivot(_accessPointId, _employeeId, trx) {
       trxSeen.push({ step: 'findPivot', trx })
+      reads.push({ step: 'findPivot', trx })
       return options.pivot ?? null
     },
-    async findPivotWithTrashed() {
+    async findPivotWithTrashed(_accessPointId, _employeeId, trx) {
+      reads.push({ step: 'findPivotWithTrashed', trx })
       return options.withTrashed ?? options.pivot ?? null
     },
-    async findByPin() {
+    async findByPin(_accessPointId, _pin, trx) {
+      reads.push({ step: 'findByPin', trx })
       return options.pinHolders ?? []
     },
-    async listTakenPins(_accessPointId, exceptPivotId) {
+    async listTakenPins(_accessPointId, exceptPivotId, trx) {
+      reads.push({ step: 'listTakenPins', trx })
       const ocupantes =
         options.pinOwners ?? (options.takenPins ?? []).map((pin) => ({ pivotId: -1, pin }))
       return ocupantes
@@ -161,8 +167,9 @@ function makeService(options: Options = {}) {
   } as unknown as PhotoPublicationService
 
   const scope = {
-    async isParticipant(accessPointId: number, businessUnitId: number) {
+    async isParticipant(accessPointId: number, businessUnitId: number, trx?: unknown) {
       steps.push(`participa:${accessPointId}:${businessUnitId}`)
+      reads.push({ step: 'isParticipant', trx })
       return options.participant ?? true
     },
   }
@@ -172,6 +179,7 @@ function makeService(options: Options = {}) {
     steps,
     saveTrx,
     detached,
+    reads,
     saved,
     events,
     enqueued,
@@ -577,6 +585,55 @@ test.group('PIN con la participacion revalidada bajo el candado del aparato', ()
     assert.lengthOf(saved, 0)
     assert.lengthOf(events, 0)
     assert.lengthOf(enqueued, 0)
+  })
+})
+
+/**
+ * Una operacion, una conexion: el candado de `access_points` ya serializa a
+ * todos los que escriben PIN, asi que `assign` y `setPin` corren completas en
+ * la transaccion del aparato. Una lectura fuera de ella pide otra conexion
+ * mientras esta retiene la suya, y unas cuantas altas concurrentes agotan el
+ * pool (cada una esperando una conexion que tienen las demas).
+ */
+test.group('Alta y PIN en una sola conexion', () => {
+  test('assign lee con la transaccion del aparato y no toma el cerrojo con nombre', async ({
+    assert,
+  }) => {
+    const { service, reads, steps, deviceTrx } = makeService({
+      withTrashed: null,
+      pivot: null,
+      takenPins: [],
+    })
+    await service.assign({ accessPointId: 12, businessUnitId: 1, employeeId: 77, actor: ACTOR })
+
+    assert.deepEqual(
+      reads.map((read) => read.step).sort(),
+      ['findByPin', 'findPivotWithTrashed', 'isParticipant', 'listTakenPins'].sort()
+    )
+    for (const read of reads) assert.strictEqual(read.trx, deviceTrx, read.step)
+    assert.equal(steps[0], 'lock-aparato')
+  })
+
+  test('setPin lee con la transaccion del aparato y no toma el cerrojo con nombre', async ({
+    assert,
+  }) => {
+    const { service, reads, steps, deviceTrx } = makeService({
+      pivot: pivotOf({ accessPointEmployeePin: '' }),
+    })
+    await service.setPin({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      pin: '8',
+      actor: ACTOR,
+    })
+
+    assert.deepEqual(
+      reads.map((read) => read.step).sort(),
+      ['findByPin', 'findPivot', 'isParticipant'].sort()
+    )
+    for (const read of reads) assert.strictEqual(read.trx, deviceTrx, read.step)
+    assert.equal(steps[0], 'lock-aparato')
   })
 })
 

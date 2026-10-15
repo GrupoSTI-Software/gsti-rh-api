@@ -1,4 +1,5 @@
 import db from '@adonisjs/lucid/services/db'
+import type { QueryClientContract } from '@adonisjs/lucid/types/database'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import { DEVICE_COMMAND_STATUS } from '#modules/device-commands/device_command.constants'
 import AccessPoint from '#models/access_point'
@@ -145,8 +146,12 @@ export default class AccessPointScopeRepositoryMysql implements AccessPointScope
    * La empresa es la responsable del aparato vivo o tiene invitacion viva. Lee
    * con `db` (otra conexion): no espera candados de una transaccion en curso.
    */
-  async isParticipant(accessPointId: number, businessUnitId: number): Promise<boolean> {
-    const owner = await db
+  async isParticipant(
+    accessPointId: number,
+    businessUnitId: number,
+    client: QueryClientContract = db.connection()
+  ): Promise<boolean> {
+    const owner = await client
       .from('access_points')
       .where('access_point_id', accessPointId)
       .whereNull('access_point_deleted_at')
@@ -154,7 +159,7 @@ export default class AccessPointScopeRepositoryMysql implements AccessPointScope
       .first()
     if (!owner) return false
     if (Number(owner.business_unit_id) === businessUnitId) return true
-    const share = await db
+    const share = await client
       .from('access_point_shares')
       .where('access_point_id', accessPointId)
       .where('business_unit_id', businessUnitId)

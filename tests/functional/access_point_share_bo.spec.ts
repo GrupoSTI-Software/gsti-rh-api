@@ -422,6 +422,68 @@ test.group('Checador compartido: Backoffice', (group) => {
     }
   })
 
+  /**
+   * Una operacion, una conexion. Con el cerrojo con nombre, cada alta retenia
+   * una conexion esperando el cerrojo y la que lo tenia pedia dos mas (su
+   * transaccion del aparato y sus lecturas): con mas altas concurrentes que el
+   * pool (10 por defecto) se quedaban esperandose entre si hasta vencer. Ahora
+   * el candado del aparato las serializa con una conexion cada una, y cada
+   * una se lleva un numero distinto.
+   */
+  test('doce altas simultaneas en el mismo checador terminan con numeros distintos', async ({
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    try {
+      const employees = await unscoped(() =>
+        Employee.query()
+          .whereNull('employee_deleted_at')
+          .where('business_unit_id', own.guestBu)
+          .whereNot('employee_id', own.guestEmployee.employeeId)
+          .orderBy('employee_id', 'asc')
+          .limit(12)
+          .exec()
+      )
+      assert.lengthOf(employees, 12, 'la fixture necesita doce colaboradores de la invitada')
+
+      const service = new EmployeeSyncService()
+      const outcomes = await Promise.allSettled(
+        employees.map((employee) =>
+          TenantContext.run([own.ownerBu, own.guestBu], () =>
+            service.assign({
+              accessPointId: apId,
+              businessUnitId: own.guestBu,
+              employeeId: employee.employeeId,
+              actor: { userId: null },
+            })
+          )
+        )
+      )
+
+      const failures = outcomes.filter(
+        (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected'
+      )
+      assert.lengthOf(failures, 0, JSON.stringify(failures.map((f) => String(f.reason))))
+      const pins = await unscoped(() =>
+        AccessPointEmployee.query()
+          .where('access_point_id', apId)
+          .whereIn(
+            'employee_id',
+            employees.map((employee) => employee.employeeId)
+          )
+          .exec()
+      )
+      const numbers = pins.map((pivot) => pivot.accessPointEmployeePin)
+      assert.lengthOf(numbers, 12)
+      assert.lengthOf(new Set(numbers), 12)
+      assert.notInclude(numbers, own.ownerPin)
+      assert.notInclude(numbers, own.guestPin)
+    } finally {
+      await own.cleanup()
+    }
+  })
+
   test('la invitada solo ve a su personal en el padron del checador', async ({
     client,
     assert,

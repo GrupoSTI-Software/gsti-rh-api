@@ -77,21 +77,22 @@ export default class EmployeeSyncService {
    * logico de la asignacion vieja y el `revoked` que deja una baja confirmada
    * por el aparato -- y los dos vuelven aqui.
    *
-   * Dos candados, siempre en este orden: el cerrojo con nombre (unicidad del
-   * PIN frente a `setPin`) y despues la fila del aparato (`FOR UPDATE`), la
-   * misma que la revocacion de una invitacion toma primero. Con el aparato
-   * bloqueado se vuelve a preguntar si la empresa participa: la autorizacion
-   * lo valido antes, sin candado, y una revocacion en curso dejaria un vinculo
-   * de una ex-invitada que nadie puede cerrar (A2-14). Todo lo que escribe va
-   * por esa transaccion: escrito desde otra conexion, el insert del pivote
-   * esperaria por la llave foranea el candado que tiene esta misma operacion.
-   * Nadie toma el aparato y despues el cerrojo con nombre: no hay ciclo.
+   * Corre entera en la transaccion que bloquea la fila del aparato
+   * (`FOR UPDATE`), el mismo candado que toman `setPin`, el reclamo de un PIN
+   * no mapeado, el envio y la revocacion: con el se serializan todos los que
+   * escriben PIN, y la unicidad del numero se comprueba dentro. Con el
+   * aparato bloqueado se vuelve a preguntar si la empresa participa: la
+   * autorizacion lo valido antes, sin candado, y una revocacion en curso
+   * dejaria un vinculo de una ex-invitada que nadie puede cerrar (A2-14).
+   * Todo lo que lee y escribe va por esa `trx`: una sola conexion por
+   * operacion. Pedir otra mientras se retiene esta agota el pool con unas
+   * cuantas altas concurrentes.
    *
    * @throws AdmsError 404 `punto-acceso-no-encontrado` si la empresa ya no participa.
    */
   async assign(input: AssignInput): Promise<AccessPointEmployee> {
-    return this.repository.withDeviceLock(input.accessPointId, () =>
-      this.repository.inDeviceTransaction(input.accessPointId, (trx) => this.assignIn(input, trx))
+    return this.repository.inDeviceTransaction(input.accessPointId, (trx) =>
+      this.assignIn(input, trx)
     )
   }
 
@@ -100,21 +101,28 @@ export default class EmployeeSyncService {
     input: AssignInput,
     trx: TransactionClientContract
   ): Promise<AccessPointEmployee> {
-    await this.assertStillParticipates(input.accessPointId, input.businessUnitId)
+    await this.assertStillParticipates(input.accessPointId, input.businessUnitId, trx)
 
     const existing = await this.repository.findPivotWithTrashed(
       input.accessPointId,
-      input.employeeId
+      input.employeeId,
+      trx
     )
 
     const proposedPin = await this.proposePin(
       input.accessPointId,
       input.pin,
       existing?.accessPointEmployeePin ?? null,
-      existing?.accessPointEmployeeId
+      existing?.accessPointEmployeeId,
+      trx
     )
     if (proposedPin !== null) {
-      await this.assertPinFree(input.accessPointId, proposedPin, existing?.accessPointEmployeeId)
+      await this.assertPinFree(
+        input.accessPointId,
+        proposedPin,
+        existing?.accessPointEmployeeId,
+        trx
+      )
     }
 
     const salioDelEquipo =
@@ -165,8 +173,12 @@ export default class EmployeeSyncService {
    *
    * @throws AccessPointOutOfScopeError 404 `punto-acceso-no-encontrado`.
    */
-  private async assertStillParticipates(accessPointId: number, businessUnitId: number) {
-    if (!(await this.scope.isParticipant(accessPointId, businessUnitId))) {
+  private async assertStillParticipates(
+    accessPointId: number,
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ) {
+    if (!(await this.scope.isParticipant(accessPointId, businessUnitId, trx))) {
       throw new AccessPointOutOfScopeError()
     }
   }
@@ -174,9 +186,9 @@ export default class EmployeeSyncService {
   /**
    * Fija o cambia el PIN. Un cambio borra el registro anterior del equipo.
    *
-   * Mismos candados y en el mismo orden que `assign`: cerrojo con nombre,
-   * fila del aparato y revalidacion de la participacion, con pivote, baja y
-   * evento escritos en la transaccion del aparato. Sin el candado, fijar el
+   * Mismo candado que `assign`: la fila del aparato, con la revalidacion de la
+   * participacion y todas las lecturas y escrituras (pivote, baja, evento) en
+   * la transaccion del aparato. Sin el candado, fijar el
    * numero de un vinculo `pending_pin` (que no encola nada) dejaba en
    * `pending` a una empresa que una revocacion acababa de sacar.
    *
@@ -192,8 +204,8 @@ export default class EmployeeSyncService {
       )
     }
 
-    return this.repository.withDeviceLock(input.accessPointId, () =>
-      this.repository.inDeviceTransaction(input.accessPointId, (trx) => this.setPinIn(input, trx))
+    return this.repository.inDeviceTransaction(input.accessPointId, (trx) =>
+      this.setPinIn(input, trx)
     )
   }
 
@@ -202,9 +214,9 @@ export default class EmployeeSyncService {
     input: SetPinInput,
     trx: TransactionClientContract
   ): Promise<AccessPointEmployee> {
-    await this.assertStillParticipates(input.accessPointId, input.businessUnitId)
+    await this.assertStillParticipates(input.accessPointId, input.businessUnitId, trx)
     const pivot = await this.requirePivot(input.accessPointId, input.employeeId, trx)
-    await this.assertPinFree(input.accessPointId, input.pin, pivot.accessPointEmployeeId)
+    await this.assertPinFree(input.accessPointId, input.pin, pivot.accessPointEmployeeId, trx)
 
     const previousPin = pivot.accessPointEmployeePin
     const isChange = previousPin.length > 0 && previousPin !== input.pin
@@ -615,7 +627,8 @@ export default class EmployeeSyncService {
     accessPointId: number,
     pin: string | null | undefined,
     currentPin: string | null,
-    exceptPivotId?: number
+    exceptPivotId: number | undefined,
+    trx: TransactionClientContract
   ): Promise<string | null> {
     if (pin && ACCESS_POINT_PIN_PATTERN.test(pin)) return pin
     if (pin) {
@@ -627,7 +640,7 @@ export default class EmployeeSyncService {
       )
     }
 
-    const taken = new Set(await this.repository.listTakenPins(accessPointId, exceptPivotId))
+    const taken = new Set(await this.repository.listTakenPins(accessPointId, exceptPivotId, trx))
 
     /**
      * Quien vuelve al mismo equipo recupera su numero si sigue libre: las
@@ -676,9 +689,10 @@ export default class EmployeeSyncService {
   private async assertPinFree(
     accessPointId: number,
     pin: string,
-    exceptPivotId?: number
+    exceptPivotId: number | undefined,
+    trx: TransactionClientContract
   ): Promise<void> {
-    const holders = await this.repository.findByPin(accessPointId, pin)
+    const holders = await this.repository.findByPin(accessPointId, pin, trx)
     const taken = holders.filter((row) => row.accessPointEmployeeId !== exceptPivotId)
     if (taken.length === 0) return
     throw new AdmsError(

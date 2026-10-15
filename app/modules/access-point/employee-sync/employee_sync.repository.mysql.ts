@@ -27,19 +27,10 @@ function pinSpaceOf<T>(read: () => Promise<T>): Promise<T> {
   return TenantContext.runUnscoped(read, TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
 }
 
-/** Prefijo del cerrojo por equipo. Con nombre, no sobre una fila. */
-const DEVICE_LOCK_PREFIX = 'valanserh:access-point:'
-
-/**
- * Espera maxima por el cerrojo. Cinco segundos: una alta tarda milisegundos, y
- * quedarse mas tiempo significa que algo esta atorado, no que haya cola.
- */
-const DEVICE_LOCK_TIMEOUT_SECONDS = 5
-
 /**
  * El indice unico de la base rechazo el numero.
  *
- * Es la red de seguridad frente a la carrera que el cerrojo no cubre: el canal
+ * Es la red de seguridad frente a la carrera que el candado del aparato no cubre: el canal
  * crea pivotes por su cuenta cuando ve un PIN suelto. Se traduce a un conflicto
  * legible en lugar de dejar salir un error interno.
  */
@@ -50,44 +41,15 @@ function isDuplicatePin(error: unknown): boolean {
 /** Adaptador Lucid del pivote empleado por dispositivo. */
 export default class EmployeeSyncRepositoryMysql implements EmployeeSyncRepository {
   /**
-   * Serializa las altas de un mismo equipo con un cerrojo con nombre.
+   * Transaccion con la fila del aparato bloqueada (`FOR UPDATE`).
    *
-   * Antes bloqueaba la fila de `access_points` con `FOR UPDATE`. Dejo de
-   * servir cuando `access_point_employees` gano su llave foranea hacia esa
-   * tabla: al insertar el pivote, InnoDB pide un candado compartido sobre la
-   * fila padre, y esa fila la tenia tomada en exclusiva la propia transaccion
-   * del cerrojo. El alta se quedaba esperandose a si misma hasta el tiempo
-   * limite -- no fallaba, se colgaba, que es peor.
-   *
-   * `GET_LOCK` cumple lo mismo sin tocar ninguna fila: es un nombre, no un
-   * registro, asi que ninguna llave foranea lo cruza. La transaccion se
-   * conserva solo para fijar la conexion, porque el cerrojo vive en ella.
+   * Hubo un cerrojo con nombre (`GET_LOCK`) para las altas: el insert del
+   * pivote se hacia desde otra conexion y esperaba por la llave foranea el
+   * candado que tenia la propia transaccion del cerrojo. Hoy todo lo que lee
+   * y escribe la operacion va por `trx`, asi que la fila del aparato basta
+   * para serializar a todos los que escriben PIN, con una sola conexion por
+   * operacion.
    */
-  async withDeviceLock<T>(accessPointId: number, fn: () => Promise<T>): Promise<T> {
-    const name = `${DEVICE_LOCK_PREFIX}${accessPointId}`
-    return db.transaction(async (trx) => {
-      const result = await trx.rawQuery('SELECT GET_LOCK(?, ?) AS obtained', [
-        name,
-        DEVICE_LOCK_TIMEOUT_SECONDS,
-      ])
-      const obtained = Number(result?.[0]?.[0]?.obtained ?? 0)
-      if (obtained !== 1) {
-        throw new AdmsError(
-          'El equipo esta ocupado con otra alta',
-          ADMS_ERROR_CODES.SYS_INTERNAL,
-          409,
-          'equipo-ocupado',
-          'Otra operacion sobre este checador sigue en curso. Intenta de nuevo en unos segundos.'
-        )
-      }
-      try {
-        return await fn()
-      } finally {
-        await trx.rawQuery('SELECT RELEASE_LOCK(?)', [name])
-      }
-    })
-  }
-
   async inDeviceTransaction<T>(
     accessPointId: number,
     fn: (trx: TransactionClientContract) => Promise<T>
@@ -117,9 +79,10 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
 
   async findPivotWithTrashed(
     accessPointId: number,
-    employeeId: number
+    employeeId: number,
+    trx?: TransactionClientContract
   ): Promise<AccessPointEmployee | null> {
-    return AccessPointEmployee.query()
+    return AccessPointEmployee.query(trx ? { client: trx } : undefined)
       .withTrashed()
       .where('access_point_id', accessPointId)
       .where('employee_id', employeeId)
@@ -134,10 +97,14 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
    * haya borrado logicamente, que es cuando el aparato todavia no aplica la
    * baja.
    */
-  async findByPin(accessPointId: number, pin: string): Promise<AccessPointEmployee[]> {
+  async findByPin(
+    accessPointId: number,
+    pin: string,
+    trx?: TransactionClientContract
+  ): Promise<AccessPointEmployee[]> {
     // El PIN es del aparato, no de una empresa: ver `pinSpaceOf`.
     return pinSpaceOf(() =>
-      AccessPointEmployee.query()
+      AccessPointEmployee.query(trx ? { client: trx } : undefined)
         .withTrashed()
         .where('access_point_id', accessPointId)
         .where('access_point_employee_pin', pin)
@@ -168,8 +135,12 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     return Number(rows[0].$extras.total ?? 0)
   }
 
-  async listTakenPins(accessPointId: number, exceptPivotId?: number): Promise<string[]> {
-    const query = AccessPointEmployee.query()
+  async listTakenPins(
+    accessPointId: number,
+    exceptPivotId?: number,
+    trx?: TransactionClientContract
+  ): Promise<string[]> {
+    const query = AccessPointEmployee.query(trx ? { client: trx } : undefined)
       .withTrashed()
       .where('access_point_id', accessPointId)
       .whereNot('access_point_employee_pin', '')

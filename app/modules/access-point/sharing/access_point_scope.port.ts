@@ -1,4 +1,5 @@
 import type AccessPoint from '#models/access_point'
+import type { QueryClientContract } from '@adonisjs/lucid/types/database'
 
 /** Scope del canal ADMS de un checador y si alguna vez se compartio. */
 export interface ChannelScope {
@@ -69,8 +70,16 @@ export interface AccessPointScopePort {
   /** Empresa responsable del aparato, o `null` si no existe o esta borrado. */
   ownerOf(accessPointId: number): Promise<number | null>
 
-  /** La empresa es la responsable del aparato vivo o una invitada viva. */
-  isParticipant(accessPointId: number, businessUnitId: number): Promise<boolean>
+  /**
+   * La empresa es la responsable del aparato vivo o una invitada viva. Con
+   * `client`, lee en esa conexion (p. ej. la transaccion que tiene el aparato
+   * bloqueado) en vez de pedir otra al pool.
+   */
+  isParticipant(
+    accessPointId: number,
+    businessUnitId: number,
+    client?: QueryClientContract
+  ): Promise<boolean>
 
   /**
    * Scope de las operaciones centradas en un colaborador: su empresa, las
