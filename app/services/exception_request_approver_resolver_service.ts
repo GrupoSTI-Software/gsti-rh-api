@@ -3,9 +3,15 @@ import User from '#models/user'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import {
   EXCEPTION_REQUEST_APPROVER_LINK,
+  EXCEPTION_REQUEST_HR_REQUIRED_PERMISSION,
   EXCEPTION_REQUEST_ROLE_CHAIN,
   type ExceptionRequestApproverLink,
+  type ExceptionRequestRoleChainLink,
 } from '#constants/exception_request_notification'
+import {
+  fetchTenantHumanCapitalUsers,
+  fetchTenantUsersWithModulePermission,
+} from '#helpers/tenant_users_with_module_permission'
 import {
   pickRecipientEmail,
   type RecipientEmailKind,
@@ -69,7 +75,7 @@ export default class ExceptionRequestApproverResolverService {
     }
 
     for (const eslabon of EXCEPTION_REQUEST_ROLE_CHAIN) {
-      const destinatarios = await this.resolveByRoleSlugs(employee.businessUnitId, eslabon.slugs)
+      const destinatarios = await this.resolveChainLink(employee.businessUnitId, eslabon)
 
       if (destinatarios.length > 0) {
         return { link: eslabon.link, recipients: destinatarios }
@@ -152,6 +158,57 @@ export default class ExceptionRequestApproverResolverService {
       .where('user_active', 1)
       .preload('person')
 
+    return this.toRecipients(usuarios)
+  }
+
+  /**
+   * Elige cómo se resuelve el eslabón. Recursos Humanos sale de la marca y del
+   * permiso; administración y dueño siguen por el nombre interno del rol.
+   */
+  private async resolveChainLink(
+    businessUnitId: number,
+    eslabon: ExceptionRequestRoleChainLink
+  ): Promise<ExceptionRequestRecipient[]> {
+    switch (eslabon.source) {
+      case 'human-capital':
+        return this.resolveHumanCapital(businessUnitId)
+      case 'role-slugs':
+        return this.resolveByRoleSlugs(businessUnitId, eslabon.slugs)
+      default: {
+        const desconocido: never = eslabon
+        return desconocido
+      }
+    }
+  }
+
+  /**
+   * Personas de Recursos Humanos de la empresa del colaborador.
+   *
+   * Hace falta la marca del rol efectivo y el permiso de acceso a Solicitudes
+   * de permisos. Quien solo tiene una de las dos no recibe el aviso. Sin una
+   * empresa válida, el eslabón queda vacío y la cadena sigue subiendo.
+   */
+  private async resolveHumanCapital(businessUnitId: number): Promise<ExceptionRequestRecipient[]> {
+    if (!Number.isInteger(businessUnitId) || businessUnitId <= 0) {
+      return []
+    }
+
+    const marked = await fetchTenantHumanCapitalUsers({ businessUnitIds: [businessUnitId] })
+    const permitted = await fetchTenantUsersWithModulePermission({
+      businessUnitId,
+      moduleSlug: EXCEPTION_REQUEST_HR_REQUIRED_PERMISSION.moduleSlug,
+      permissionSlug: EXCEPTION_REQUEST_HR_REQUIRED_PERMISSION.permissionSlug,
+    })
+    const permittedIds = new Set(permitted.map((row) => row.userId))
+    const userIds = [
+      ...new Set(marked.filter((row) => permittedIds.has(row.userId)).map((row) => row.userId)),
+    ]
+
+    if (userIds.length === 0) {
+      return []
+    }
+
+    const usuarios = await User.query().whereIn('user_id', userIds).preload('person')
     return this.toRecipients(usuarios)
   }
 

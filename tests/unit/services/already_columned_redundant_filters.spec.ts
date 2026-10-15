@@ -57,18 +57,20 @@ test.group('telework-policy — candados manuales retirados', () => {
   })
 
   /**
-   * Aquí el filtro por `business_unit_id` NO es redundante y por eso se exige:
-   * `SystemSetting` es de los pocos modelos SIN `withBusinessUnitScope()`, y
-   * este servicio corre en procesos batch, fuera del contexto de una petición.
-   * Antes el método ni siquiera usaba la empresa que recibía: tomaba la primera
-   * de la base y podía mandarle a un tenant la marca de otro.
+   * El filtro por `business_unit_id` se sigue exigiendo: `SystemSetting` no
+   * compone `withBusinessUnitScope()`, y el nombre de la empresa es contenido
+   * del aviso, no su marca. La marca sale de Valanserh.
    */
-  test('telework_policy_notification.service.ts resuelve la marca por la empresa recibida', ({
+  test('telework_policy_notification.service.ts sale con la marca Valanserh y lee el nombre de la empresa por su llave', ({
     assert,
   }) => {
     const content = read('app/modules/telework-policy/telework_policy_notification.service.ts')
-    assert.include(content, 'resolveBrandingForBusinessUnit(')
+    assert.include(content, 'MAIL_BRAND_TRADE_NAME')
+    assert.include(content, 'MAIL_BRAND_LOGO_URL')
+    assert.include(content, 'resolveCompanyName(')
     assert.include(content, ".where('business_unit_id', businessUnitId)")
+    assert.notInclude(content, 'resolveBrandingForBusinessUnit(')
+    assert.notInclude(content, "whereNull('business_unit_id')")
     assert.notInclude(content, 'systemSettingBusinessUnits')
   })
 })

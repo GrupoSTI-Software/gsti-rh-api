@@ -302,6 +302,11 @@ test.group('POST /api/webhooks/stripe — estado Stripe (7723)', () => {
         subscription.billingSubscriptionLastPaymentFailureReason,
         'insufficient_funds'
       )
+      assert.equal(subscription.billingSubscriptionLastPaymentFailureCode, 'card_declined')
+      assert.equal(
+        subscription.billingSubscriptionLastPaymentFailureDeclineCode,
+        'insufficient_funds'
+      )
       assert.equal(
         subscription.billingSubscriptionLastPaymentFailureInvoiceRef,
         'in_fixtureS2a'

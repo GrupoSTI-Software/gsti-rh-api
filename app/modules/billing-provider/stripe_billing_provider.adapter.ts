@@ -8,6 +8,10 @@ import {
   BILLING_PROVIDER_WEBHOOK_MODE_MISMATCH_DETAIL,
   BILLING_PROVIDER_WEBHOOK_SIGNATURE_INVALID_DETAIL,
 } from '#constants/billing_provider_error_codes'
+import {
+  resolveStripeErrorEntry,
+  type StripeErrorClassHint,
+} from '#constants/billing_stripe_error_catalog'
 import { BillingProviderServiceError } from '#exceptions/billing_provider_service_error'
 import {
   cardNotConfirmed,
@@ -1654,20 +1658,35 @@ export default class StripeBillingProviderAdapter
     }
 
     if (error instanceof Stripe.errors.StripeError) {
+      const stripeDeclineCode =
+        error.decline_code === undefined || error.decline_code === ''
+          ? null
+          : error.decline_code
+      const resolved = resolveStripeErrorEntry({
+        rawType: error.rawType,
+        code: error.code ?? null,
+        declineCode: stripeDeclineCode,
+        errorClass: stripeErrorClassHint(error),
+      })
       logger.warn(
         {
           provider: BILLING_PROVIDER_KEYS.STRIPE,
           operation,
-          stripeErrorType: error.type ?? null,
+          stripeErrorType: error.rawType ?? null,
           stripeErrorCode: error.code ?? null,
+          stripeDeclineCode,
           stripeRequestId: error.requestId ?? null,
           statusCode: error.statusCode ?? null,
+          catalogKey: resolved.entry.key,
+          catalogMiss: resolved.catalogMiss,
         },
         'Cobro: Stripe rechazó la operación'
       )
       return providerRequestFailed(operation, {
-        stripeErrorType: error.type ?? null,
+        stripeErrorType: error.rawType ?? null,
         stripeRequestId: error.requestId ?? null,
+        entry: resolved.entry,
+        httpStatus: resolved.httpStatus,
       })
     }
 
@@ -1687,4 +1706,20 @@ export default class StripeBillingProviderAdapter
       stripeRequestId: null,
     })
   }
+}
+
+function stripeErrorClassHint(error: Stripe.errors.StripeError): StripeErrorClassHint {
+  if (error instanceof Stripe.errors.StripeConnectionError) {
+    return 'connection'
+  }
+  if (error instanceof Stripe.errors.StripeRateLimitError) {
+    return 'rate_limit'
+  }
+  if (error instanceof Stripe.errors.StripeAuthenticationError) {
+    return 'authentication'
+  }
+  if (error instanceof Stripe.errors.StripePermissionError) {
+    return 'permission'
+  }
+  return null
 }

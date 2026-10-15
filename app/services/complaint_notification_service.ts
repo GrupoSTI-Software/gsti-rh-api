@@ -5,7 +5,7 @@ import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import { fetchTenantUsersWithModulePermission } from '#helpers/tenant_users_with_module_permission'
 import Complaint from '#models/complaint'
 import ComplaintNotificationLog from '#models/complaint_notification_log'
-import SystemSetting from '#models/system_setting'
+import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import {
   COMPLAINT_BOARD_MODULE_PATH,
   COMPLAINT_MANAGE_PERMISSION,
@@ -22,8 +22,6 @@ const DEVELOPMENT_EMAIL_LIST = [
   'wilvardo@gmail.com'
 ]
 const DEFAULT_BACKOFFICE_URL = 'http://127.0.0.1:3000'
-const DEFAULT_MAIL_LOGO =
-  'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
 
 export interface ComplaintManageRecipient {
   userId: number
@@ -57,7 +55,10 @@ export default class ComplaintNotificationService {
       }
 
       const pendingNewCount = await this.countNewPendingComplaints([complaint.businessUnitId])
-      const branding = await this.resolveBrandingForBusinessUnit(complaint.businessUnitId)
+      const branding = {
+        tradeName: MAIL_BRAND_TRADE_NAME,
+        backgroundImageLogo: MAIL_BRAND_LOGO_URL,
+      }
       const boardUrl = this.buildBoardUrl()
       const from = resolveMailSender()
 
@@ -194,37 +195,6 @@ export default class ComplaintNotificationService {
     }
 
     return unique
-  }
-
-  private async resolveBrandingForBusinessUnit(
-    businessUnitId: number
-  ): Promise<{ tradeName: string; backgroundImageLogo: string }> {
-    // La configuración de la empresa se pide por su llave. Antes se traían todas
-    // las activas y se buscaba el slug dentro del CSV de cada una.
-    const setting = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
-      .where('business_unit_id', businessUnitId)
-      .first()
-
-    if (setting) {
-      return {
-        tradeName: setting.systemSettingTradeName || 'Valanserh',
-        backgroundImageLogo: setting.systemSettingLogo || DEFAULT_MAIL_LOGO,
-      }
-    }
-
-    // Sin configuración propia, la marca base de la plataforma.
-    const fallback = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
-      .whereNull('business_unit_id')
-      .first()
-
-    return {
-      tradeName: fallback?.systemSettingTradeName || 'Valanserh',
-      backgroundImageLogo: fallback?.systemSettingLogo || DEFAULT_MAIL_LOGO,
-    }
   }
 
   private buildBoardUrl(): string {

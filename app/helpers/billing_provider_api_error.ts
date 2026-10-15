@@ -19,7 +19,7 @@ export function resolveBillingProviderApiError(
   error: BillingProviderServiceError
 ): ResolvedBillingProviderError {
   return {
-    title: 'Proveedor de cobro',
+    title: error.title ?? 'Proveedor de cobro',
     detail: error.detail ?? BILLING_PROVIDER_ADAPTER_NOT_REGISTERED_DETAIL,
     key: error.key ?? 'proveedor-de-cobro-no-soportado',
     code: error.errorCode,
