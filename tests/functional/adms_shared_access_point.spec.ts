@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
 import Assist from '#models/assist'
 import AccessPointStamp from '#models/access_point_stamp'
 import AccessPointEmployee from '#models/access_point_employee'
@@ -205,5 +206,99 @@ test.group('Checador compartido: canal ADMS', (group) => {
       assert.isAbove(events.length, 0)
       for (const event of events) assert.equal(event.businessUnitId, pivot.businessUnitId)
     }
+  })
+
+  // Va al final del grupo: revisa lo que dejaron las pruebas anteriores. Regla 3.3 de VLRH-P0065:
+  // lo del aparato lleva la empresa responsable; lo del empleado, la empresa del empleado.
+  test('cada tabla del canal queda con la empresa que le toca', async ({ assert }) => {
+    const apId = fx.accessPoint.accessPointId
+    const rowsOf = (table: string, apColumn = 'access_point_id') =>
+      unscoped(() => db.from(table).where(apColumn, apId).select('*'))
+
+    // Tablas del aparato (todas las que tienen access_point_id y business_unit_id y escribe el canal).
+    const deviceTables = [
+      'access_point_stamps',
+      'access_point_profiles',
+      'adms_raw_messages',
+      'adms_held_punches',
+      'adms_held_biometrics',
+      'adms_unmapped_pins',
+      'adms_incidents',
+    ]
+    // Las que esta prueba debe ver con filas, o el chequeo seria vacuo.
+    const mustHaveRows = new Set([
+      'access_point_stamps',
+      'adms_raw_messages',
+      'adms_held_punches',
+      'adms_unmapped_pins',
+    ])
+    const withRows: string[] = []
+    const withoutRows: string[] = []
+    for (const table of deviceTables) {
+      const rows = await rowsOf(table)
+      for (const row of rows) {
+        assert.equal(row.business_unit_id, fx.ownerBu, `${table}: debe llevar la responsable`)
+      }
+      ;(rows.length > 0 ? withRows : withoutRows).push(
+        `${table}[${[...new Set(rows.map((r) => r.business_unit_id))].join('/')}]`
+      )
+      if (mustHaveRows.has(table))
+        assert.isAbove(rows.length, 0, `${table}: sin filas, prueba vacua`)
+    }
+
+    // Tablas del empleado: la empresa de la fila es la del empleado.
+    const employeeBu = async (ids: number[]) => {
+      const emps = await unscoped(() =>
+        db.from('employees').whereIn('employee_id', ids).select('employee_id', 'business_unit_id')
+      )
+      return new Map<number, number>(emps.map((e) => [e.employee_id, e.business_unit_id]))
+    }
+    const employeeTables: Array<{ table: string; apColumn: string; must: boolean }> = [
+      { table: 'access_point_employees', apColumn: 'access_point_id', must: true },
+      { table: 'device_commands', apColumn: 'access_point_id', must: false },
+      { table: 'biometric_templates', apColumn: 'source_access_point_id', must: false },
+      { table: 'biometric_photo_publications', apColumn: 'access_point_id', must: false },
+    ]
+    for (const { table, apColumn, must } of employeeTables) {
+      const all = await rowsOf(table, apColumn)
+      // device_commands sin employee_id son del aparato/sistema, no del empleado.
+      const rows = all.filter((r) => r.employee_id !== null && r.employee_id !== undefined)
+      const owners = await employeeBu(rows.map((r) => r.employee_id as number))
+      for (const row of rows) {
+        assert.equal(
+          row.business_unit_id,
+          owners.get(row.employee_id),
+          `${table}: debe llevar la empresa del empleado ${row.employee_id}`
+        )
+      }
+      ;(rows.length > 0 ? withRows : withoutRows).push(
+        `${table}[${[...new Set(rows.map((r) => r.business_unit_id))].join('/')}]`
+      )
+      if (must) assert.isAbove(rows.length, 0, `${table}: sin filas, prueba vacua`)
+    }
+
+    // Checadas del empleado (assists) de este checador.
+    const assists = await unscoped(() =>
+      db
+        .from('assists')
+        .where('assist_terminal_sn', fx.accessPoint.accessPointSerialNumber as string)
+        .select('assist_emp_id', 'business_unit_id')
+    )
+    assert.isAbove(assists.length, 0, 'assists: sin filas, prueba vacua')
+    const assistOwners = await employeeBu(assists.map((a) => a.assist_emp_id as number))
+    for (const a of assists) assert.equal(a.business_unit_id, assistOwners.get(a.assist_emp_id))
+    withRows.push('assists')
+
+    // Ambas empresas deben aparecer en las tablas del empleado (si no, no se probo la particion).
+    const pivots = await rowsOf('access_point_employees')
+    assert.sameMembers(
+      [...new Set(pivots.map((p) => p.business_unit_id))],
+      [fx.ownerBu, fx.guestBu]
+    )
+
+    // eslint-disable-next-line no-console
+    console.log(
+      `[aislamiento] (owner=${fx.ownerBu} guest=${fx.guestBu}) con filas: ${withRows.join(', ')} | sin filas: ${withoutRows.join(', ') || '-'}`
+    )
   })
 })
