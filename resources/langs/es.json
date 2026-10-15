@@ -3280,6 +3280,8 @@
   "adms_forbidden_message": "No tienes permiso para esta operación sobre los checadores",
   "adms_not_found_title": "Punto de acceso no encontrado",
   "adms_not_found_message": "El punto de acceso no existe o no tienes acceso a él",
+  "access_point_shared_read_only_title": "Checador compartido",
+  "access_point_shared_read_only_message": "Este checador lo administra otra empresa; solo puedes gestionar a tu personal en él.",
   "adms_internal_title": "Error interno",
   "adms_internal_message": "No fue posible completar la operación; intenta de nuevo",
   "access_point_employee_assigned_message": "El punto de acceso fue asignado al colaborador",

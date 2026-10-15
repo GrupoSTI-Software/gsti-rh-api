@@ -40,6 +40,26 @@ export const AccessPointScope = {
     return Boolean(share)
   },
 
+  /**
+   * Scope de las operaciones centradas en un colaborador (su ficha de
+   * biometricos): su empresa y las responsables de los checadores compartidos
+   * con ella. Sin esto, el perfil y la cola de un aparato ajeno quedan fuera
+   * del mixin y la operacion lo salta en silencio (p. ej. retirar el rostro).
+   */
+  async forEmployee(businessUnitId: number): Promise<number[]> {
+    const rows = (await db
+      .from('access_point_shares as s')
+      .innerJoin('access_points as a', 'a.access_point_id', 's.access_point_id')
+      .where('s.business_unit_id', businessUnitId)
+      .whereNull('s.access_point_share_revoked_at')
+      .whereNull('a.access_point_deleted_at')
+      .distinct('a.business_unit_id')) as Array<{ business_unit_id: number }>
+    const owners = rows
+      .map((row) => Number(row.business_unit_id))
+      .filter((id) => id !== businessUnitId)
+    return [businessUnitId, ...new Set(owners)]
+  },
+
   async sharedWith(businessUnitId: number): Promise<number[]> {
     const rows = (await db
       .from('access_point_shares')

@@ -5,6 +5,18 @@ import { AdmsError } from '#exceptions/adms_error'
 import AccessPoint from '#models/access_point'
 import PermissionGateService from '#services/permission_gate_service'
 import Employee from '#models/employee'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+
+export type AccessPointRole = 'owner' | 'guest'
+
+export interface ParticipantAccessPoint {
+  accessPoint: AccessPoint
+  role: AccessPointRole
+  /** Scope del checador: responsable + invitadas vivas. */
+  deviceScope: number[]
+}
 
 /**
  * Autorizacion unica de las rutas del canal ADMS hacia el Backoffice
@@ -53,13 +65,7 @@ export async function resolveScopedAccessPoint(
           .whereIn('business_unit_id', scope)
           .first()
   if (accessPoint) return accessPoint
-  throw new AdmsError(
-    ctx.i18n.formatMessage('adms_not_found_title'),
-    ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
-    404,
-    'punto-acceso-no-encontrado',
-    ctx.i18n.formatMessage('adms_not_found_message')
-  )
+  throw accessPointNotFound(ctx)
 }
 
 /**
@@ -90,4 +96,101 @@ export async function resolveScopedEmployee(
     'colaborador-no-encontrado',
     ctx.i18n.formatMessage('adms_not_found_message')
   )
+}
+
+function accessPointNotFound(ctx: HttpContext): AdmsError {
+  return new AdmsError(
+    ctx.i18n.formatMessage('adms_not_found_title'),
+    ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+    404,
+    'punto-acceso-no-encontrado',
+    ctx.i18n.formatMessage('adms_not_found_message')
+  )
+}
+
+/**
+ * Como `resolveScopedAccessPoint`, pero admite el checador ajeno compartido con
+ * la empresa de la peticion (VLRH-P0065, 6). Devuelve el rol y el scope del
+ * checador: toda operacion sobre el aparato corre dentro de ese scope, porque
+ * sus PIN y su cola son de todos los participantes.
+ *
+ * La empresa del colaborador se sigue resolviendo con `resolveScopedEmployee`
+ * en el scope de la peticion: compartir el aparato no da acceso a la gente de
+ * otra empresa.
+ */
+export async function resolveParticipantAccessPoint(
+  ctx: HttpContext,
+  accessPointId: number
+): Promise<ParticipantAccessPoint> {
+  const scope = ctx.businessUnitScope ?? []
+  if (scope.length === 0) throw accessPointNotFound(ctx)
+
+  // La consulta se cierra con `first()` dentro del bypass: un builder devuelto
+  // sin ejecutar correria fuera del contexto y truena (VLRH-A0036, M12).
+  const accessPoint = await TenantContext.runUnscoped(
+    () =>
+      AccessPoint.query()
+        .where('access_point_id', accessPointId)
+        .whereNull('access_point_deleted_at')
+        .first(),
+    TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
+  )
+  if (!accessPoint) throw accessPointNotFound(ctx)
+
+  const deviceScope = await AccessPointScope.participants(
+    accessPoint.accessPointId,
+    accessPoint.businessUnitId
+  )
+  const owner = scope.includes(accessPoint.businessUnitId)
+  const guest = !owner && deviceScope.some((id) => scope.includes(id))
+  if (!owner && !guest) throw accessPointNotFound(ctx)
+
+  return { accessPoint, role: owner ? 'owner' : 'guest', deviceScope }
+}
+
+/**
+ * El checador solo para su responsable: escrituras de configuracion (reloj,
+ * perfil, secreto, IP, avance). La invitada recibe 403 y no 404 porque ya sabe
+ * que el aparato existe: lo ve en su lista.
+ */
+export async function resolveOwnedAccessPoint(
+  ctx: HttpContext,
+  accessPointId: number
+): Promise<AccessPoint> {
+  const participant = await resolveParticipantAccessPoint(ctx, accessPointId)
+  if (participant.role === 'owner') return participant.accessPoint
+  throw new AdmsError(
+    ctx.i18n.formatMessage('access_point_shared_read_only_title'),
+    ADMS_ERROR_CODES.AUTHZ_FORBIDDEN,
+    403,
+    'solo-lectura-checador-compartido',
+    ctx.i18n.formatMessage('access_point_shared_read_only_message')
+  )
+}
+
+/**
+ * El colaborador de la peticion sobre un checador concreto: se resuelve en el
+ * scope de la peticion y ademas su empresa tiene que participar del aparato.
+ * Un aparato compartido solo atiende a la gente de sus participantes; para
+ * cualquier otra empresa ese checador no existe.
+ */
+export async function resolveParticipantEmployee(
+  ctx: HttpContext,
+  participant: ParticipantAccessPoint,
+  employeeId: number
+): Promise<Employee> {
+  const employee = await resolveScopedEmployee(ctx, employeeId)
+  if (participant.deviceScope.includes(employee.businessUnitId as number)) return employee
+  throw accessPointNotFound(ctx)
+}
+
+/**
+ * Lo que una empresa puede leer del checador: la responsable, todo el scope
+ * del aparato; la invitada, solo lo suyo (su personal, sus comandos). Para
+ * lecturas por fila de empleado o de comando, no para agregados del aparato.
+ */
+export function readScopeOf(ctx: HttpContext, participant: ParticipantAccessPoint): number[] {
+  if (participant.role === 'owner') return participant.deviceScope
+  const scope = ctx.businessUnitScope ?? []
+  return participant.deviceScope.filter((id) => scope.includes(id))
 }
