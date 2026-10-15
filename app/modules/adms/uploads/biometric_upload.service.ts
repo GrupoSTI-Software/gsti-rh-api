@@ -346,6 +346,14 @@ export default class BiometricUploadService {
     row: NormalizedBiometric
   ): Promise<void> {
     const live = await this.pivots.listLiveByEmployee(employeeId)
+    /**
+     * La copia es a nombre de la empresa del colaborador, no de la responsable
+     * del aparato (VLRH-P0065, 3.3): en un checador compartido son distintas.
+     * El pivote del equipo que capturo lleva la del colaborador.
+     */
+    const employeeBusinessUnitId =
+      live.find((pivot) => pivot.accessPointId === device.accessPointId)?.businessUnitId ??
+      device.businessUnitId
     const peers = live.filter(
       (pivot) =>
         pivot.accessPointId !== device.accessPointId &&
@@ -386,7 +394,7 @@ export default class BiometricUploadService {
 
     await this.replication.replicate({
       employeeId,
-      businessUnitId: device.businessUnitId,
+      businessUnitId: employeeBusinessUnitId,
       sourceAccessPointId: device.accessPointId,
       targetAccessPointIds: peers.map((pivot) => pivot.accessPointId),
       modalities: [],

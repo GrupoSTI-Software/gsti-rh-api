@@ -16,6 +16,8 @@ import type AccessPointEmployee from '#models/access_point_employee'
 import IncidentService from '#modules/adms/raw/incident.service'
 import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
+import { AdmsError } from '#exceptions/adms_error'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 import TemplateService from '../template/template.service.js'
 import type { TemplateSlot } from '../template/template.repository.js'
 import ConsentGate from '../consent/consent_gate.js'
@@ -98,6 +100,23 @@ export default class ReplicationService {
 
   async replicate(input: ReplicationInput): Promise<ReplicationResult> {
     const now = input.now ?? DateTime.utc()
+
+    /**
+     * Cada destino tiene que atender a la empresa del colaborador: propio o
+     * compartido con ella (VLRH-P0065, 4). Vive aqui y no solo en el
+     * controlador porque el alta y el canal llaman sin pasar por el.
+     */
+    for (const target of input.targetAccessPointIds) {
+      if (!(await AccessPointScope.isParticipant(target, input.businessUnitId))) {
+        throw new AdmsError(
+          'Checador no disponible',
+          ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+          404,
+          'punto-acceso-no-encontrado',
+          'El checador destino no esta disponible para la empresa del colaborador.'
+        )
+      }
+    }
 
     /**
      * Tambien en la vista previa: mostrar que biometricos tiene una persona y
