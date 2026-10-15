@@ -6,6 +6,9 @@ import AccessPointEmployee from '#models/access_point_employee'
 import AdmsHeldPunch from '#models/adms_held_punch'
 import AdmsUnmappedPin from '#models/adms_unmapped_pin'
 import { TenantContext } from '#utils/tenant_context'
+import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
+import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
+import type { CommandInsert } from '#modules/device-commands/device_command.repository'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { admsChannelPost } from '#tests/helpers/adms_channel_request'
 import {
@@ -74,6 +77,7 @@ test.group('Checador compartido: canal ADMS', (group) => {
     await unscoped(() =>
       AccessPointEmployee.query()
         .where('access_point_id', fx.accessPoint.accessPointId)
+        .where('employee_id', fx.ownerEmployee.employeeId)
         .where('access_point_employee_pin', code)
         .delete()
     )
@@ -99,26 +103,67 @@ test.group('Checador compartido: canal ADMS', (group) => {
     assert,
   }) => {
     // `revoking` es la baja pendiente de envio: no retiene (solo `revoke_acked` lo hace).
-    await unscoped(() =>
-      AccessPointEmployee.query()
-        .where('access_point_id', fx.accessPoint.accessPointId)
-        .where('employee_id', fx.guestEmployee.employeeId)
-        .update({ access_point_employee_sync_status: 'revoking' })
+    const setStatus = (status: string) =>
+      unscoped(() =>
+        AccessPointEmployee.query()
+          .where('access_point_id', fx.accessPoint.accessPointId)
+          .where('employee_id', fx.guestEmployee.employeeId)
+          .update({ access_point_employee_sync_status: status })
+      )
+    await setStatus('revoking')
+    try {
+      await attlog(`${fx.guestPin}\t${at(50, zone)}\t0\t1\t0\t0\n`)
+      const assist = await unscoped(() =>
+        Assist.query()
+          .where('assist_terminal_sn', fx.accessPoint.accessPointSerialNumber as string)
+          .where('assist_emp_id', fx.guestEmployee.employeeId)
+          .orderBy('assist_id', 'desc')
+          .firstOrFail()
+      )
+      assert.equal(assist.businessUnitId, fx.guestBu)
+    } finally {
+      await setStatus('confirmed')
+    }
+  })
+
+  test('la invitada puede encolar y una ajena del grupo no', async ({ assert }) => {
+    const repo = new DeviceCommandRepositoryMysql()
+    const stamp = Date.now()
+    const base: CommandInsert = {
+      accessPointId: fx.accessPoint.accessPointId,
+      businessUnitId: fx.guestBu,
+      kind: DEVICE_COMMAND_KIND.USER_UPSERT,
+      payload: `DATA UPDATE USERINFO PIN=${fx.guestPin}`,
+      pin: fx.guestPin,
+      bioNo: null,
+      priority: 0,
+      maxAttempts: null,
+      employeeId: fx.guestEmployee.employeeId,
+      accessPointEmployeeId: null,
+      correlationKey: `test-share-${stamp}`,
+      requestedByUserId: null,
+      biometricTemplateId: null,
+      biometricPhotoPublicationId: null,
+    }
+    // Los comandos de la prueba cuelgan del checador y los borra el cleanup de la fixture.
+    const ok = await TenantContext.run([fx.ownerBu, fx.guestBu], () =>
+      repo.enqueueIdempotent(base, [stamp * 10 + 1])
     )
-    await attlog(`${fx.guestPin}\t${at(50, zone)}\t0\t1\t0\t0\n`)
-    const assist = await unscoped(() =>
-      Assist.query()
-        .where('assist_terminal_sn', fx.accessPoint.accessPointSerialNumber as string)
-        .where('assist_emp_id', fx.guestEmployee.employeeId)
-        .orderBy('assist_id', 'desc')
-        .firstOrFail()
-    )
-    assert.equal(assist.businessUnitId, fx.guestBu)
-    await unscoped(() =>
-      AccessPointEmployee.query()
-        .where('access_point_id', fx.accessPoint.accessPointId)
-        .where('employee_id', fx.guestEmployee.employeeId)
-        .update({ access_point_employee_sync_status: 'confirmed' })
-    )
+    assert.isNotNull(ok)
+    assert.isTrue(ok?.created)
+    assert.equal(ok?.command.businessUnitId, fx.guestBu)
+    await assert.rejects(async () => {
+      await TenantContext.run([fx.outsiderBu], () =>
+        repo.enqueueIdempotent(
+          {
+            ...base,
+            businessUnitId: fx.outsiderBu,
+            employeeId: null,
+            correlationKey: `${base.correlationKey}-x`,
+          },
+          [stamp * 10 + 2]
+        )
+      )
+    }, /no pertenece/)
   })
 })

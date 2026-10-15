@@ -4,6 +4,7 @@ import DeviceCommand from '#models/device_command'
 import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import {
@@ -63,7 +64,16 @@ export default class DeviceCommandRepositoryMysql
        * por empresa de todas las lecturas posteriores lo daba por bueno.
        */
       const owner = device?.business_unit_id ?? null
-      if (owner === null || owner !== input.businessUnitId) {
+      /**
+       * La empresa del comando es la del colaborador y tiene que ser
+       * participante del equipo: la responsable o una invitada viva
+       * (VLRH-P0065, 4). Fuera de eso, el equipo se comporta como inexistente.
+       */
+      const participant =
+        owner !== null &&
+        (owner === input.businessUnitId ||
+          (await AccessPointScope.isParticipant(input.accessPointId, input.businessUnitId)))
+      if (!participant) {
         throw new DeviceCommandError(
           'El checador no pertenece a esa empresa',
           DEVICE_COMMAND_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
