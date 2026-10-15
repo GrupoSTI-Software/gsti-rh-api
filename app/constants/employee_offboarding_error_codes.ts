@@ -48,6 +48,8 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   CASE_NOT_CLOSED: 'OFFB.CASE.NOT_CLOSED',
   /** Escritura sobre pendientes o comprobantes de un expediente cerrado (regla 8, USRH1786568279596) — 409. */
   CASE_CLOSED_READ_ONLY: 'OFFB.CASE.CLOSED_READ_ONLY',
+  /** Escritura sobre un expediente cancelado al deshacer la baja (regla 3, VLRH-H1790812613830) — 409. */
+  CASE_CANCELLED_READ_ONLY: 'OFFB.CASE.CANCELLED_READ_ONLY',
   /** Pendiente o expediente inexistente o fuera del alcance (USRH1786568279590) — 404 uniforme. */
   ITEM_NOT_FOUND: 'OFFB.ITEM.NOT_FOUND',
   /** Completar un pendiente ya cumplido (regla 3, USRH1786568279590) — 409. */

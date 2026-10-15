@@ -80,6 +80,22 @@ export const ASSET_FILE_NAME_PREFIX = {
   returnPhoto: 'foto-devolucion-activo',
 } as const
 
+/**
+ * Estados de una declaración de equipo propio (`..._status`, regla 3): `active`
+ * es la vigente —a lo más una por colaborador y categoría— y `closed` es
+ * terminal (la cierra la hermana de ajuste y término).
+ */
+export const OWN_EQUIPMENT_DECLARATION_STATUSES = ['active', 'closed'] as const
+export type OwnEquipmentDeclarationStatus = (typeof OWN_EQUIPMENT_DECLARATION_STATUSES)[number]
+
+/**
+ * Origen de la cuota mensual de compensación (`..._fee_source`, regla 5):
+ * `default` la propone el sistema y `adjusted` la captura RH. Esta historia
+ * siempre escribe `adjusted`; la precarga de `default` llega con su hermana.
+ */
+export const OWN_EQUIPMENT_FEE_SOURCES = ['default', 'adjusted'] as const
+export type OwnEquipmentFeeSource = (typeof OWN_EQUIPMENT_FEE_SOURCES)[number]
+
 /** Keys semánticas de error del módulo (contrato título/detalle/key). */
 export const ASSET_ERROR_KEYS = {
   ASSET_NOT_FOUND: 'activo-no-encontrado',
@@ -96,6 +112,10 @@ export const ASSET_ERROR_KEYS = {
   EMPLOYEE_NOT_FOUND: 'colaborador-no-encontrado',
   INVALID_INPUT: 'entrada-invalida',
   UNEXPECTED: 'error-inesperado',
+  CATEGORY_COVERED_BY_ASSET: 'categoria-cubierta-por-activo',
+  EMPLOYEE_WITHOUT_TELEWORK: 'colaborador-sin-teletrabajo',
+  OWN_EQUIPMENT_DECLARATION_OPEN_EXISTS: 'declaracion-de-equipo-propio-vigente-existente',
+  OWN_EQUIPMENT_FEE_INVALID: 'cuota-de-equipo-propio-invalida',
 } as const
 
 export type AssetErrorKey = (typeof ASSET_ERROR_KEYS)[keyof typeof ASSET_ERROR_KEYS]

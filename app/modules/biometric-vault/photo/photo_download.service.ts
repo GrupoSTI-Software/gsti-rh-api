@@ -200,6 +200,27 @@ export default class PhotoDownloadService {
 
       await this.publications.markDownloaded(publication, now)
 
+      /**
+       * Si el equipo ya habia acusado la orden, esta descarga es su prueba:
+       * la orden queda ejecutada y el enlace se cierra, igual que cuando la
+       * descarga llega antes del acuse. Nunca lanza: el archivo ya salio.
+       */
+      try {
+        const closed = await this.commands.executeByPublication(
+          publication.biometricPhotoPublicationId,
+          now
+        )
+        if (closed > 0) await this.publications.closeAfterDownload(publication, now)
+      } catch (error) {
+        logger.warn(
+          {
+            publicationId: publication.biometricPhotoPublicationId,
+            error: (error as Error).message.slice(0, 200),
+          },
+          'canal ADMS: la foto se entrego pero no se pudo cerrar su orden acusada'
+        )
+      }
+
       return {
         kind: 'ok' as const,
         stream: object.stream,

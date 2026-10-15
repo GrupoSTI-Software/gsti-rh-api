@@ -159,6 +159,50 @@ export class AssetError extends Error {
       'El colaborador no existe o no pertenece a la empresa.'
     )
   }
+
+  /** La categoría ya la cubre un activo asignado o en envío; no se declara equipo propio (R5/R6). */
+  static categoryCoveredByAsset(): AssetError {
+    return new AssetError(
+      409,
+      ASSET_ERROR_KEYS.CATEGORY_COVERED_BY_ASSET,
+      'asset_category_covered_by_asset',
+      'Categoría cubierta por activo',
+      'El colaborador tiene un activo asignado o en envío en esta categoría; no se puede declarar equipo propio.'
+    )
+  }
+
+  /** Solo se declara equipo propio a quien teletrabaja (regla 2 del alta). */
+  static employeeWithoutTelework(): AssetError {
+    return new AssetError(
+      422,
+      ASSET_ERROR_KEYS.EMPLOYEE_WITHOUT_TELEWORK,
+      'asset_employee_without_telework',
+      'Colaborador sin teletrabajo',
+      'Solo se declara equipo propio para colaboradores con porcentaje de teletrabajo mayor a 0.'
+    )
+  }
+
+  /** Ya hay una declaración vigente de esa categoría (regla 3: a lo más una). */
+  static ownEquipmentDeclarationOpenExists(): AssetError {
+    return new AssetError(
+      409,
+      ASSET_ERROR_KEYS.OWN_EQUIPMENT_DECLARATION_OPEN_EXISTS,
+      'asset_own_equipment_declaration_open_exists',
+      'Declaración de equipo propio vigente existente',
+      'El colaborador ya tiene una declaración de equipo propio vigente en esta categoría.'
+    )
+  }
+
+  /** La cuota capturada no respeta 0 o más, dos decimales y el máximo (regla 4). */
+  static ownEquipmentFeeInvalid(): AssetError {
+    return new AssetError(
+      422,
+      ASSET_ERROR_KEYS.OWN_EQUIPMENT_FEE_INVALID,
+      'asset_own_equipment_fee_invalid',
+      'Cuota de equipo propio inválida',
+      'Captura una cuota mensual de 0 o más, con hasta dos decimales y sin exceder 99,999,999.99.'
+    )
+  }
 }
 
 type ErrorContext = Pick<HttpContext, 'response' | 'i18n'>

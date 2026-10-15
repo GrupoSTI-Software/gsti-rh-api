@@ -10,6 +10,7 @@ import {
   BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL,
   BILLING_PROVIDER_SUBSCRIPTION_OPENING_MISMATCH_DETAIL,
 } from '#constants/billing_provider_error_codes'
+import type { StripeErrorCatalogEntry } from '#constants/billing_stripe_error_catalog'
 import { BillingProviderServiceError } from '#exceptions/billing_provider_service_error'
 
 export function operationNotAvailable(operation: string): BillingProviderServiceError {
@@ -108,15 +109,23 @@ export function paymentSettlementFailed(
 
 export function providerRequestFailed(
   operation: string,
-  info: { stripeErrorType: string | null; stripeRequestId: string | null }
+  info: {
+    stripeErrorType: string | null
+    stripeRequestId: string | null
+    entry?: StripeErrorCatalogEntry
+    httpStatus?: number
+  }
 ): BillingProviderServiceError {
   const type = info.stripeErrorType ?? 'unknown'
   const requestId = info.stripeRequestId ?? 'unknown'
+  const entry = info.entry
+  const httpStatus = info.httpStatus ?? 500
   return new BillingProviderServiceError(
     `Stripe ${operation} falló: ${type} (${requestId})`,
     BILLING_PROVIDER_ERROR_CODES.PROVIDER_REQUEST_FAILED,
-    500,
-    'fallo-del-proveedor-de-cobro',
-    BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL
+    httpStatus,
+    entry?.key ?? 'fallo-del-proveedor-de-cobro',
+    entry?.detail ?? BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL,
+    entry?.title
   )
 }

@@ -421,4 +421,51 @@ test.group('BillingProviderSubscriptionStateHandler — handle (7723)', () => {
     assert.equal(typed.key, 'operacion-de-cobro-no-disponible')
     await cleanupUnitSubscription(subscription.billingSubscriptionId)
   })
+
+  test('CA-8 VLRH-0337: invoice.payment_failed persiste code y decline_code crudos', async ({
+    assert,
+  }) => {
+    const subscription = await createStripeSubscriptionUnitFixture()
+    const provider = new FakeStateProvider()
+    provider.state = {
+      subscriptionRef: subscription.subRef,
+      customerRef: subscription.cusRef,
+      status: 'past_due',
+    }
+    provider.failure = {
+      invoiceRef: 'in_fixture0337',
+      subscriptionRef: subscription.subRef,
+      customerRef: subscription.cusRef,
+      errorCode: 'card_declined',
+      declineCode: 'do_not_honor',
+      intentStatus: 'requires_payment_method',
+    }
+
+    const handler = new BillingProviderSubscriptionStateHandler()
+    const outcome = await handler.handle({
+      event: {
+        id: 'evt_fixture0337',
+        type: 'invoice.payment_failed',
+        objectType: 'invoice',
+        objectId: 'in_fixture0337',
+        createdAt: 1_789_916_400,
+        livemode: false,
+        fromConnectedAccount: false,
+        object: {
+          subscriptionRef: subscription.subRef,
+          customerRef: subscription.cusRef,
+          status: null,
+        },
+      },
+      billingSubscription: subscription,
+      provider,
+    })
+
+    assert.equal(outcome.status, 'processed')
+    await subscription.refresh()
+    assert.equal(subscription.billingSubscriptionLastPaymentFailureReason, 'card_declined')
+    assert.equal(subscription.billingSubscriptionLastPaymentFailureCode, 'card_declined')
+    assert.equal(subscription.billingSubscriptionLastPaymentFailureDeclineCode, 'do_not_honor')
+    await cleanupUnitSubscription(subscription.billingSubscriptionId)
+  })
 })

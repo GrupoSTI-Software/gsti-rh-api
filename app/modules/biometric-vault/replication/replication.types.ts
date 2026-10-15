@@ -31,6 +31,12 @@ export const REPLICATION_SKIP = {
   /** El equipo declaro no tener rostro: no se le manda la foto. */
   NO_FACE_SUPPORT: 'no_face_support',
   /**
+   * "Usar tambien para reconocimiento facial en checadores" esta apagado: el
+   * rostro no viaja por ninguna via, ni foto ni template. Decision de
+   * Wilvardo 2026-10-12: el interruptor manda sobre todo lo que sea rostro.
+   */
+  FACE_USE_OFF: 'face_use_off',
+  /**
    * Ese equipo ya tiene una copia ejecutada de este mismo dato.
    *
    * Solo en el reparto desde el canal: repetir lo entregado por cada huella

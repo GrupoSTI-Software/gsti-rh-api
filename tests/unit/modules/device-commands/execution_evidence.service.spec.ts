@@ -23,10 +23,17 @@ function commandOf(overrides: Partial<DeviceCommand> = {}): DeviceCommand {
   } as DeviceCommand
 }
 
-function makeService(awaiting: DeviceCommand[]) {
+function makeService(awaiting: DeviceCommand[], options: { believedInside?: number } = {}) {
   const saved: DeviceCommand[] = []
+  const noticed: number[] = []
   let asked: { pin?: string; bioNo?: number } | null = null
   const repository = {
+    async countFacesBelievedInside() {
+      return 0
+    },
+    async countFingerprintsBelievedInside() {
+      return options.believedInside ?? 0
+    },
     async findAwaitingEvidence(input: { pin?: string; bioNo?: number }) {
       asked = input
       return awaiting.filter(
@@ -39,7 +46,18 @@ function makeService(awaiting: DeviceCommand[]) {
       saved.push(command)
     },
   } as unknown as DeviceCommandRepository
-  return { service: new ExecutionEvidenceService(repository), saved, asked: () => asked }
+  const notices = {
+    async copyExecuted(templateId: number) {
+      noticed.push(templateId)
+      return 1
+    },
+  }
+  return {
+    service: new ExecutionEvidenceService(repository, notices),
+    saved,
+    noticed,
+    asked: () => asked,
+  }
 }
 
 test.group('Evidencia de ejecucion: huella subida', () => {
@@ -363,6 +381,139 @@ test.group('Evidencia de ejecucion: contadores del equipo', () => {
       }),
       0
     )
+  })
+})
+
+/**
+ * Un equipo que ya tenia el dedo sin que la base lo supiera (equipo recreado,
+ * huellas de antes del sistema, recopia tras un reset) no mueve el contador al
+ * reescribirlo. Medido en hardware el 2026-10-12: tres copias al SenseFace
+ * acusadas y sin prueba con el aparato declarando las cinco huellas.
+ */
+test.group('Evidencia de ejecucion: contador que cubre lo que se cree dentro', () => {
+  function ackedCopy(id: number, bioNo: number): DeviceCommand {
+    return commandOf({
+      deviceCommandId: id,
+      deviceCommandKind: DEVICE_COMMAND_KIND.BIODATA_WRITE,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+      deviceCommandBioNo: bioNo,
+      deviceCommandCorrelationKey: `biodata:1042:1:${bioNo}`,
+      biometricTemplateId: 100 + bioNo,
+      deviceCommandCountersSnapshot: { fpCount: 5, faceCount: 1, userCount: 1 },
+    })
+  }
+
+  test('si el contador es exactamente lo que se cree dentro, las copias acusadas quedan ejecutadas', async ({
+    assert,
+  }) => {
+    const { service, saved, noticed } = makeService([ackedCopy(1, 6), ackedCopy(2, 8)], {
+      believedInside: 5,
+    })
+    const marked = await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 5, faceCount: 1, userCount: 1 },
+      now: NOW,
+    })
+    assert.equal(marked, 2)
+    assert.isTrue(saved.every((command) => command.deviceCommandStatus === 'executed'))
+    assert.isTrue(
+      saved.every((command) => command.deviceCommandExecutionEvidence === 'counter_matches')
+    )
+    // La cobertura no dice QUE dedo entro: no cierra ningun aviso.
+    assert.deepEqual(noticed, [])
+  })
+
+  test('si el contador supera lo que se cree dentro, el aparato tiene huellas ajenas y no se acredita nada', async ({
+    assert,
+  }) => {
+    // Sin alza desde el despacho (la linea base ya era 6): la unica via seria la cobertura.
+    const sinAlza = (id: number, bioNo: number) =>
+      ({
+        ...ackedCopy(id, bioNo),
+        deviceCommandCountersSnapshot: { fpCount: 6, faceCount: 1, userCount: 1 },
+      }) as DeviceCommand
+    const { service, saved } = makeService([sinAlza(1, 6), sinAlza(2, 8)], {
+      believedInside: 5,
+    })
+    const marked = await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 6, faceCount: 1, userCount: 1 },
+      now: NOW,
+    })
+    assert.equal(marked, 0)
+    assert.lengthOf(saved, 0)
+  })
+
+  test('si el contador queda corto, alguna no entro y ninguna se acredita', async ({ assert }) => {
+    const { service, saved } = makeService([ackedCopy(1, 6), ackedCopy(2, 8)], {
+      believedInside: 5,
+    })
+    const marked = await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 4, faceCount: 1, userCount: 1 },
+      now: NOW,
+    })
+    assert.equal(marked, 0)
+    assert.lengthOf(saved, 0)
+  })
+
+  test('un enrolamiento acusado no se acredita por cobertura: su dedo si debe mover el contador', async ({
+    assert,
+  }) => {
+    const enrollment = commandOf({
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+      deviceCommandCountersSnapshot: { fpCount: 5, faceCount: 1, userCount: 1 },
+    })
+    const { service, saved } = makeService([enrollment], { believedInside: 5 })
+    const marked = await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 5, faceCount: 1, userCount: 1 },
+      now: NOW,
+    })
+    assert.equal(marked, 0)
+    assert.lengthOf(saved, 0)
+  })
+
+  test('sin nada que el sistema crea dentro, el contador no prueba una copia', async ({ assert }) => {
+    const { service, saved } = makeService([ackedCopy(1, 6)], { believedInside: 0 })
+    // El contador no subio desde el despacho: la unica via seria la cobertura.
+    await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 5, faceCount: 1, userCount: 1 },
+      now: NOW,
+    })
+    assert.lengthOf(saved, 0)
+  })
+})
+
+test.group('Evidencia de ejecucion: aviso de huella sin repartir', () => {
+  test('una checada que acredita la copia cierra el aviso del equipo de origen', async ({
+    assert,
+  }) => {
+    const copy = commandOf({
+      deviceCommandKind: DEVICE_COMMAND_KIND.BIODATA_WRITE,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+      deviceCommandCorrelationKey: 'biodata:1042:1:3',
+      biometricTemplateId: 151,
+    })
+    const { service, noticed } = makeService([copy])
+    await service.fromPunch({ accessPointId: 12, pin: '1042', verify: 1, now: NOW })
+    assert.deepEqual(noticed, [151])
+  })
+
+  test('un enrolamiento o una copia de rostro no tocan el aviso', async ({ assert }) => {
+    const enrollment = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED })
+    const face = commandOf({
+      deviceCommandId: 2,
+      deviceCommandKind: DEVICE_COMMAND_KIND.BIODATA_WRITE,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+      deviceCommandCorrelationKey: 'biodata:1042:9:9',
+      biometricTemplateId: 24,
+    })
+    const { service, noticed } = makeService([enrollment, face])
+    await service.fromPunch({ accessPointId: 12, pin: '1042', verify: 1, now: NOW })
+    await service.fromPunch({ accessPointId: 12, pin: '1042', verify: 15, now: NOW })
+    assert.deepEqual(noticed, [])
   })
 })
 

@@ -22,6 +22,7 @@ import type EmployeeOffboardingDocumentTemplate from '#models/employee_offboardi
 import type { TenantFiscalIdentity } from '../../../interfaces/tenant_billing_profile_interface.js'
 import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constants.js'
 import { buildUserNamesMap } from '../offboardings/dto/offboardings.dto.js'
+import { EMPLOYEE_OFFBOARDING_STATUS } from '../offboardings/offboardings.constants.js'
 import DocumentTemplatesRepositoryMysql from '../document-templates/document_templates.repository.mysql.js'
 import type { DocumentTemplatesRepository } from '../document-templates/document_templates.repository.js'
 import {
@@ -168,6 +169,12 @@ export default class DocumentsService {
     generatedByUserId: number | null
   ): Promise<EmployeeOffboardingDocumentDto> {
     const offboarding = await this.resolveOffboarding(employeeOffboardingId, businessUnitScope)
+
+    // Regla 3 de VLRH-H1790812613830: sobre un cancelado no se emite nada; el
+    // cerrado sigue emitiendo (excepción deliberada a "solo open escribe")
+    if (offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CANCELLED) {
+      throw this.caseCancelledError()
+    }
 
     const employee = await this.repository.findEmployeeForLetter(offboarding.employeeId)
     if (!employee) {
@@ -689,6 +696,16 @@ export default class DocumentsService {
       httpStatus: 404,
       title: this.t('employee_offboarding_case_not_found_title'),
       detail: this.t('employee_offboarding_case_out_of_scope_message'),
+    })
+  }
+
+  private caseCancelledError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'expediente-cancelado',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_CANCELLED_READ_ONLY,
+      httpStatus: 409,
+      title: this.t('employee_offboarding_case_cancelled_read_only_title'),
+      detail: this.t('employee_offboarding_case_cancelled_read_only_message'),
     })
   }
 

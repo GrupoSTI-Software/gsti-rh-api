@@ -6,7 +6,10 @@ import UploadService from '#services/upload_service'
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
 import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constants.js'
-import { EMPLOYEE_OFFBOARDING_STATUS } from '../offboardings/offboardings.constants.js'
+import {
+  EMPLOYEE_OFFBOARDING_STATUS,
+  isOffboardingCaseWritable,
+} from '../offboardings/offboardings.constants.js'
 import {
   EVIDENCE_ALLOWED_EXTENSIONS,
   EVIDENCE_ALLOWED_MIME_TYPES,
@@ -221,16 +224,37 @@ export default class EvidencesService {
    * sus comprobantes sigue permitido, por eso la guarda NO vive en
    * `resolveItem`.
    */
+  /**
+   * Lista de permisión (regla 3 de VLRH-H1790812613830): solo `open` escribe.
+   * El cancelado tiene su propio error; cualquier otro estado cae en cerrado.
+   */
   private assertCaseWritable(offboarding: { employeeOffboardingStatus: string }): void {
-    if (offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CLOSED) {
-      throw new EmployeeOffboardingServiceError({
-        key: 'expediente-cerrado',
-        errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_CLOSED_READ_ONLY,
-        httpStatus: 409,
-        title: this.t('employee_offboarding_case_closed_read_only_title'),
-        detail: this.t('employee_offboarding_case_closed_read_only_message'),
-      })
+    if (offboarding.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CANCELLED) {
+      throw this.caseCancelledError()
     }
+    if (!isOffboardingCaseWritable(offboarding.employeeOffboardingStatus)) {
+      throw this.caseClosedError()
+    }
+  }
+
+  private caseClosedError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'expediente-cerrado',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_CLOSED_READ_ONLY,
+      httpStatus: 409,
+      title: this.t('employee_offboarding_case_closed_read_only_title'),
+      detail: this.t('employee_offboarding_case_closed_read_only_message'),
+    })
+  }
+
+  private caseCancelledError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'expediente-cancelado',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_CANCELLED_READ_ONLY,
+      httpStatus: 409,
+      title: this.t('employee_offboarding_case_cancelled_read_only_title'),
+      detail: this.t('employee_offboarding_case_cancelled_read_only_message'),
+    })
   }
 
   /** Tercer salto: la evidencia acotada por el pendiente (404 uniforme). */

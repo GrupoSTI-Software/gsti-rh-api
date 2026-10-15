@@ -195,6 +195,7 @@ const SUPPLIES_ROUTE_FILES: RouteFileContract[] = [
       { method: 'get', path: '/employee-supply-assignation-photos/photo/:photoId/file', handler: '#modules/assets/asset_files.controller.assignationPhoto', declaration: supplies('downloadSupplyAssignationPhoto') },
       { method: 'get', path: '/employees/:employeeId/assets', handler: '#modules/assets/employee_assets.controller.assets', declaration: supplies('indexEmployeeAssets') },
       { method: 'get', path: '/employees/:employeeId/telework-supplies', handler: '#modules/assets/employee_assets.controller.teleworkSupplies', declaration: supplies('showEmployeeTeleworkSupplies') },
+      { method: 'post', path: '/employees/:employeeId/own-equipment-declarations', handler: '#modules/assets/own_equipment_declarations.controller.store', declaration: 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.storeOwnEquipmentDeclaration' },
     ],
     open: [],
   },

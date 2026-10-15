@@ -302,7 +302,8 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
         DeviceCommand.query()
           .where('access_point_id', accessPoint.accessPointId)
           .where('device_command_kind', 'enroll_fp')
-          .count('* as total'),
+          .count('* as total')
+          .exec(),
       'conteo previo'
     )
 
@@ -328,7 +329,8 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
         DeviceCommand.query()
           .where('access_point_id', accessPoint.accessPointId)
           .where('device_command_kind', 'enroll_fp')
-          .count('* as total'),
+          .count('* as total')
+          .exec(),
       'conteo posterior'
     )
     assert.equal(despues[0].$extras.total, antes[0].$extras.total)
@@ -348,7 +350,8 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
         DeviceCommand.query()
           .where('access_point_id', accessPoint.accessPointId)
           .where('device_command_kind', 'enroll_fp')
-          .count('* as total'),
+          .count('* as total')
+          .exec(),
       'conteo previo'
     )
 
@@ -368,7 +371,8 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
         DeviceCommand.query()
           .where('access_point_id', accessPoint.accessPointId)
           .where('device_command_kind', 'enroll_fp')
-          .count('* as total'),
+          .count('* as total')
+          .exec(),
       'conteo posterior'
     )
     assert.equal(despues[0].$extras.total, antes[0].$extras.total)
