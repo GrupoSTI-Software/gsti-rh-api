@@ -11,7 +11,7 @@ import {
 } from '#modules/access-point/access_point_authorization'
 import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 import { TenantContext } from '#utils/tenant_context'
-import HealthService from './health.service.js'
+import HealthService, { forGuest } from './health.service.js'
 import DeviceSyncService from './device_sync.service.js'
 
 const idValidator = vine.compile(
@@ -81,7 +81,7 @@ export default class HealthController {
         data: { params: request.params() },
       })
       // Salud del aparato: agregados de todos sus participantes, en su scope.
-      const { accessPoint, deviceScope } = await resolveParticipantAccessPoint(
+      const { accessPoint, deviceScope, role } = await resolveParticipantAccessPoint(
         ctx,
         params.accessPointId
       )
@@ -93,7 +93,7 @@ export default class HealthController {
 
       return StandardResponseFormatter.success(
         response,
-        row,
+        role === 'guest' ? forGuest(row) : row,
         i18n.formatMessage('access_point_health_title'),
         i18n.formatMessage('access_point_health_message'),
         200,

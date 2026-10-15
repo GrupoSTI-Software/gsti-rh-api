@@ -10,8 +10,10 @@ export interface EmployeeSyncDto {
    * Si ya tiene numero en ese equipo, no cual.
    *
    * El PIN es la credencial con la que se marca: quien lo conoce puede
-   * teclearlo en el aparato y checar por otro. Ninguna respuesta del cliente lo
-   * lleva; para operar basta saber si el alta puede salir.
+   * teclearlo en el aparato y checar por otro. Esta respuesta no lo lleva;
+   * para operar basta saber si el alta puede salir. La unica excepcion es el
+   * padron del checador compartido, que se lo muestra a la responsable para
+   * el personal de la invitada (`ForeignEmployeeSyncDto`, decision D6).
    */
   hasPin: boolean
   syncStatus: AccessPointEmployeeSyncStatus
@@ -48,6 +50,7 @@ export interface ForeignEmployeeSyncDto {
   fullName: string
   /** La responsable necesita el numero para reconocer a quien marca en su aparato. */
   pin: string
+  /** Solo una URL publica; una foto privada sale `null` (nunca la llave del bucket). */
   photoUrl: string | null
   businessUnitName: string
   syncStatus: AccessPointEmployeeSyncStatus

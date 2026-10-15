@@ -10,7 +10,10 @@ import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { rejectSharedGuest } from '#modules/access-point/access_point_authorization'
-import { sharingViewOf } from '#modules/access-point/sharing/access_point_sharing_view'
+import {
+  redactForViewer,
+  sharingViewOf,
+} from '#modules/access-point/sharing/access_point_sharing_view'
 
 export default class AccessPointController {
   /**
@@ -573,7 +576,7 @@ export default class AccessPointController {
         type: 'success',
         title: t('access_point'),
         message: t('resource_was_found_successfully'),
-        data: { accessPoint: { ...accessPoint.serialize(), ...sharing } },
+        data: { accessPoint: { ...redactForViewer(accessPoint.serialize(), sharing), ...sharing } },
       }
     } catch (error) {
       response.status(500)

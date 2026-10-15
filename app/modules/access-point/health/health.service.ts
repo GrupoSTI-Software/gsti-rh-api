@@ -3,6 +3,7 @@ import db from '@adonisjs/lucid/services/db'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import AccessPoint from '#models/access_point'
 import { TenantContext } from '#utils/tenant_context'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 import { getBusinessTimeZone } from '#utils/business_date'
 import AccessPointProfile from '#models/access_point_profile'
 import AccessPointEmployee, {
@@ -37,6 +38,14 @@ import type {
   OccupancySlot,
   QueueHealth,
 } from './health.dto.js'
+
+/**
+ * La salud del checador compartido vista por la invitada: sin IP ni MAC, que
+ * son datos de red del aparato y de quien lo administra (VLRH-P0065, 6).
+ */
+export function forGuest(row: AccessPointHealthDto): AccessPointHealthDto {
+  return { ...row, ip: null, mac: null }
+}
 
 /** Estados del pivote en los que el equipo todavia no confirmo el movimiento. */
 const UNCONFIRMED_SYNC_STATUSES = [
@@ -79,16 +88,39 @@ export default class HealthService {
     private readonly commands: DeviceCommandRepository = new DeviceCommandRepositoryMysql()
   ) {}
 
-  /** Salud de todos los equipos del alcance. */
+  /**
+   * Salud de todos los equipos del alcance: los propios y los compartidos con
+   * alguna empresa de el (VLRH-P0065, 6). Cada equipo se arma en su propio
+   * scope, igual que la ficha individual: sus agregados son del aparato. Al
+   * compartido le salen sin IP ni MAC (`forGuest`).
+   */
   async listFor(businessUnitIds: number[], now: DateTime): Promise<AccessPointHealthDto[]> {
     if (businessUnitIds.length === 0) return []
-    const accessPoints = await AccessPoint.query()
-      .whereIn('business_unit_id', businessUnitIds)
-      .orderBy('access_point_name', 'asc')
+    const shared = await Promise.all(businessUnitIds.map((id) => AccessPointScope.sharedWith(id)))
+    const sharedIds = [...new Set(shared.flat())]
+    // La responsable del compartido no esta en el alcance: se lee sin scope y se
+    // cierra la consulta dentro del bypass (M12).
+    const accessPoints = await TenantContext.runUnscoped(
+      () =>
+        AccessPoint.query()
+          .where((visible) => {
+            visible.whereIn('business_unit_id', businessUnitIds)
+            if (sharedIds.length > 0) visible.orWhereIn('access_point_id', sharedIds)
+          })
+          .whereNull('access_point_deleted_at')
+          .orderBy('access_point_name', 'asc')
+          .exec(),
+      TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
+    )
 
     const rows: AccessPointHealthDto[] = []
     for (const accessPoint of accessPoints) {
-      rows.push(await this.buildFor(accessPoint, now))
+      const deviceScope = await AccessPointScope.participants(
+        accessPoint.accessPointId,
+        accessPoint.businessUnitId
+      )
+      const row = await TenantContext.run(deviceScope, () => this.buildFor(accessPoint, now))
+      rows.push(businessUnitIds.includes(accessPoint.businessUnitId) ? row : forGuest(row))
     }
     return rows
   }

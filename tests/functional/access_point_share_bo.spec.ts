@@ -639,6 +639,66 @@ test.group('Checador compartido: Backoffice', (group) => {
     assert.isString(row.sharedBy)
   })
 
+  test('la invitada no recibe la ficha de la responsable ni la red del aparato', async ({
+    client,
+    assert,
+  }) => {
+    await unscoped(() =>
+      db
+        .from('access_points')
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .update({ access_point_ip: '10.20.30.40', access_point_mac: 'AA:BB:CC:DD:EE:FF' })
+    )
+    const guest = await actorFor(fx.guestBu)
+    const owner = await actorFor(fx.ownerBu)
+    const as = (actor: Actor, url: string, qs: Record<string, number> = {}) =>
+      client
+        .get(url)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+        .qs(qs)
+
+    // Ficha: solo el nombre de la responsable, sin IP ni MAC.
+    const shown = await as(guest, `/api/access-points/${fx.accessPoint.accessPointId}`)
+    shown.assertStatus(200)
+    const guestRow = shown.body().data.accessPoint
+    assert.deepEqual(Object.keys(guestRow.businessUnit), ['businessUnitName'])
+    assert.equal(guestRow.businessUnit.businessUnitName, guestRow.sharedBy)
+    assert.isNull(guestRow.accessPointIp)
+    assert.isNull(guestRow.accessPointMac)
+
+    // Catalogo: igual.
+    const listed = await as(guest, '/api/access-points', { businessUnitId: fx.guestBu, limit: 500 })
+    listed.assertStatus(200)
+    const listedRow = findAccessPoint(listed.body(), fx.accessPoint.accessPointId) as
+      | Record<string, unknown>
+      | undefined
+    assert.isDefined(listedRow)
+    assert.deepEqual(Object.keys(listedRow?.businessUnit ?? {}), ['businessUnitName'])
+    assert.isNull(listedRow?.accessPointIp)
+    assert.isNull(listedRow?.accessPointMac)
+
+    // Salud individual y de la lista: el compartido aparece, sin IP ni MAC.
+    const health = await as(guest, `/api/v1/access-points/${fx.accessPoint.accessPointId}/health`)
+    health.assertStatus(200)
+    assert.isNull(health.body().data.accessPoint.ip)
+    assert.isNull(health.body().data.accessPoint.mac)
+    const healthList = await as(guest, '/api/v1/access-points/health')
+    healthList.assertStatus(200)
+    const sharedHealth = (
+      healthList.body().data.accessPoints as Array<{ accessPointId: number; ip: string | null }>
+    ).find((row) => row.accessPointId === fx.accessPoint.accessPointId)
+    assert.isDefined(sharedHealth)
+    assert.isNull(sharedHealth?.ip)
+
+    // La responsable si los ve.
+    const ownerShown = await as(owner, `/api/access-points/${fx.accessPoint.accessPointId}`)
+    ownerShown.assertStatus(200)
+    assert.equal(ownerShown.body().data.accessPoint.accessPointIp, '10.20.30.40')
+    const ownerHealth = await as(owner, `/api/v1/access-points/${fx.accessPoint.accessPointId}/health`)
+    assert.equal(ownerHealth.body().data.accessPoint.ip, '10.20.30.40')
+  })
+
   test('la invitada recibe 403 al editar o eliminar el checador compartido', async ({
     client,
   }) => {
@@ -704,10 +764,33 @@ test.group('Checador compartido: Backoffice', (group) => {
     assert,
   }) => {
     const actor = await actorFor(fx.ownerBu)
-    const res = await client
-      .get(`/api/v1/access-points/${fx.accessPoint.accessPointId}/employees`)
-      .loginAs(actor.user.user)
-      .header('X-Business-Unit-Id', actor.publicId)
+    // Foto privada (llave del bucket) en el empleado de la invitada, restaurada al final.
+    const photoRow = await unscoped(() =>
+      db
+        .from('employees')
+        .where('employee_id', fx.guestEmployee.employeeId)
+        .select('employee_photo')
+        .first()
+    )
+    const originalPhoto = (photoRow?.employee_photo as string | null) ?? null
+    const setPhoto = (value: string | null) =>
+      unscoped(() =>
+        db
+          .from('employees')
+          .where('employee_id', fx.guestEmployee.employeeId)
+          .update({ employee_photo: value })
+      )
+    await setPhoto('employees/photos/test-share-private.jpg')
+    const res = await (async () => {
+      try {
+        return await client
+          .get(`/api/v1/access-points/${fx.accessPoint.accessPointId}/employees`)
+          .loginAs(actor.user.user)
+          .header('X-Business-Unit-Id', actor.publicId)
+      } finally {
+        await setPhoto(originalPhoto)
+      }
+    })()
     res.assertStatus(200)
     const rows = res.body().data.employees as Array<Record<string, unknown>>
     const foreign = rows.find((row) => row.employeeId === fx.guestEmployee.employeeId)
@@ -724,6 +807,8 @@ test.group('Checador compartido: Backoffice', (group) => {
     ])
     assert.equal(foreign?.pin, fx.guestPin)
     assert.isString(foreign?.fullName)
+    // Nunca la llave cruda del bucket: una foto privada sale null.
+    assert.isNull(foreign?.photoUrl)
     assert.isString(foreign?.businessUnitName)
 
     const own = rows.find((row) => row.employeeId === fx.ownerEmployee.employeeId)

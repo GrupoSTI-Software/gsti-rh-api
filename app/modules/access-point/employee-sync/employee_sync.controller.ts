@@ -1,3 +1,4 @@
+import { resolvePublicAssetUrl } from '#helpers/public_asset_url'
 import type { HttpContext } from '@adonisjs/core/http'
 import vine from '@vinejs/vine'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
@@ -640,7 +641,13 @@ async function foreignIdentitiesOf(
         fullName: [row.employee_first_name, row.employee_last_name, row.employee_second_last_name]
           .filter((part): part is string => Boolean(part && part.trim()))
           .join(' '),
-        photoUrl: row.employee_photo ?? null,
+        /**
+         * Nunca la llave cruda del bucket: el endpoint autenticado de la foto
+         * (`/employees/:id/photo`) no sirve al empleado de otra empresa, asi que
+         * solo sale una URL que de verdad sea publica; una foto privada sale
+         * `null` y el Backoffice pinta la inicial.
+         */
+        photoUrl: resolvePublicAssetUrl(row.employee_photo),
       },
     ])
   )

@@ -11,7 +11,10 @@ import type { ModelPaginatorContract } from '@adonisjs/lucid/types/model'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
-import { sharingViewOf } from '#modules/access-point/sharing/access_point_sharing_view'
+import {
+  redactForViewer,
+  sharingViewOf,
+} from '#modules/access-point/sharing/access_point_sharing_view'
 
 export default class AccessPointService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -93,10 +96,10 @@ export default class AccessPointService {
     const serialized = page.serialize()
     return {
       ...serialized,
-      data: serialized.data.map((row, index) => ({
-        ...row,
-        ...(views.get(rows[index].accessPointId) ?? {}),
-      })),
+      data: serialized.data.map((row, index) => {
+        const view = views.get(rows[index].accessPointId)
+        return { ...redactForViewer(row, view), ...(view ?? {}) }
+      }),
     }
   }
 
