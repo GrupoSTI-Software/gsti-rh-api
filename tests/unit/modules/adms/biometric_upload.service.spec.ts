@@ -32,6 +32,8 @@ const DEVICE: ResolvedAdmsDevice = {
   timezone: null,
   receivedAt: NOW,
   configuredAt: null,
+  participantBusinessUnitIds: [1],
+  shared: false,
 }
 
 const FINGER_BLOB = 'A'.repeat(1120)

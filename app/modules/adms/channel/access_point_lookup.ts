@@ -3,6 +3,7 @@ import db from '@adonisjs/lucid/services/db'
 import limiter from '@adonisjs/limiter/services/main'
 import encryption from '@adonisjs/core/services/encryption'
 import { ADMS_RATE } from '#modules/adms/adms.constants'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
 
 export interface AccessPointLookupRow {
   accessPointId: number
@@ -26,6 +27,8 @@ export interface AccessPointLookupRow {
    * aparato, y por eso sirve para saber si un cambio de identidad fue legitimo.
    */
   configuredAt: DateTime | null
+  /** Responsable primero y luego invitadas vivas (VLRH-P0065, 3.4). */
+  participantBusinessUnitIds: number[]
 }
 
 /**
@@ -106,6 +109,10 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
       .first()
     if (!row) return null
     const typed = row as AccessPointRawRow
+    const participantBusinessUnitIds = await AccessPointScope.participants(
+      typed.access_point_id,
+      typed.business_unit_id
+    )
     return {
       accessPointId: typed.access_point_id,
       businessUnitId: typed.business_unit_id,
@@ -122,6 +129,7 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
         typed.access_point_channel_secret_set_at === null
           ? null
           : DateTime.fromJSDate(new Date(typed.access_point_channel_secret_set_at)),
+      participantBusinessUnitIds,
     }
   }
 

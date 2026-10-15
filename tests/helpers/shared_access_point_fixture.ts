@@ -61,105 +61,136 @@ export async function createSharedAccessPointFixture(): Promise<SharedFixture> {
     const guestEmployee = await Employee.findOrFail(firstByBu.get(guestBu) as number)
 
     // Una empresa solo puede estar en un grupo: se guarda y se libera.
-    const prior = (await PlatformTenantGroupMember.query()
-      .whereIn('business_unit_id', [ownerBu, guestBu])) as PlatformTenantGroupMember[]
+    const prior = (await PlatformTenantGroupMember.query().whereIn('business_unit_id', [
+      ownerBu,
+      guestBu,
+    ])) as PlatformTenantGroupMember[]
     const priorMemberships: PriorMembership[] = prior.map((member) => ({
       groupId: member.platformTenantGroupId,
       businessUnitId: member.businessUnitId,
     }))
+    const restoreMemberships = async (): Promise<void> => {
+      for (const membership of priorMemberships) {
+        await PlatformTenantGroupMember.create({
+          platformTenantGroupId: membership.groupId,
+          businessUnitId: membership.businessUnitId,
+        })
+      }
+    }
     if (prior.length > 0) {
       await PlatformTenantGroupMember.query()
         .whereIn('business_unit_id', [ownerBu, guestBu])
         .delete()
     }
 
-    const group = new PlatformTenantGroup()
-    group.platformTenantGroupName = serial
-    group.platformTenantGroupActive = 1
-    await group.save()
-    await PlatformTenantGroupMember.createMany([
-      { platformTenantGroupId: group.platformTenantGroupId, businessUnitId: ownerBu },
-      { platformTenantGroupId: group.platformTenantGroupId, businessUnitId: guestBu },
-    ])
-
-    const accessPoint = new AccessPoint()
-    accessPoint.accessPointName = `Checador compartido ${stamp}`
-    accessPoint.businessUnitId = ownerBu
-    accessPoint.accessPointActive = 1
-    accessPoint.accessPointSerialNumber = serial
-    accessPoint.accessPointStatus = 0
-    await accessPoint.save() // el secreto de canal lo asigna el hook beforeCreate
-
-    const profile = new AccessPointProfile()
-    profile.accessPointId = accessPoint.accessPointId
-    profile.businessUnitId = ownerBu
-    profile.accessPointProfileDialect = 'ta'
-    profile.accessPointProfileLayoutKnown = 1
-    profile.accessPointProfilePlatform = 'ZAM180_TFT'
-    await profile.save()
-
-    const share = new AccessPointShare()
-    share.accessPointId = accessPoint.accessPointId
-    share.businessUnitId = guestBu
-    share.platformTenantGroupId = group.platformTenantGroupId
-    share.accessPointShareGrantedAt = DateTime.utc()
-    await share.save()
-
-    const pivotFor = async (employee: Employee, pin: string, businessUnitId: number) => {
-      const pivot = new AccessPointEmployee()
-      pivot.accessPointId = accessPoint.accessPointId
-      pivot.employeeId = employee.employeeId
-      pivot.businessUnitId = businessUnitId
-      pivot.accessPointEmployeePin = pin
-      pivot.accessPointEmployeeSyncStatus = 'confirmed'
-      await pivot.save()
-    }
-    await pivotFor(ownerEmployee, '1', ownerBu)
-    await pivotFor(guestEmployee, '2', guestBu)
-
-    const apId = accessPoint.accessPointId
-    const cleanup = async (): Promise<void> => {
-      await TenantContext.runUnscoped(async () => {
-        // Las assists no cuelgan del checador: la prueba que las cree las limpia.
-        await db.from('adms_held_punches').where('access_point_id', apId).delete()
-        await db.from('adms_unmapped_pins').where('access_point_id', apId).delete()
-        await db.from('device_commands').where('access_point_id', apId).delete()
-        await db.from('adms_incidents').where('access_point_id', apId).delete()
-        await db.from('access_point_stamps').where('access_point_id', apId).delete()
-        await db.from('adms_raw_messages').where('adms_raw_message_serial', serial).delete()
-        await db.from('access_point_employees').where('access_point_id', apId).delete()
-        await db.from('access_point_shares').where('access_point_id', apId).delete()
-        await db.from('access_point_profiles').where('access_point_id', apId).delete()
-        await db.from('access_points').where('access_point_id', apId).delete()
-        await db
-          .from('platform_tenant_group_members')
-          .where('platform_tenant_group_id', group.platformTenantGroupId)
-          .delete()
-        await db
-          .from('platform_tenant_groups')
-          .where('platform_tenant_group_id', group.platformTenantGroupId)
-          .delete()
-        for (const membership of priorMemberships) {
-          await PlatformTenantGroupMember.create({
-            platformTenantGroupId: membership.groupId,
-            businessUnitId: membership.businessUnitId,
-          })
+    let groupId: number | null = null
+    let accessPointId: number | null = null
+    const deleteCreated = async (): Promise<void> => {
+      const errors: unknown[] = []
+      const step = async (fn: () => Promise<unknown>): Promise<void> => {
+        try {
+          await fn()
+        } catch (error) {
+          errors.push(error)
         }
-      }, reason)
+      }
+      if (accessPointId !== null) {
+        const apId = accessPointId
+        // Las checadas se identifican por la serie del checador (assist_terminal_sn).
+        await step(() => db.from('assists').where('assist_terminal_sn', serial).delete())
+        await step(() => db.from('adms_held_punches').where('access_point_id', apId).delete())
+        await step(() => db.from('adms_unmapped_pins').where('access_point_id', apId).delete())
+        await step(() => db.from('device_commands').where('access_point_id', apId).delete())
+        await step(() => db.from('adms_incidents').where('access_point_id', apId).delete())
+        await step(() => db.from('access_point_stamps').where('access_point_id', apId).delete())
+        await step(() =>
+          db.from('adms_raw_messages').where('adms_raw_message_serial', serial).delete()
+        )
+        await step(() => db.from('access_point_employees').where('access_point_id', apId).delete())
+        await step(() => db.from('access_point_shares').where('access_point_id', apId).delete())
+        await step(() => db.from('access_point_profiles').where('access_point_id', apId).delete())
+        await step(() => db.from('access_points').where('access_point_id', apId).delete())
+      }
+      if (groupId !== null) {
+        const gId = groupId
+        await step(() =>
+          db.from('platform_tenant_group_members').where('platform_tenant_group_id', gId).delete()
+        )
+        await step(() =>
+          db.from('platform_tenant_groups').where('platform_tenant_group_id', gId).delete()
+        )
+      }
+      await step(restoreMemberships)
+      if (errors.length > 0) throw errors[0]
     }
 
-    return {
-      ownerBu,
-      guestBu,
-      outsiderBu,
-      groupId: group.platformTenantGroupId,
-      accessPoint,
-      share,
-      ownerEmployee,
-      guestEmployee,
-      ownerPin: '1' as const,
-      guestPin: '2' as const,
-      cleanup,
+    try {
+      const group = new PlatformTenantGroup()
+      group.platformTenantGroupName = serial
+      group.platformTenantGroupActive = 1
+      await group.save()
+      groupId = group.platformTenantGroupId
+      await PlatformTenantGroupMember.createMany([
+        { platformTenantGroupId: group.platformTenantGroupId, businessUnitId: ownerBu },
+        { platformTenantGroupId: group.platformTenantGroupId, businessUnitId: guestBu },
+      ])
+
+      const accessPoint = new AccessPoint()
+      accessPoint.accessPointName = `Checador compartido ${stamp}`
+      accessPoint.businessUnitId = ownerBu
+      accessPoint.accessPointActive = 1
+      accessPoint.accessPointSerialNumber = serial
+      accessPoint.accessPointStatus = 0
+      await accessPoint.save() // el secreto de canal lo asigna el hook beforeCreate
+      accessPointId = accessPoint.accessPointId
+
+      const profile = new AccessPointProfile()
+      profile.accessPointId = accessPoint.accessPointId
+      profile.businessUnitId = ownerBu
+      profile.accessPointProfileDialect = 'ta'
+      profile.accessPointProfileLayoutKnown = 1
+      profile.accessPointProfilePlatform = 'ZAM180_TFT'
+      await profile.save()
+
+      const share = new AccessPointShare()
+      share.accessPointId = accessPoint.accessPointId
+      share.businessUnitId = guestBu
+      share.platformTenantGroupId = group.platformTenantGroupId
+      share.accessPointShareGrantedAt = DateTime.utc()
+      await share.save()
+
+      const pivotFor = async (employee: Employee, pin: string, businessUnitId: number) => {
+        const pivot = new AccessPointEmployee()
+        pivot.accessPointId = accessPoint.accessPointId
+        pivot.employeeId = employee.employeeId
+        pivot.businessUnitId = businessUnitId
+        pivot.accessPointEmployeePin = pin
+        pivot.accessPointEmployeeSyncStatus = 'confirmed'
+        await pivot.save()
+      }
+      await pivotFor(ownerEmployee, '1', ownerBu)
+      await pivotFor(guestEmployee, '2', guestBu)
+
+      return {
+        ownerBu,
+        guestBu,
+        outsiderBu,
+        groupId: group.platformTenantGroupId,
+        accessPoint,
+        share,
+        ownerEmployee,
+        guestEmployee,
+        ownerPin: '1' as const,
+        guestPin: '2' as const,
+        cleanup: () => TenantContext.runUnscoped(deleteCreated, reason),
+      }
+    } catch (error) {
+      try {
+        await deleteCreated()
+      } catch {
+        // se relanza el error original de la creacion
+      }
+      throw error
     }
   }, reason)
 }

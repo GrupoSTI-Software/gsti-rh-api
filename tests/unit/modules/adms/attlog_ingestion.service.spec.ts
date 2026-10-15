@@ -33,6 +33,8 @@ const DEVICE: ResolvedAdmsDevice = {
   timezone: null,
   receivedAt: NOW,
   configuredAt: null,
+  participantBusinessUnitIds: [1],
+  shared: false,
 }
 
 const LINE = '9999\t2026-08-12 08:53:23\t0\t15\t0\t0\t0\t255\t0\t0\t'

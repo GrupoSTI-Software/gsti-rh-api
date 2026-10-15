@@ -34,6 +34,10 @@ export interface ResolvedAdmsDevice {
   receivedAt: DateTime
   /** Ultima vez que alguien configuro la direccion de este equipo. */
   configuredAt: DateTime | null
+  /** Empresas que operan en este aparato; la primera es la responsable. */
+  participantBusinessUnitIds: number[]
+  /** Hay al menos una invitada viva. Apaga el respaldo por codigo (D7). */
+  shared: boolean
 }
 
 export type DeviceResolution =
@@ -180,11 +184,16 @@ export default class AdmsDeviceResolverService {
         timezone: row.timezone,
         receivedAt: input.now,
         configuredAt: row.configuredAt,
+        participantBusinessUnitIds: row.participantBusinessUnitIds,
+        shared: row.participantBusinessUnitIds.length > 1,
       },
     }
   }
 
-  /** Escrituras de contacto. Debe correr dentro de `TenantContext.run([businessUnitId])`. */
+  /**
+   * Escrituras de contacto. Corre dentro del scope del checador, que puede ser
+   * de varias empresas; sus escrituras usan `device.businessUnitId` (la responsable).
+   */
   /**
    * La direccion por la que llego tiene que ser la suya (spec autenticidad, 4.3).
    *
