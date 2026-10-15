@@ -1,4 +1,5 @@
 import type { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type AccessPointEmployee from '#models/access_point_employee'
 import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
 import type { AccessPointEmployeeEventKind } from '#models/access_point_employee_event'
@@ -23,7 +24,12 @@ export interface EmployeeSyncRepository {
    * se comprueba dentro: dos altas simultaneas no pueden quedarse con el mismo.
    */
   withDeviceLock<T>(accessPointId: number, fn: () => Promise<T>): Promise<T>
-  findPivot(accessPointId: number, employeeId: number): Promise<AccessPointEmployee | null>
+  /** Con `trx`, el pivote leido se guarda dentro de esa misma transaccion. */
+  findPivot(
+    accessPointId: number,
+    employeeId: number,
+    trx?: TransactionClientContract
+  ): Promise<AccessPointEmployee | null>
   /** Incluye filas revocadas: una reasignacion revive la que ya existia. */
   findPivotWithTrashed(
     accessPointId: number,
@@ -55,7 +61,9 @@ export interface EmployeeSyncRepository {
    */
   countConfirmedBefore(accessPointId: number, at: DateTime): Promise<number>
   save(pivot: AccessPointEmployee): Promise<void>
-  recordEvent(input: SyncEventInput): Promise<void>
+  recordEvent(input: SyncEventInput, trx?: TransactionClientContract): Promise<void>
+  /** Baja logica del vinculo (conserva su historial). */
+  detach(pivot: AccessPointEmployee): Promise<void>
   findByCommandTarget(accessPointEmployeeId: number): Promise<AccessPointEmployee | null>
   updateStatus(
     accessPointEmployeeId: number,

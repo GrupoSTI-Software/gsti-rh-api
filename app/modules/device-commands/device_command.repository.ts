@@ -1,4 +1,5 @@
 import type { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type DeviceCommand from '#models/device_command'
 import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import type { DeviceCommandKind, DeviceCommandStatus } from './device_command.constants.js'
@@ -61,10 +62,11 @@ export interface DeviceCommandRepository {
    */
   enqueueIdempotent(
     input: CommandInsert,
-    wireIdCandidates: number[]
+    wireIdCandidates: number[],
+    trx?: TransactionClientContract
   ): Promise<EnqueueIdempotentResult | null>
   findLiveByCorrelation(accessPointId: number, correlationKey: string): Promise<DeviceCommand | null>
-  findById(commandId: number): Promise<DeviceCommand | null>
+  findById(commandId: number, trx?: TransactionClientContract): Promise<DeviceCommand | null>
   /**
    * El comando, solo si es de ESE equipo.
    *
@@ -77,10 +79,17 @@ export interface DeviceCommandRepository {
   /** Primer pendiente por prioridad, excluyendo los tipos que no se pueden despachar ahora. */
   findNextPending(accessPointId: number, excludedKinds: DeviceCommandKind[]): Promise<DeviceCommand | null>
   hasInFlight(accessPointId: number): Promise<boolean>
-  listByDevice(accessPointId: number, status?: DeviceCommandStatus): Promise<DeviceCommand[]>
+  listByDevice(
+    accessPointId: number,
+    status?: DeviceCommandStatus,
+    trx?: TransactionClientContract
+  ): Promise<DeviceCommand[]>
   listByEmployee(employeeId: number): Promise<DeviceCommand[]>
   /** Lo que sigue vivo --pendiente o en vuelo-- para un vinculo concreto. */
-  listLiveForPivot(accessPointEmployeeId: number): Promise<DeviceCommand[]>
+  listLiveForPivot(
+    accessPointEmployeeId: number,
+    trx?: TransactionClientContract
+  ): Promise<DeviceCommand[]>
   /**
    * Escrituras de huella vivas hacia un equipo.
    *

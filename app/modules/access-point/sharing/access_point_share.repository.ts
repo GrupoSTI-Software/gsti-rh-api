@@ -1,6 +1,7 @@
 import type { DateTime } from 'luxon'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type { AccessPointShareRevokeReason } from '#models/access_point_share'
+import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
 
 /** Entrega de una unidad y el checador que le corresponde a la responsable. */
 export interface ShareAssignment {
@@ -41,6 +42,7 @@ export interface LiveShareLink {
 export interface GuestPivot {
   employeeId: number
   businessUnitId: number
+  syncStatus: AccessPointEmployeeSyncStatus
 }
 
 export interface ShareInsert {
@@ -68,6 +70,8 @@ export interface AccessPointShareRepository {
   /** Grupo vivo de cada empresa que tenga uno (una empresa esta en un solo grupo). */
   liveGroupIdsOf(businessUnitIds: number[]): Promise<Map<number, number>>
   listGroupMembers(platformTenantGroupId: number): Promise<ShareBusinessUnit[]>
+  /** Un grupo apagado conserva miembros pero no admite invitaciones nuevas. */
+  isGroupActive(platformTenantGroupId: number): Promise<boolean>
   listByAccessPoint(accessPointId: number): Promise<ShareRecord[]>
   findById(accessPointShareId: number): Promise<ShareRecord | null>
   hasLive(accessPointId: number, businessUnitId: number): Promise<boolean>
@@ -81,6 +85,11 @@ export interface AccessPointShareRepository {
     revocation: ShareRevocation,
     trx: TransactionClientContract
   ): Promise<void>
-  listLiveGuestPivots(accessPointId: number, businessUnitId: number): Promise<GuestPivot[]>
+  /** Vinculos de la invitada sin baja pedida, leidos en la transaccion dada. */
+  listLiveGuestPivots(
+    accessPointId: number,
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ): Promise<GuestPivot[]>
   listLiveInvolving(businessUnitIds: number[]): Promise<LiveShareLink[]>
 }

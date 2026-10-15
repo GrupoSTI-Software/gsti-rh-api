@@ -14,6 +14,7 @@ import {
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
 } from '#modules/device-commands/device_command.constants'
+import { canDetachAssignment } from '#modules/access-point/employee-sync/employee_sync_state'
 import { AccessPointScope } from './access_point_scope.js'
 import { AccessPointShareErrors } from './access_point_share.errors.js'
 import AccessPointShareRepositoryMysql from './access_point_share.repository.mysql.js'
@@ -150,6 +151,10 @@ export default class AccessPointShareService {
       if (groupId === undefined || groups.get(guest.businessUnitId) !== groupId) {
         throw AccessPointShareErrors.outsideGroup()
       }
+      // Un grupo apagado no certifica la relacion: no admite invitaciones nuevas.
+      if (!(await this.repository.isGroupActive(groupId))) {
+        throw AccessPointShareErrors.outsideGroup()
+      }
 
       let shareId: number
       try {
@@ -203,7 +208,8 @@ export default class AccessPointShareService {
             link.accessPointId,
             link.ownerBusinessUnitId,
             link.guestBusinessUnitId,
-            input.userId
+            input.userId,
+            trx
           )
           await this.repository.markRevoked(
             [link.accessPointShareId],
@@ -239,7 +245,8 @@ export default class AccessPointShareService {
           link.accessPointId,
           link.ownerBusinessUnitId,
           link.guestBusinessUnitId,
-          userId
+          userId,
+          trx
         )
       }
       await this.repository.markRevoked(
@@ -297,41 +304,65 @@ export default class AccessPointShareService {
   /**
    * Baja en el aparato de cada colaborador vivo de la invitada.
    *
+   * Todo va en la transaccion del llamador (`trx`): pivotes, cancelaciones,
+   * bajas y eventos se revierten con ella. Asi, si la desasignacion falla
+   * despues (p. ej. al apagar el punto de acceso), no queda ningun
+   * `user_delete` en cola ni pivotes en `revoking` (RN5 del spec 1883).
+   *
    * Corre con el scope del checador ANTES de revocar: la invitada sigue siendo
    * participante, asi que el guard de comandos acepta la baja a su nombre y el
-   * mixin deja ver sus vinculos y su cola. Las bajas se escriben por su propia
-   * conexion; quien llama marca la invitacion despues, en su transaccion.
+   * mixin deja ver sus vinculos y su cola. La marca de la invitacion la pone
+   * quien llama despues, en la misma transaccion.
    *
-   * Un alta de la invitada que siga en cola sin amarre al vinculo no la cierra
-   * `revoke` (cancela por vinculo); se cancela aqui antes de pedir la baja, o
-   * el aparato la recogeria despues y la persona quedaria dentro marcando.
+   * - Un alta de la invitada que siga en cola sin amarre al vinculo no la
+   *   cierra `revoke` (cancela por vinculo); se cancela aqui antes de pedir la
+   *   baja, o el aparato la recogeria despues y la persona quedaria dentro.
+   * - Un `pending_pin` nunca llego al aparato: se desprende con su evento, sin
+   *   encolar nada.
    */
   private async retireGuestStaff(
     accessPointId: number,
     ownerBusinessUnitId: number,
     guestBusinessUnitId: number,
-    userId: number | null
+    userId: number | null,
+    trx: TransactionClientContract
   ): Promise<void> {
-    const pivots = await this.repository.listLiveGuestPivots(accessPointId, guestBusinessUnitId)
+    const pivots = await this.repository.listLiveGuestPivots(
+      accessPointId,
+      guestBusinessUnitId,
+      trx
+    )
     if (pivots.length === 0) return
     const participants = await AccessPointScope.participants(accessPointId, ownerBusinessUnitId)
     await TenantContext.run(participants, async () => {
-      const pending = await this.commands.listByDevice(accessPointId, DEVICE_COMMAND_STATUS.PENDING)
+      const pending = await this.commands.listByDevice(
+        accessPointId,
+        DEVICE_COMMAND_STATUS.PENDING,
+        trx
+      )
       for (const pivot of pivots) {
+        const target = {
+          accessPointId,
+          businessUnitId: pivot.businessUnitId,
+          employeeId: pivot.employeeId,
+          actor: { userId },
+        }
+        if (canDetachAssignment(pivot.syncStatus)) {
+          await this.sync.detachUnsent(
+            { ...target, detail: 'Invitacion al checador revocada: vinculo sin PIN retirado' },
+            trx
+          )
+          continue
+        }
         const orphanUpserts = pending.filter(
           (command) =>
             command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_UPSERT &&
             command.employeeId === pivot.employeeId
         )
         for (const command of orphanUpserts) {
-          await this.commands.cancel(command.deviceCommandId, userId)
+          await this.commands.cancel(command.deviceCommandId, userId, trx)
         }
-        await this.sync.revoke({
-          accessPointId,
-          businessUnitId: pivot.businessUnitId,
-          employeeId: pivot.employeeId,
-          actor: { userId },
-        })
+        await this.sync.revoke(target, trx)
       }
     })
   }

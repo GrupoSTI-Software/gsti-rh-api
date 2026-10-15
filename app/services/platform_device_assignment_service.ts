@@ -117,8 +117,10 @@ export interface UnassignmentRecord {
  *   Si cualquier paso falla, la transacción hace rollback completo.
  */
 export default class PlatformDeviceAssignmentService {
-  private readonly accessPointService = new PlatformDeviceAccessPointService()
-  private readonly shareService = new AccessPointShareService()
+  constructor(
+    private readonly accessPointService: PlatformDeviceAccessPointService = new PlatformDeviceAccessPointService(),
+    private readonly shareService: AccessPointShareService = new AccessPointShareService()
+  ) {}
 
   /**
    * Registra la entrega de un aparato disponible a un tenant.
@@ -387,7 +389,8 @@ export default class PlatformDeviceAssignmentService {
 
       // Las invitaciones del checador se cierran en esta misma transaccion y
       // antes de apagar el punto de acceso (VLRH-P0065, 3.2.3): sus empleados
-      // reciben la baja mientras la invitada sigue siendo participante.
+      // reciben la baja mientras la invitada sigue siendo participante. Las
+      // bajas van en `trx`: si algo de abajo revierte, no queda nada en cola.
       await this.revokeSharesOf(assignment, trx)
 
       // Punto de extensión declarado (§9 del spec 1881): "Desactivar el punto

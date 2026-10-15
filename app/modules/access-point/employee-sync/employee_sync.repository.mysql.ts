@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { AdmsError } from '#exceptions/adms_error'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import AccessPointEmployee from '#models/access_point_employee'
@@ -87,8 +88,12 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     })
   }
 
-  async findPivot(accessPointId: number, employeeId: number): Promise<AccessPointEmployee | null> {
-    return AccessPointEmployee.query()
+  async findPivot(
+    accessPointId: number,
+    employeeId: number,
+    trx?: TransactionClientContract
+  ): Promise<AccessPointEmployee | null> {
+    return AccessPointEmployee.query(trx ? { client: trx } : undefined)
       .where('access_point_id', accessPointId)
       .where('employee_id', employeeId)
       .first()
@@ -189,8 +194,9 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     }
   }
 
-  async recordEvent(input: SyncEventInput): Promise<void> {
+  async recordEvent(input: SyncEventInput, trx?: TransactionClientContract): Promise<void> {
     const event = new AccessPointEmployeeEvent()
+    if (trx) event.useTransaction(trx)
     event.accessPointEmployeeId = input.accessPointEmployeeId
     event.businessUnitId = input.businessUnitId
     event.accessPointEmployeeEventKind = input.kind
@@ -202,6 +208,11 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     event.deviceCommandId = input.deviceCommandId ?? null
     event.accessPointEmployeeEventDetail = input.detail ?? null
     await event.save()
+  }
+
+  async detach(pivot: AccessPointEmployee): Promise<void> {
+    // SoftDeletes: conserva el historial. Si se leyo con `trx`, borra en ella.
+    await pivot.delete()
   }
 
   async findByCommandTarget(accessPointEmployeeId: number): Promise<AccessPointEmployee | null> {

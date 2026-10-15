@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import { AdmsError } from '#exceptions/adms_error'
 import AccessPointEmployee, {
@@ -12,7 +13,11 @@ import type { DeviceCommandPort } from '#modules/device-commands/device_command_
 import logger from '@adonisjs/core/services/logger'
 import PhotoPublicationService from '#modules/biometric-vault/photo/photo_publication.service'
 import EmployeeSyncRepositoryMysql from './employee_sync.repository.mysql.js'
-import { assertTransition, REVOKING_STATUSES } from './employee_sync_state.js'
+import {
+  assertTransition,
+  canDetachAssignment,
+  REVOKING_STATUSES,
+} from './employee_sync_state.js'
 import type { EmployeeSyncRepository } from './employee_sync.repository.js'
 
 /**
@@ -242,14 +247,23 @@ export default class EmployeeSyncService {
     return pivot
   }
 
-  /** Pide el borrado del colaborador en el equipo. El PIN entra en cuarentena. */
-  async revoke(input: {
-    accessPointId: number
-    businessUnitId: number
-    employeeId: number
-    actor: SyncActor
-  }): Promise<AccessPointEmployee> {
-    const pivot = await this.requirePivot(input.accessPointId, input.employeeId)
+  /**
+   * Pide el borrado del colaborador en el equipo. El PIN entra en cuarentena.
+   *
+   * Con `trx`, el pivote, la cancelacion, la baja y el evento se escriben en
+   * la transaccion del llamador: si esta se revierte no queda nada en cola ni
+   * el pivote en `revoking` (desasignar la unidad, VLRH-P0065 3.2.3).
+   */
+  async revoke(
+    input: {
+      accessPointId: number
+      businessUnitId: number
+      employeeId: number
+      actor: SyncActor
+    },
+    trx?: TransactionClientContract
+  ): Promise<AccessPointEmployee> {
+    const pivot = await this.requirePivot(input.accessPointId, input.employeeId, trx)
     const pin = pivot.accessPointEmployeePin
     if (!pin || pin.length === 0) {
       throw new AdmsError(
@@ -279,31 +293,82 @@ export default class EmployeeSyncService {
      * pivote acaba en `confirmed` como si nada. Lo mismo vale para una copia de
      * biometrico en cola: a quien se va no se le copia nada.
      */
-    await this.commands.cancelLiveForPivot(pivot.accessPointEmployeeId, input.actor.userId)
+    await this.commands.cancelLiveForPivot(pivot.accessPointEmployeeId, input.actor.userId, trx)
 
-    const result = await this.commands.enqueue({
-      accessPointId: input.accessPointId,
-      businessUnitId: input.businessUnitId,
-      kind: DEVICE_COMMAND_KIND.USER_DELETE,
-      fields: { pin },
-      correlationKey: `user_delete:${pin}`,
-      employeeId: input.employeeId,
-      accessPointEmployeeId: pivot.accessPointEmployeeId,
-      requestedByUserId: input.actor.userId,
-    })
+    const result = await this.commands.enqueue(
+      {
+        accessPointId: input.accessPointId,
+        businessUnitId: input.businessUnitId,
+        kind: DEVICE_COMMAND_KIND.USER_DELETE,
+        fields: { pin },
+        correlationKey: `user_delete:${pin}`,
+        employeeId: input.employeeId,
+        accessPointEmployeeId: pivot.accessPointEmployeeId,
+        requestedByUserId: input.actor.userId,
+      },
+      trx
+    )
 
-    await this.repository.recordEvent({
-      accessPointEmployeeId: pivot.accessPointEmployeeId,
-      businessUnitId: input.businessUnitId,
-      kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.REVOKE_REQUESTED,
-      fromStatus: from,
-      toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING,
-      fromPin: pin,
-      actorUserId: input.actor.userId,
-      deviceCommandId: result.command.deviceCommandId,
-    })
+    await this.repository.recordEvent(
+      {
+        accessPointEmployeeId: pivot.accessPointEmployeeId,
+        businessUnitId: input.businessUnitId,
+        kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.REVOKE_REQUESTED,
+        fromStatus: from,
+        toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING,
+        fromPin: pin,
+        actorUserId: input.actor.userId,
+        deviceCommandId: result.command.deviceCommandId,
+      },
+      trx
+    )
 
     return pivot
+  }
+
+  /**
+   * Retira un vinculo que nunca llego al aparato, sin encolar nada.
+   *
+   * Solo para estados desprendibles (`canDetachAssignment`): un `pending_pin`
+   * no tiene numero y el equipo nunca supo de esa persona. Se usa al revocar
+   * la invitacion de su empresa a un checador compartido (VLRH-P0065, 3.2.4):
+   * sin esto el vinculo queda vivo en un aparato que ya no es de su empresa.
+   * Deja evento con el motivo; el pivote se borra logicamente.
+   */
+  async detachUnsent(
+    input: {
+      accessPointId: number
+      businessUnitId: number
+      employeeId: number
+      actor: SyncActor
+      detail: string
+    },
+    trx?: TransactionClientContract
+  ): Promise<void> {
+    const pivot = await this.requirePivot(input.accessPointId, input.employeeId, trx)
+    if (!canDetachAssignment(pivot.accessPointEmployeeSyncStatus)) {
+      // Mismo codigo que `assertTransition` para un cambio de estado no admitido.
+      throw new AdmsError(
+        'El vinculo ya llego al equipo: requiere baja',
+        ADMS_ERROR_CODES.PIN_INVALID,
+        409,
+        'transicion-invalida',
+        'El estado del colaborador en el equipo no admite ese cambio.'
+      )
+    }
+    await this.repository.recordEvent(
+      {
+        accessPointEmployeeId: pivot.accessPointEmployeeId,
+        businessUnitId: input.businessUnitId,
+        kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.STATUS_CHANGED,
+        fromStatus: pivot.accessPointEmployeeSyncStatus,
+        toStatus: null,
+        actorUserId: input.actor.userId,
+        detail: input.detail,
+      },
+      trx
+    )
+    await this.repository.detach(pivot)
   }
 
   /**
@@ -508,9 +573,10 @@ export default class EmployeeSyncService {
 
   private async requirePivot(
     accessPointId: number,
-    employeeId: number
+    employeeId: number,
+    trx?: TransactionClientContract
   ): Promise<AccessPointEmployee> {
-    const pivot = await this.repository.findPivot(accessPointId, employeeId)
+    const pivot = await this.repository.findPivot(accessPointId, employeeId, trx)
     if (!pivot) {
       throw new AdmsError(
         'El colaborador no esta asignado a este equipo',

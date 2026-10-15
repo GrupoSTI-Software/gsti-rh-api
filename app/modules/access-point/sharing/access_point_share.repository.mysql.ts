@@ -1,7 +1,10 @@
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import AccessPointShare from '#models/access_point_share'
-import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
+import {
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
+  type AccessPointEmployeeSyncStatus,
+} from '#models/access_point_employee'
 import { REVOKING_STATUSES } from '#modules/access-point/employee-sync/employee_sync_state'
 import type {
   AccessPointShareRepository,
@@ -142,6 +145,17 @@ export default class AccessPointShareRepositoryMysql implements AccessPointShare
     return rows.map(toBusinessUnit)
   }
 
+  async isGroupActive(platformTenantGroupId: number): Promise<boolean> {
+    const row = await db
+      .from('platform_tenant_groups')
+      .where('platform_tenant_group_id', platformTenantGroupId)
+      .whereNull('platform_tenant_group_deleted_at')
+      .where('platform_tenant_group_active', 1)
+      .select('platform_tenant_group_id')
+      .first()
+    return Boolean(row)
+  }
+
   async listByAccessPoint(accessPointId: number): Promise<ShareRecord[]> {
     const shares = await AccessPointShare.query()
       .where('access_point_id', accessPointId)
@@ -218,10 +232,10 @@ export default class AccessPointShareRepositoryMysql implements AccessPointShare
   /**
    * Invitaciones con la responsable de su checador, sin bloquear el checador.
    *
-   * El bloqueo va aparte y solo sobre `access_point_shares`: un `FOR UPDATE`
-   * con el join bloquearia tambien la fila de `access_points`, y la baja que se
-   * encola despues por otra conexion la pide `FOR UPDATE` para cotejar la
-   * empresa; se quedaria esperando a esta transaccion hasta agotar el tiempo.
+   * El bloqueo va aparte y solo sobre `access_point_shares`: la fila de
+   * `access_points` la bloquea despues el encolado de la baja (`FOR UPDATE`
+   * para cotejar la empresa), y bloquearla aqui con el join alargaria el
+   * candado del aparato a toda la revocacion sin necesidad.
    */
   private async linksOf(
     accessPointShareIds: number[],
@@ -256,30 +270,34 @@ export default class AccessPointShareRepositoryMysql implements AccessPointShare
   }
 
   /**
-   * Vinculos de la invitada que el aparato todavia tiene o puede tener: con
-   * PIN y sin baja pedida. Los que ya van de salida no se tocan; los que nunca
-   * tuvieron PIN no llegaron al aparato.
+   * Vinculos vivos de la invitada sin baja pedida, incluidos los `pending_pin`
+   * que nunca llegaron al aparato (se desprenden sin encolar). Los que ya van
+   * de salida no se tocan.
    */
-  async listLiveGuestPivots(accessPointId: number, businessUnitId: number): Promise<GuestPivot[]> {
-    const rows = (await db
+  async listLiveGuestPivots(
+    accessPointId: number,
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ): Promise<GuestPivot[]> {
+    const rows = (await trx
       .from('access_point_employees')
       .where('access_point_id', accessPointId)
       .where('business_unit_id', businessUnitId)
       .whereNull('access_point_employee_deleted_at')
-      .whereNotNull('access_point_employee_pin')
-      .whereNot('access_point_employee_pin', '')
       .whereNotIn('access_point_employee_sync_status', [
         ...REVOKING_STATUSES,
         ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
       ])
       .orderBy('access_point_employee_id', 'asc')
-      .select('employee_id', 'business_unit_id')) as Array<{
+      .select('employee_id', 'business_unit_id', 'access_point_employee_sync_status')) as Array<{
       employee_id: number
       business_unit_id: number
+      access_point_employee_sync_status: AccessPointEmployeeSyncStatus
     }>
     return rows.map((row) => ({
       employeeId: Number(row.employee_id),
       businessUnitId: Number(row.business_unit_id),
+      syncStatus: row.access_point_employee_sync_status,
     }))
   }
 

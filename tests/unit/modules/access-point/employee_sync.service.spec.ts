@@ -80,6 +80,7 @@ function makeService(options: Options = {}) {
     async recordEvent(input) {
       events.push(input)
     },
+    async detach() {},
     async findByCommandTarget() {
       return options.pivot ?? null
     },

@@ -1,3 +1,4 @@
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type DeviceCommand from '#models/device_command'
 import type { DeviceCommandFields } from './wire/adms_command_formatter.js'
 import type { DeviceCommandKind, DeviceCommandStatus } from './device_command.constants.js'
@@ -34,14 +35,22 @@ export interface EnqueueCommandResult {
  * pieza escribe en `device_commands`.
  */
 export interface DeviceCommandPort {
-  enqueue(input: EnqueueCommandInput): Promise<EnqueueCommandResult>
+  /**
+   * `trx` opcional: el comando se escribe dentro de la transaccion del
+   * llamador y se revierte con ella.
+   */
+  enqueue(input: EnqueueCommandInput, trx?: TransactionClientContract): Promise<EnqueueCommandResult>
   /**
    * La orden viva (`pending` o `sent`) con esa llave hacia ese equipo, o
    * `null`. Es la misma pregunta que hace `enqueue` para no duplicar, expuesta
    * para quien necesita saberlo ANTES de crear lo que la orden lleva.
    */
   findLive(accessPointId: number, correlationKey: string): Promise<DeviceCommand | null>
-  cancel(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand>
+  cancel(
+    commandId: number,
+    requestedByUserId: number | null,
+    trx?: TransactionClientContract
+  ): Promise<DeviceCommand>
   /**
    * Cierra lo que siga vivo para ese vinculo. Devuelve cuantos cerro.
    *
@@ -55,7 +64,8 @@ export interface DeviceCommandPort {
    */
   cancelLiveForPivot(
     accessPointEmployeeId: number,
-    requestedByUserId: number | null
+    requestedByUserId: number | null,
+    trx?: TransactionClientContract
   ): Promise<number>
   /**
    * Cancela las copias de huella que siguen vivas hacia un equipo.
@@ -69,6 +79,10 @@ export interface DeviceCommandPort {
   /** El comando de ESE equipo, o `null`. La pertenencia va en la consulta. */
   findForDevice(commandId: number, accessPointId: number): Promise<DeviceCommand | null>
   retry(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand>
-  listByDevice(accessPointId: number, status?: DeviceCommandStatus): Promise<DeviceCommand[]>
+  listByDevice(
+    accessPointId: number,
+    status?: DeviceCommandStatus,
+    trx?: TransactionClientContract
+  ): Promise<DeviceCommand[]>
   listByEmployee(employeeId: number): Promise<DeviceCommand[]>
 }
