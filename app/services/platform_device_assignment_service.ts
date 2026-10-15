@@ -18,6 +18,7 @@ import PlatformDeviceAccessPointService, {
   type AccessPointDeactivateOutcome,
   type PreloadedAccessPoint,
 } from './platform_device_access_point_service.js'
+import AccessPointShareService from '#modules/access-point/sharing/access_point_share.service'
 
 export interface AssignmentRecord {
   assignmentId: number
@@ -117,6 +118,7 @@ export interface UnassignmentRecord {
  */
 export default class PlatformDeviceAssignmentService {
   private readonly accessPointService = new PlatformDeviceAccessPointService()
+  private readonly shareService = new AccessPointShareService()
 
   /**
    * Registra la entrega de un aparato disponible a un tenant.
@@ -383,6 +385,11 @@ export default class PlatformDeviceAssignmentService {
       }
       await device.save()
 
+      // Las invitaciones del checador se cierran en esta misma transaccion y
+      // antes de apagar el punto de acceso (VLRH-P0065, 3.2.3): sus empleados
+      // reciben la baja mientras la invitada sigue siendo participante.
+      await this.revokeSharesOf(assignment, trx)
+
       // Punto de extensión declarado (§9 del spec 1881): "Desactivar el punto
       // de acceso del tenant al desasignar la unidad" (USRH1787189981883)
       // engancha aquí, dentro de la misma transacción, después de cerrar la
@@ -424,6 +431,32 @@ export default class PlatformDeviceAssignmentService {
         accessPointOutcome,
       }
     })
+  }
+
+  /**
+   * Revoca las invitaciones vivas del checador de la unidad al cerrar su
+   * entrega, con motivo `unassignment` y sin usuario (VLRH-P0065, 3.2.3).
+   */
+  private async revokeSharesOf(
+    assignment: PlatformDeviceAssignment,
+    trx: TransactionClientContract
+  ): Promise<number> {
+    // Constructor crudo: sin mixin de empresa, no necesita bypass.
+    const accessPoints = (await trx
+      .from('access_points')
+      .where('platform_device_id', assignment.platformDeviceId)
+      .where('business_unit_id', assignment.businessUnitId)
+      .whereNull('access_point_deleted_at')
+      .select('access_point_id')) as Array<{ access_point_id: number }>
+    let revoked = 0
+    for (const row of accessPoints) {
+      revoked += await this.shareService.revokeAllForAccessPoint(
+        Number(row.access_point_id),
+        null,
+        trx
+      )
+    }
+    return revoked
   }
 
   /**

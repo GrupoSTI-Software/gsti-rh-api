@@ -1,8 +1,9 @@
 import vine from '@vinejs/vine'
 
 /**
- * Los cuatro tipos de discrepancia entre el inventario de plataforma y los
- * puntos de acceso de los tenants (USRH1787195527841 · §4 del spec).
+ * Tipos de discrepancia entre el inventario de plataforma y los puntos de
+ * acceso de los tenants (USRH1787195527841 · §4 del spec), mas la invitacion
+ * a un checador que quedo fuera del grupo (VLRH-P0065, D5).
  * Fuente única del enum — el servicio y el validador lo derivan de aquí,
  * nunca se duplica el literal.
  */
@@ -11,6 +12,7 @@ export const DEVICE_DISCREPANCY_TYPES = [
   'AP_HUERFANO',
   'SERIE_DESCONOCIDA',
   'SERIE_AUTODESCUBIERTA',
+  'INVITACION_FUERA_DEL_GRUPO',
 ] as const
 
 export type DeviceDiscrepancyType = (typeof DEVICE_DISCREPANCY_TYPES)[number]
