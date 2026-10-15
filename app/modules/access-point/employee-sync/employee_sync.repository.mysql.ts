@@ -88,6 +88,22 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     })
   }
 
+  async inDeviceTransaction<T>(
+    accessPointId: number,
+    fn: (trx: TransactionClientContract) => Promise<T>
+  ): Promise<T> {
+    return db.transaction(async (trx) => {
+      // Constructor crudo sobre `trx`: sin mixin, la fila se bloquea aunque sea de otra empresa.
+      await trx
+        .from('access_points')
+        .where('access_point_id', accessPointId)
+        .select('access_point_id')
+        .forUpdate()
+        .first()
+      return fn(trx)
+    })
+  }
+
   async findPivot(
     accessPointId: number,
     employeeId: number,

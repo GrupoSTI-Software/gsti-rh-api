@@ -8,6 +8,7 @@ import type AccessPointEmployee from '#models/access_point_employee'
 import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
 import type { DeviceCommandPort, EnqueueCommandInput } from '#modules/device-commands/device_command_port'
 import type DeviceCommand from '#models/device_command'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { AdmsError } from '#exceptions/adms_error'
 import type PhotoPublicationService from '#modules/biometric-vault/photo/photo_publication.service'
 
@@ -48,11 +49,21 @@ function makeService(options: Options = {}) {
   /** Colaboradores a los que se les retiraron las publicaciones de foto. */
   const withdrawnFor: number[] = []
 
+  /** Transaccion falsa del candado del aparato y lo que paso por ella. */
+  const deviceTrx = { fake: 'trx-del-aparato' } as unknown as TransactionClientContract
+  const lockedDevices: number[] = []
+  const trxSeen: Array<{ step: string; trx: TransactionClientContract | undefined }> = []
+
   const repository: EmployeeSyncRepository = {
     async withDeviceLock(_id, fn) {
       return fn()
     },
-    async findPivot() {
+    async inDeviceTransaction(accessPointId, fn) {
+      lockedDevices.push(accessPointId)
+      return fn(deviceTrx)
+    },
+    async findPivot(_accessPointId, _employeeId, trx) {
+      trxSeen.push({ step: 'findPivot', trx })
       return options.pivot ?? null
     },
     async findPivotWithTrashed() {
@@ -77,7 +88,8 @@ function makeService(options: Options = {}) {
     async save(pivot) {
       saved.push(pivot)
     },
-    async recordEvent(input) {
+    async recordEvent(input, trx) {
+      trxSeen.push({ step: 'recordEvent', trx })
       events.push(input)
     },
     async detach() {},
@@ -91,7 +103,8 @@ function makeService(options: Options = {}) {
   }
 
   const commands: DeviceCommandPort = {
-    async enqueue(input) {
+    async enqueue(input, trx) {
+      trxSeen.push({ step: 'enqueue', trx })
       if (options.enqueueThrows) throw new Error('la cola no respondio')
       enqueued.push(input)
       return {
@@ -141,6 +154,9 @@ function makeService(options: Options = {}) {
     enqueued,
     cancelledFor,
     withdrawnFor,
+    deviceTrx,
+    lockedDevices,
+    trxSeen,
   }
 }
 
@@ -304,6 +320,46 @@ test.group('Envio y revocacion', () => {
     assert.equal(enqueued[0].fields.name, 'Juan Perez')
     assert.equal(enqueued[0].accessPointEmployeeId, 5)
     assert.equal(events[0].kind, 'send_requested')
+  })
+
+  test('enviar lee, encola y deja evento dentro de la transaccion del aparato', async ({
+    assert,
+  }) => {
+    const { service, deviceTrx, lockedDevices, trxSeen } = makeService({
+      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'failed' }),
+    })
+    await service.send({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      employeeName: 'Juan Perez',
+      actor: ACTOR,
+    })
+    assert.deepEqual(lockedDevices, [12])
+    assert.deepEqual(
+      trxSeen.map((seen) => seen.step),
+      ['findPivot', 'enqueue', 'recordEvent']
+    )
+    for (const seen of trxSeen) assert.strictEqual(seen.trx, deviceTrx, seen.step)
+  })
+
+  test('si la cola rechaza el alta, el error sale de la transaccion del aparato', async ({
+    assert,
+  }) => {
+    const { service, events } = makeService({
+      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'failed' }),
+      enqueueThrows: true,
+    })
+    await assert.rejects(() =>
+      service.send({
+        accessPointId: 12,
+        businessUnitId: 1,
+        employeeId: 77,
+        employeeName: 'Juan Perez',
+        actor: ACTOR,
+      })
+    )
+    assert.lengthOf(events, 0)
   })
 
   test('revocar pasa a revocando y encola el borrado', async ({ assert }) => {

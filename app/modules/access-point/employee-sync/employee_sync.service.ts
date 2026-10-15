@@ -193,7 +193,15 @@ export default class EmployeeSyncService {
     })
   }
 
-  /** Encola el alta del colaborador en el equipo. */
+  /**
+   * Encola el alta del colaborador en el equipo.
+   *
+   * Pivote, comando y evento van en una sola transaccion que bloquea primero
+   * el aparato: si la cola rechaza el alta (p. ej. la invitacion se acaba de
+   * revocar), el vinculo no queda en `pending` sin comando. Y una revocacion
+   * concurrente, que toma el mismo candado antes de listar vinculos, o ve el
+   * alta ya encolada y la cancela, o la ve rechazada por el guard.
+   */
   async send(input: {
     accessPointId: number
     businessUnitId: number
@@ -201,7 +209,22 @@ export default class EmployeeSyncService {
     employeeName: string
     actor: SyncActor
   }): Promise<AccessPointEmployee> {
-    const pivot = await this.requirePivot(input.accessPointId, input.employeeId)
+    return this.repository.inDeviceTransaction(input.accessPointId, (trx) =>
+      this.sendIn(input, trx)
+    )
+  }
+
+  private async sendIn(
+    input: {
+      accessPointId: number
+      businessUnitId: number
+      employeeId: number
+      employeeName: string
+      actor: SyncActor
+    },
+    trx: TransactionClientContract
+  ): Promise<AccessPointEmployee> {
+    const pivot = await this.requirePivot(input.accessPointId, input.employeeId, trx)
     const pin = pivot.accessPointEmployeePin
     if (!pin || pin.length === 0) {
       throw new AdmsError(
@@ -221,28 +244,35 @@ export default class EmployeeSyncService {
       pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING
     }
     pivot.accessPointEmployeeSyncRequestedAt = DateTime.utc()
+    // Leido con `trx`: el modelo guarda dentro de la misma transaccion.
     await this.repository.save(pivot)
 
-    const result = await this.commands.enqueue({
-      accessPointId: input.accessPointId,
-      businessUnitId: input.businessUnitId,
-      kind: DEVICE_COMMAND_KIND.USER_UPSERT,
-      fields: { pin, name: input.employeeName },
-      correlationKey: `user_upsert:${pin}`,
-      employeeId: input.employeeId,
-      accessPointEmployeeId: pivot.accessPointEmployeeId,
-      requestedByUserId: input.actor.userId,
-    })
+    const result = await this.commands.enqueue(
+      {
+        accessPointId: input.accessPointId,
+        businessUnitId: input.businessUnitId,
+        kind: DEVICE_COMMAND_KIND.USER_UPSERT,
+        fields: { pin, name: input.employeeName },
+        correlationKey: `user_upsert:${pin}`,
+        employeeId: input.employeeId,
+        accessPointEmployeeId: pivot.accessPointEmployeeId,
+        requestedByUserId: input.actor.userId,
+      },
+      trx
+    )
 
-    await this.repository.recordEvent({
-      accessPointEmployeeId: pivot.accessPointEmployeeId,
-      businessUnitId: input.businessUnitId,
-      kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.SEND_REQUESTED,
-      toStatus: pivot.accessPointEmployeeSyncStatus,
-      toPin: pin,
-      actorUserId: input.actor.userId,
-      deviceCommandId: result.command.deviceCommandId,
-    })
+    await this.repository.recordEvent(
+      {
+        accessPointEmployeeId: pivot.accessPointEmployeeId,
+        businessUnitId: input.businessUnitId,
+        kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.SEND_REQUESTED,
+        toStatus: pivot.accessPointEmployeeSyncStatus,
+        toPin: pin,
+        actorUserId: input.actor.userId,
+        deviceCommandId: result.command.deviceCommandId,
+      },
+      trx
+    )
 
     return pivot
   }

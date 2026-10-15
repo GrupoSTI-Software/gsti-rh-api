@@ -24,6 +24,18 @@ export interface EmployeeSyncRepository {
    * se comprueba dentro: dos altas simultaneas no pueden quedarse con el mismo.
    */
   withDeviceLock<T>(accessPointId: number, fn: () => Promise<T>): Promise<T>
+  /**
+   * Corre `fn` en una transaccion que primero bloquea la fila del punto de
+   * acceso (`FOR UPDATE`). Todo lo que escriba `fn` tiene que ir por `trx`:
+   * una escritura desde otra conexion que referencie al punto de acceso se
+   * quedaria esperando este mismo candado. Es el candado que toma el
+   * encolado y la revocacion de invitaciones: el orden es siempre el aparato
+   * primero (VLRH-P0065, 3.2.4).
+   */
+  inDeviceTransaction<T>(
+    accessPointId: number,
+    fn: (trx: TransactionClientContract) => Promise<T>
+  ): Promise<T>
   /** Con `trx`, el pivote leido se guarda dentro de esa misma transaccion. */
   findPivot(
     accessPointId: number,

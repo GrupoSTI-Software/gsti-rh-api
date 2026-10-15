@@ -10,6 +10,7 @@ import DeviceCommandRepositoryMysql from '#modules/device-commands/device_comman
 import { TenantContext } from '#utils/tenant_context'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
+import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
 import ReplicationService from '#modules/biometric-vault/replication/replication.service'
 import ConsentGate from '#modules/biometric-vault/consent/consent_gate'
 import type { ConsentRecord } from '#modules/biometric-vault/consent/consent_gate.repository'
@@ -171,6 +172,75 @@ test.group('Checador compartido: Backoffice', (group) => {
         .firstOrFail()
     )
     assert.equal(command.businessUnitId, fx.guestBu)
+  })
+
+  test('un envio que la cola rechaza no deja el vinculo en pendiente sin comando', async ({
+    assert,
+  }) => {
+    const apId = fx.accessPoint.accessPointId
+    const pivotRow = () =>
+      unscoped(() =>
+        db
+          .from('access_point_employees')
+          .where('access_point_id', apId)
+          .where('employee_id', fx.guestEmployee.employeeId)
+          .select('access_point_employee_id', 'access_point_employee_sync_status')
+          .first()
+      ) as Promise<{ access_point_employee_id: number; access_point_employee_sync_status: string }>
+    const before = await pivotRow()
+    const eventCount = async () => {
+      const row = await unscoped(() =>
+        db
+          .from('access_point_employee_events')
+          .where('access_point_employee_id', before.access_point_employee_id)
+          .count('* as total')
+          .first()
+      )
+      return Number(row?.total ?? 0)
+    }
+    const eventsBefore = await eventCount()
+    // La invitacion se revoca entre la autorizacion y el encolado: la cola la rechaza.
+    await unscoped(async () => {
+      await db
+        .from('access_point_employees')
+        .where('access_point_employee_id', before.access_point_employee_id)
+        .update({ access_point_employee_sync_status: 'failed' })
+      await db
+        .from('access_point_shares')
+        .where('access_point_share_id', fx.share.accessPointShareId)
+        .update({ access_point_share_revoked_at: DateTime.utc().toSQL({ includeOffset: false }) })
+    })
+    try {
+      let rejected = false
+      try {
+        await TenantContext.run([fx.ownerBu, fx.guestBu], () =>
+          new EmployeeSyncService().send({
+            accessPointId: apId,
+            businessUnitId: fx.guestBu,
+            employeeId: fx.guestEmployee.employeeId,
+            employeeName: 'Invitada',
+            actor: { userId: null },
+          })
+        )
+      } catch {
+        rejected = true
+      }
+      assert.isTrue(rejected)
+      const after = await pivotRow()
+      assert.equal(after.access_point_employee_sync_status, 'failed')
+      assert.equal(await eventCount(), eventsBefore)
+    } finally {
+      await unscoped(async () => {
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', fx.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: null })
+        await db
+          .from('access_point_employees')
+          .where('access_point_employee_id', before.access_point_employee_id)
+          .update({ access_point_employee_sync_status: before.access_point_employee_sync_status })
+      })
+    }
   })
 
   test('la invitada no puede tocar a un empleado de la responsable', async ({ client }) => {
