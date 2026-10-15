@@ -80,9 +80,9 @@ export default class AccessPointScopeRepositoryMysql implements AccessPointScope
   async channelScope(
     accessPointId: number,
     ownerBusinessUnitId: number,
-    client: QueryClientContract = db.connection()
+    client?: QueryClientContract
   ): Promise<ChannelScope> {
-    const result = (await client.rawQuery(
+    const result = (await (client ?? db).rawQuery(
       `SELECT 'ever' AS src, NULL AS business_unit_id, 0 AS ord,
               EXISTS(SELECT 1 FROM access_point_shares WHERE access_point_id = ?) AS ever_shared
        UNION ALL
@@ -156,9 +156,9 @@ export default class AccessPointScopeRepositoryMysql implements AccessPointScope
   async isParticipant(
     accessPointId: number,
     businessUnitId: number,
-    client: QueryClientContract = db.connection()
+    client?: QueryClientContract
   ): Promise<boolean> {
-    const owner = await client
+    const owner = await (client ?? db)
       .from('access_points')
       .where('access_point_id', accessPointId)
       .whereNull('access_point_deleted_at')
@@ -166,7 +166,7 @@ export default class AccessPointScopeRepositoryMysql implements AccessPointScope
       .first()
     if (!owner) return false
     if (Number(owner.business_unit_id) === businessUnitId) return true
-    const share = await client
+    const share = await (client ?? db)
       .from('access_point_shares')
       .where('access_point_id', accessPointId)
       .where('business_unit_id', businessUnitId)
