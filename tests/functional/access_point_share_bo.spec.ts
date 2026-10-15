@@ -1038,6 +1038,77 @@ test.group('Checador compartido: Backoffice', (group) => {
   })
 
   /**
+   * A2-15: el 409 se decidia leyendo el alcance del canal sin candado y despues
+   * se borraba. Una invitacion otorgada entre la lectura y el borrado quedaba
+   * viva sobre un checador borrado. Ahora el borrado bloquea primero la fila
+   * del aparato: lo que este escribiendo sobre el (aqui, una transaccion que lo
+   * tiene bloqueado e inserta una invitacion) termina antes de decidir.
+   */
+  test('una invitacion que confirma mientras se borra el checador lo deja vivo con 409', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    const grantTrx = await db.transaction()
+    let deleting: Promise<{ status: number; body: unknown }> | null = null
+    try {
+      // Compartido alguna vez, ya sin nadie mas en el canal: hoy se podria borrar.
+      await unscoped(async () => {
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', own.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: new Date() })
+        await db
+          .from('access_point_employees')
+          .where('access_point_id', apId)
+          .where('employee_id', own.guestEmployee.employeeId)
+          .update({ access_point_employee_sync_status: 'revoked' })
+      })
+      const owner = await actorFor(own.ownerBu)
+      const holder = await lockHolderOf(grantTrx)
+      const shares = new AccessPointShareRepositoryMysql()
+      await shares.lockAccessPoint(apId, grantTrx)
+      await shares.insert(
+        {
+          accessPointId: apId,
+          businessUnitId: own.guestBu,
+          platformTenantGroupId: own.groupId,
+          grantedAt: DateTime.utc(),
+          grantedBy: null,
+        },
+        grantTrx
+      )
+
+      deleting = client
+        .delete(`/api/access-points/${apId}`)
+        .loginAs(owner.user.user)
+        .header('X-Business-Unit-Id', owner.publicId)
+        .then(
+          (res) => ({ status: res.status(), body: res.body() as unknown }),
+          (error: unknown) => ({ status: 500, body: { error: String(error) } as unknown })
+        )
+      await waitForLockWaitOn(holder, 'access_points', deleting)
+      await grantTrx.commit()
+
+      const res = await deleting
+      assert.equal(res.status, 409, JSON.stringify(res.body))
+      assert.containsSubset(res.body, { key: 'checador-con-invitaciones-vivas' })
+      const alive = await unscoped(() =>
+        AccessPoint.query()
+          .where('access_point_id', apId)
+          .whereNull('access_point_deleted_at')
+          .first()
+      )
+      assert.isNotNull(alive)
+    } finally {
+      if (!grantTrx.isCompleted) await grantTrx.rollback()
+      if (deleting) await deleting
+      await own.cleanup()
+    }
+  })
+
+  /**
    * El 409 protege el personal de invitadas y ex-invitadas. Un aparato que
    * nunca se compartio pero carga el vinculo de otra empresa (heredado de
    * antes de la HU) no tiene invitada que proteger: se borra como siempre.

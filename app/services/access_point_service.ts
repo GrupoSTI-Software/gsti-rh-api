@@ -14,6 +14,8 @@ import { AdmsError } from '#exceptions/adms_error'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 import {
   redactForViewer,
   sharingViewOf,
@@ -24,7 +26,10 @@ export default class AccessPointService {
 
   constructor(
     i18n: I18n,
-    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql(),
+    /** Candado de la fila del aparato: el mismo que toman el alta, el envio y la revocacion. */
+    private readonly deviceLock: Pick<EmployeeSyncRepository, 'inDeviceTransaction'> =
+      new EmployeeSyncRepositoryMysql()
   ) {
     this.t = i18n.formatMessage.bind(i18n)
   }
@@ -156,24 +161,34 @@ export default class AccessPointService {
    * si el aparato se compartio alguna vez: el vinculo de otra empresa en un
    * aparato nunca compartido no es de ninguna invitada.
    *
+   * La decision y el borrado van en una transaccion que bloquea primero la
+   * fila del aparato (A2-15). Un otorgamiento, un alta o un envio de la
+   * invitada escriben filas que cuelgan de esa fila (llave foranea o su propio
+   * `FOR UPDATE`): el que ya estaba en curso confirma antes de que aqui se lea
+   * el alcance del canal, y el que llega despues espera al borrado. El alcance
+   * se lee con el aparato ya bloqueado, asi que ve lo que confirmaron.
+   *
    * @throws AdmsError 409 `checador-con-invitaciones-vivas`
    */
   async delete(currentAccessPoint: AccessPoint) {
-    const { participantBusinessUnitIds, everShared } = await this.scope.channelScope(
-      currentAccessPoint.accessPointId,
-      currentAccessPoint.businessUnitId
-    )
-    if (everShared && participantBusinessUnitIds.length > 1) {
-      throw new AdmsError(
-        this.t('access_point_shared_live_title'),
-        ADMS_ERROR_CODES.DEV_SHARED_LIVE,
-        409,
-        'checador-con-invitaciones-vivas',
-        this.t('access_point_shared_live_message')
+    return this.deviceLock.inDeviceTransaction(currentAccessPoint.accessPointId, async (trx) => {
+      const { participantBusinessUnitIds, everShared } = await this.scope.channelScope(
+        currentAccessPoint.accessPointId,
+        currentAccessPoint.businessUnitId
       )
-    }
-    await currentAccessPoint.delete()
-    return currentAccessPoint
+      if (everShared && participantBusinessUnitIds.length > 1) {
+        throw new AdmsError(
+          this.t('access_point_shared_live_title'),
+          ADMS_ERROR_CODES.DEV_SHARED_LIVE,
+          409,
+          'checador-con-invitaciones-vivas',
+          this.t('access_point_shared_live_message')
+        )
+      }
+      currentAccessPoint.useTransaction(trx)
+      await currentAccessPoint.delete()
+      return currentAccessPoint
+    })
   }
 
   /**
