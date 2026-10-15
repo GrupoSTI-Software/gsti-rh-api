@@ -4,6 +4,7 @@ import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
 import AccessPointProfile from '#models/access_point_profile'
 import AccessPointShare from '#models/access_point_share'
+import AdmsUnmappedPin from '#models/adms_unmapped_pin'
 import Employee from '#models/employee'
 import PlatformTenantGroup from '#models/platform_tenant_group'
 import PlatformTenantGroupMember from '#models/platform_tenant_group_member'
@@ -232,5 +233,27 @@ export async function anotherLiveEmployee(
       throw new Error(`La empresa ${businessUnitId} no tiene otro empleado vivo para la prueba`)
     }
     return employee
+  }, TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
+}
+
+/**
+ * PIN no mapeado pendiente del checador de la fixture, a nombre de la
+ * responsable (VLRH-P0066, Tarea 8). Lo borra el cleanup de la fixture
+ * (cuelga de su `access_point_id`).
+ */
+export async function seedUnmappedPin(fx: SharedFixture, pin: string): Promise<AdmsUnmappedPin> {
+  return TenantContext.runUnscoped(async () => {
+    const row = new AdmsUnmappedPin()
+    row.accessPointId = fx.accessPoint.accessPointId
+    row.businessUnitId = fx.ownerBu
+    row.admsUnmappedPinPin = pin
+    row.admsUnmappedPinName = null
+    row.admsUnmappedPinFirstSeenAt = DateTime.utc().minus({ days: 1 })
+    row.admsUnmappedPinLastSeenAt = DateTime.utc()
+    row.admsUnmappedPinPunchCount = 1
+    row.admsUnmappedPinBioTypesSeen = null
+    row.admsUnmappedPinStatus = 'pending'
+    await row.save()
+    return row
   }, TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
 }

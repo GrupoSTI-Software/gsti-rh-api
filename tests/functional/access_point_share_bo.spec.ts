@@ -18,6 +18,7 @@ import {
 import {
   anotherLiveEmployee,
   createSharedAccessPointFixture,
+  seedUnmappedPin,
   type SharedFixture,
 } from '#tests/helpers/shared_access_point_fixture'
 
@@ -439,6 +440,64 @@ test.group('Checador compartido: Backoffice', (group) => {
           .delete()
       })
     }
+  })
+
+  test('la invitada ve el PIN no mapeado del aparato y lo reclama con su empleado', async ({
+    client,
+    assert,
+  }) => {
+    const pending = await seedUnmappedPin(fx, '9123')
+    const actor = await actorFor(fx.guestBu)
+    const list = await client
+      .get('/api/v1/access-points/unmapped-pins')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    list.assertStatus(200)
+    const ids = (list.body().data.unmappedPins as Array<{ unmappedPinId: number }>).map(
+      (row) => row.unmappedPinId
+    )
+    assert.include(ids, pending.admsUnmappedPinId)
+
+    const extra = await anotherLiveEmployee(fx.guestBu, [fx.guestEmployee.employeeId])
+    const link = await client
+      .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/link`)
+      .json({ employeeId: extra.employeeId })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    link.assertStatus(200)
+    const pivot = await unscoped(() =>
+      AccessPointEmployee.query()
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .where('employee_id', extra.employeeId)
+        .firstOrFail()
+    )
+    assert.equal(pivot.businessUnitId, fx.guestBu)
+    assert.equal(pivot.accessPointEmployeePin, '9123')
+  })
+
+  test('una empresa ajena no ve ni reclama el PIN no mapeado del aparato', async ({
+    client,
+    assert,
+  }) => {
+    const pending = await seedUnmappedPin(fx, '9124')
+    const actor = await actorFor(fx.outsiderBu)
+    const list = await client
+      .get('/api/v1/access-points/unmapped-pins')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    list.assertStatus(200)
+    const ids = (list.body().data.unmappedPins as Array<{ unmappedPinId: number }>).map(
+      (row) => row.unmappedPinId
+    )
+    assert.notInclude(ids, pending.admsUnmappedPinId)
+
+    const extra = await anotherLiveEmployee(fx.outsiderBu, [])
+    const link = await client
+      .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/link`)
+      .json({ employeeId: extra.employeeId })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    link.assertStatus(404)
   })
 
   test('una empresa ajena recibe 404 en una ruta de configuracion', async ({ client }) => {
