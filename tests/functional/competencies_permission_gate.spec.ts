@@ -6,7 +6,9 @@ import Competency from '#models/competency'
 import BusinessUnitCompetencyLevel from '#models/business_unit_competency_level'
 import CompetencyDescriptor from '#models/competency_descriptor'
 import CompetencyBracket from '#models/competency_bracket'
+import SystemModule from '#models/system_module'
 import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
+import { TenantContext } from '#utils/tenant_context'
 import {
   assertModuleEnforced,
   businessUnitHeaders,
@@ -28,9 +30,11 @@ import {
  * competencias (Organigrama), la de niveles (Matriz de competencias y
  * evaluaciones) y los rangos por descriptor (evaluación del empleado).
  *
- * Las competencias son globales y se identifican por un prefijo de nombre
- * propio de la corrida; niveles, descriptores y rangos cuelgan de la empresa
- * del actor y se borran con él.
+ * VLRH-H1792026427127: competencias, niveles, descriptores y rangos cuelgan
+ * ahora de la empresa del actor (business_unit_id) y se borran con él. Toda
+ * alta directa a modelo corre dentro de `TenantContext.run([...])`, igual que
+ * el middleware en producción; toda lectura directa de verificación corre en
+ * `TenantContext.runUnscoped` porque el test no pasa por `businessScope()`.
  */
 
 const MODULE = 'competencies'
@@ -55,8 +59,10 @@ interface CompetencyFixture {
   bracket: CompetencyBracket
 }
 
-async function createCompetency(label: string): Promise<Competency> {
-  return Competency.create({ competencyName: nextName(label), competencyType: 'technical' })
+async function createCompetency(actor: TenantActor, label: string): Promise<Competency> {
+  return TenantContext.run([actor.businessUnit.businessUnitId], () =>
+    Competency.create({ competencyName: nextName(label), competencyType: 'technical' })
+  )
 }
 
 /**
@@ -65,30 +71,32 @@ async function createCompetency(label: string): Promise<Competency> {
  * probar que el gate dejó pasar.
  */
 async function createFixture(actor: TenantActor, label: string): Promise<CompetencyFixture> {
-  const competency = await createCompetency(label)
-  const levels: BusinessUnitCompetencyLevel[] = []
-  for (const position of [1, 2, 3, 4]) {
-    levels.push(
-      await BusinessUnitCompetencyLevel.create({
-        businessUnitId: actor.businessUnit.businessUnitId,
-        businessUnitCompetencyLevelLabel: `Nivel ${position}`,
-        businessUnitCompetencyLevelPosition: position,
-      })
-    )
-  }
-  const descriptor = await CompetencyDescriptor.create({
-    competencyId: competency.competencyId,
-    businessUnitCompetencyLevelId: levels[0].businessUnitCompetencyLevelId,
-    competencyDescriptorDescription: `Descriptor ${label}`,
+  return TenantContext.run([actor.businessUnit.businessUnitId], async () => {
+    const competency = await createCompetency(actor, label)
+    const levels: BusinessUnitCompetencyLevel[] = []
+    for (const position of [1, 2, 3, 4]) {
+      levels.push(
+        await BusinessUnitCompetencyLevel.create({
+          businessUnitId: actor.businessUnit.businessUnitId,
+          businessUnitCompetencyLevelLabel: `Nivel ${position}`,
+          businessUnitCompetencyLevelPosition: position,
+        })
+      )
+    }
+    const descriptor = await CompetencyDescriptor.create({
+      competencyId: competency.competencyId,
+      businessUnitCompetencyLevelId: levels[0].businessUnitCompetencyLevelId,
+      competencyDescriptorDescription: `Descriptor ${label}`,
+    })
+    const bracket = await CompetencyBracket.create({
+      competencyDescriptorId: descriptor.competencyDescriptorId,
+      competencyBracketDescription: `Rango ${label}`,
+      competencyBracketRangeMin: 0,
+      competencyBracketRangeMax: 10,
+      competencyBracketPosition: 1,
+    })
+    return { competency, levels, descriptor, bracket }
   })
-  const bracket = await CompetencyBracket.create({
-    competencyDescriptorId: descriptor.competencyDescriptorId,
-    competencyBracketDescription: `Rango ${label}`,
-    competencyBracketRangeMin: 0,
-    competencyBracketRangeMax: 10,
-    competencyBracketPosition: 1,
-  })
-  return { competency, levels, descriptor, bracket }
 }
 
 const levelUrl = (level: BusinessUnitCompetencyLevel) =>
@@ -248,37 +256,45 @@ async function expectStatus(
   assert.equal(response.status(), status, `${request.label}: ${JSON.stringify(response.body())}`)
 }
 
-/** Descriptores y rangos cuelgan de los niveles de la empresa: se borran antes que ella. */
+/**
+ * Competencias, descriptores y rangos cuelgan ahora de `business_unit_id`
+ * (VLRH-H1792026427127): se borran antes que la empresa, o la FK RESTRICT de
+ * `competencies_business_unit_id_foreign` impide que `cleanupTenantActor`
+ * borre el `business_unit`.
+ */
 async function cleanupCompetencyActor(actor: TenantActor | null): Promise<void> {
   if (!actor) return
-  const levels: { business_unit_competency_level_id: number }[] = await db
-    .from('business_unit_competency_levels')
-    .where('business_unit_id', actor.businessUnit.businessUnitId)
-    .select('business_unit_competency_level_id')
-  const levelIds = levels.map((row) => row.business_unit_competency_level_id)
+  const businessUnitId = actor.businessUnit.businessUnitId
 
-  if (levelIds.length > 0) {
-    const descriptors: { competency_descriptor_id: number }[] = await db
-      .from('competency_descriptors')
-      .whereIn('business_unit_competency_level_id', levelIds)
-      .select('competency_descriptor_id')
-    const descriptorIds = descriptors.map((row) => row.competency_descriptor_id)
-    if (descriptorIds.length > 0) {
-      await db.from('competency_brackets').whereIn('competency_descriptor_id', descriptorIds).delete()
-      await db.from('competency_descriptors').whereIn('competency_descriptor_id', descriptorIds).delete()
-    }
-    await db
-      .from('business_unit_competency_levels')
-      .whereIn('business_unit_competency_level_id', levelIds)
-      .delete()
-  }
+  await db.from('competency_brackets').where('business_unit_id', businessUnitId).delete()
+  await db.from('competency_descriptors').where('business_unit_id', businessUnitId).delete()
+  await db.from('competencies').where('business_unit_id', businessUnitId).delete()
+  await db
+    .from('business_unit_competency_levels')
+    .where('business_unit_id', businessUnitId)
+    .delete()
+
   await cleanupTenantActor(actor)
 }
 
 test.group('Competencias — permissionGate con exigencia encendida', (group) => {
   let actor: TenantActor | null = null
+  let competenciesModule: SystemModule | null = null
+  let previousActive = 0
 
   group.setup(async () => {
+    // VLRH-H1792026427127: el módulo sigue apagado por alcance de lanzamiento
+    // (systemModuleActive: 0 en el catálogo, USRH-H1792032453526 lo enciende).
+    // El gate exige `system_module_active = 1` para resolver permisos, así
+    // que el spec lo enciende él mismo y lo restaura al terminar.
+    competenciesModule = await SystemModule.query()
+      .whereNull('system_module_deleted_at')
+      .where('system_module_slug', MODULE)
+      .firstOrFail()
+    previousActive = competenciesModule.systemModuleActive
+    competenciesModule.systemModuleActive = 1
+    await competenciesModule.save()
+
     await assertModuleEnforced(MODULE)
   })
 
@@ -290,6 +306,11 @@ test.group('Competencias — permissionGate con exigencia encendida', (group) =>
     const competencyIds = competencies.map((row) => row.competency_id)
     if (competencyIds.length > 0) {
       await db.from('competencies').whereIn('competency_id', competencyIds).delete()
+    }
+
+    if (competenciesModule) {
+      competenciesModule.systemModuleActive = previousActive
+      await competenciesModule.save()
     }
   })
 
@@ -330,9 +351,15 @@ test.group('Competencias — permissionGate con exigencia encendida', (group) =>
       requests.deleteBracket(fixture.bracket),
     ])
 
-    const competency = await Competency.findOrFail(fixture.competency.competencyId)
+    const competency = await TenantContext.runUnscoped(
+      () => Competency.findOrFail(fixture.competency.competencyId),
+      'verificación fixture del gate (spec)'
+    )
     assert.equal(competency.competencyName, fixture.competency.competencyName)
-    const level = await BusinessUnitCompetencyLevel.findOrFail(fixture.levels[0].businessUnitCompetencyLevelId)
+    const level = await TenantContext.runUnscoped(
+      () => BusinessUnitCompetencyLevel.findOrFail(fixture.levels[0].businessUnitCompetencyLevelId),
+      'verificación fixture del gate (spec)'
+    )
     assert.equal(level.businessUnitCompetencyLevelLabel, 'Nivel 1')
   })
 
@@ -418,7 +445,10 @@ test.group('Competencias — permissionGate con exigencia encendida', (group) =>
       requests.updateLevel(tenant, fixture.levels[0], 'Nivel renombrado'),
     ])
 
-    const level = await BusinessUnitCompetencyLevel.findOrFail(fixture.levels[0].businessUnitCompetencyLevelId)
+    const level = await TenantContext.runUnscoped(
+      () => BusinessUnitCompetencyLevel.findOrFail(fixture.levels[0].businessUnitCompetencyLevelId),
+      'verificación fixture del gate (spec)'
+    )
     assert.equal(level.businessUnitCompetencyLevelLabel, 'Nivel 1')
   })
 
@@ -429,11 +459,13 @@ test.group('Competencias — permissionGate con exigencia encendida', (group) =>
     const tenant = required(actor, 'el actor')
     await grantModulePermissions(tenant, MODULE, ['update'])
     const fixture = await createFixture(tenant, 'edicion')
-    const spareDescriptor = await CompetencyDescriptor.create({
-      competencyId: fixture.competency.competencyId,
-      businessUnitCompetencyLevelId: fixture.levels[1].businessUnitCompetencyLevelId,
-      competencyDescriptorDescription: 'Descriptor para baja',
-    })
+    const spareDescriptor = await TenantContext.run([tenant.businessUnit.businessUnitId], () =>
+      CompetencyDescriptor.create({
+        competencyId: fixture.competency.competencyId,
+        businessUnitCompetencyLevelId: fixture.levels[1].businessUnitCompetencyLevelId,
+        competencyDescriptorDescription: 'Descriptor para baja',
+      })
+    )
 
     await expectStatus(assert, client, tenant, requests.updateCompetency(fixture.competency), 201)
     // 200 y no "cruzó el gate": el tope de cinco niveles vive dentro de
@@ -464,7 +496,7 @@ test.group('Competencias — permissionGate con exigencia encendida', (group) =>
     const tenant = required(actor, 'el actor')
     await grantModulePermissions(tenant, MODULE, ['delete'])
     const fixture = await createFixture(tenant, 'baja')
-    const unusedCompetency = await createCompetency('baja-sin-descriptores')
+    const unusedCompetency = await createCompetency(tenant, 'baja-sin-descriptores')
 
     await expectDenied(assert, client, tenant, [
       requests.updateLevel(tenant, fixture.levels[0], 'Nivel solo baja'),

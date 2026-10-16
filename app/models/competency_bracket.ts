@@ -1,9 +1,11 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import CompetencyDescriptor from './competency_descriptor.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * @swagger
@@ -36,9 +38,17 @@ import CompetencyDescriptor from './competency_descriptor.js'
  *            type: string
  *          competencyBracketDeletedAt:
  *            type: string
+ *          businessUnitId:
+ *            type: number
+ *            nullable: true
+ *            description: Unidad de negocio dueña, heredada del descriptor padre (VLRH-H1792026427127)
  */
 
-export default class CompetencyBracket extends compose(BaseModel, SoftDeletes) {
+export default class CompetencyBracket extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare competencyBracketId: number
 
@@ -47,6 +57,22 @@ export default class CompetencyBracket extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare competencyBracketDescription: string
+
+  /** Marca de pertenencia propia, heredada del descriptor padre (VLRH-H1792026427127). */
+  @column()
+  declare businessUnitId: number | null
+
+  /** Resuelve businessUnitId desde el descriptor padre (nunca del payload). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: CompetencyBracket) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(async () => {
+      const parent = await CompetencyDescriptor.query()
+        .where('competencyDescriptorId', instance.competencyDescriptorId)
+        .first()
+      return parent?.businessUnitId ? { businessUnitId: parent.businessUnitId } : null
+    }, 'el descriptor de la competencia')
+  }
 
   @column()
   declare competencyBracketRangeMin: number
