@@ -89,12 +89,20 @@ function buildFakeStripeClient(signupDraftId: number, subscriptionId: string) {
         subscriptionCreates.push([params, opts])
         return { id: subscriptionId, status: 'trialing' }
       },
+      update: async (params: unknown) => {
+        customerUpdates.push(params)
+        return {}
+      },
       cancel: async () => ({}),
       retrieve: async () => ({ status: 'canceled' }),
     },
   } as unknown as Stripe
 
   return { fakeStripe, customerUpdates, subscriptionCreates }
+}
+
+async function flushBackgroundTasks(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 50))
 }
 
 test.group('SignupDraftService.complete() — Stripe (USRH1790708507607)', (group) => {
@@ -125,7 +133,7 @@ test.group('SignupDraftService.complete() — Stripe (USRH1790708507607)', (grou
       signupDraftStripeSetupIntentId: 'seti_fx',
     })
 
-    const { fakeStripe, subscriptionCreates } = buildFakeStripeClient(
+    const { fakeStripe, subscriptionCreates, customerUpdates } = buildFakeStripeClient(
       draft.signupDraftId,
       subscriptionId
     )
@@ -187,6 +195,22 @@ test.group('SignupDraftService.complete() — Stripe (USRH1790708507607)', (grou
 
       const draftAfter = await SignupDraft.query().where('signup_draft_id', draft.signupDraftId).first()
       assert.isNull(draftAfter)
+
+      await flushBackgroundTasks()
+      assert.isAbove(customerUpdates.length, 0)
+      const identityUpdate = customerUpdates.find(
+        (update) =>
+          typeof update === 'object' &&
+          update !== null &&
+          'metadata' in update &&
+          (update as { metadata?: Record<string, string> }).metadata
+            ?.valanserh_billing_subscription_id !== undefined
+      ) as { metadata?: Record<string, string> } | undefined
+      assert.isDefined(identityUpdate)
+      assert.equal(
+        identityUpdate!.metadata!.valanserh_billing_plan_id,
+        String(subscription!.billingPlanId)
+      )
     } finally {
       restore()
       const sub = await BillingSubscription.query()

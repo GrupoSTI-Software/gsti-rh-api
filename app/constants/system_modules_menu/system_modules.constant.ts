@@ -942,12 +942,7 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModules: 1,
         systemModulePath: '/competencies',
         systemModuleOrder: 5,
-        // Apagado por ALCANCE DE LANZAMIENTO, no por baja: `competencies`,
-        // `competency_descriptors` y `competency_brackets` todavía no están
-        // aisladas por empresa, así que en multitenant un cliente vería las
-        // competencias de otro. Se enciende (volver a 1) cuando tengan
-        // business_unit_id + withBusinessUnitScope.
-        systemModuleActive: 0,
+        systemModuleActive: 1,
         systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:

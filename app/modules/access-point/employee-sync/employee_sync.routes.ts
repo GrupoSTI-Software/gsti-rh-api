@@ -60,6 +60,15 @@ router
       '/:employeeId/access-points',
       '#modules/access-point/employee-sync/employee_sync.controller.listByEmployee'
     )
+    /**
+     * Checadores pendientes de sincronizar tras deshacer la baja
+     * (VLRH-H1790812613831): conteo para quien ve la ficha, detalle solo con el
+     * permiso de biometricos; el nivel lo decide el controlador.
+     */
+    router.get(
+      '/:employeeId/access-point-resync-pendings',
+      '#modules/access-point/employee-sync/employee_sync.controller.listResyncPendingsByEmployee'
+    )
   })
   .prefix('/api/v1/employees')
   .use(middleware.auth())

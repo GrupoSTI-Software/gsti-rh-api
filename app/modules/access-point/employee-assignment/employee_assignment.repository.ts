@@ -12,11 +12,15 @@ export type BusinessUnitScope = number[] | null
  * de negocio se pueda probar sin base de datos.
  */
 export default interface EmployeeAssignmentRepository {
-  /** Indica si el punto de acceso existe dentro del alcance. */
-  accessPointExists(accessPointId: number, scope: BusinessUnitScope): Promise<boolean>
+  /**
+   * Scope del punto de acceso (responsable + invitadas vivas) si es de una
+   * empresa del alcance o esta compartido con ella; null si no lo ve
+   * (VLRH-P0065, 6).
+   */
+  accessPointScope(accessPointId: number, scope: BusinessUnitScope): Promise<number[] | null>
 
-  /** Indica si el empleado existe dentro del alcance. */
-  employeeExists(employeeId: number, scope: BusinessUnitScope): Promise<boolean>
+  /** Empresa del empleado si existe dentro del alcance; `null` si no. */
+  employeeBusinessUnitId(employeeId: number, scope: BusinessUnitScope): Promise<number | null>
 
   /** Devuelve la asignación vigente, o null si no la hay. */
   findAssignment(

@@ -18,6 +18,7 @@ import PlatformDeviceAccessPointService, {
   type AccessPointDeactivateOutcome,
   type PreloadedAccessPoint,
 } from './platform_device_access_point_service.js'
+import AccessPointShareService from '#modules/access-point/sharing/access_point_share.service'
 
 export interface AssignmentRecord {
   assignmentId: number
@@ -96,11 +97,19 @@ export interface UnassignmentRecord {
  * Ref: USRH1787189981876 · §10 del spec.
  *
  * Invariante crítico: un aparato solo puede tener una entrega abierta a la vez
- * (released_at IS NULL). Se garantiza mediante bloqueo pesimista (forUpdate)
- * sobre la fila de `platform_devices` — que siempre existe — dentro de una
- * transacción. NUNCA se hace forUpdate sobre `platform_device_assignments`
- * porque sobre un conjunto vacío no bloquea nada y deja pasar dos peticiones
- * concurrentes.
+ * (released_at IS NULL). El mutex de ese invariante es el bloqueo pesimista
+ * (forUpdate) sobre la fila de `platform_devices` — que siempre existe —
+ * dentro de una transacción. Un forUpdate sobre un rango de
+ * `platform_device_assignments` no sirve como mutex del alta: sobre un rango
+ * vacío no bloquea nada y deja pasar dos `createAssignment` concurrentes
+ * (regla de cc34e042, gotcha 9 del spec).
+ *
+ * Lo que sí está permitido es bloquear la fila de una entrega EXISTENTE
+ * después del aparato, para serializar con quien la toma por id: `unassign`
+ * la bloquea tras `platform_devices` y el otorgamiento de invitaciones la
+ * bloquea antes del checador (`AccessPointShareService.grant`,
+ * `lockOpenAssignment`). No sustituye al mutex: lo complementa (VLRH-P0065,
+ * 3.2.3).
  *
  * Secuencia de `createAssignment` (§10 del spec):
  *   1. Resolver tenant por publicId → 404 si no existe.
@@ -116,7 +125,10 @@ export interface UnassignmentRecord {
  *   Si cualquier paso falla, la transacción hace rollback completo.
  */
 export default class PlatformDeviceAssignmentService {
-  private readonly accessPointService = new PlatformDeviceAccessPointService()
+  constructor(
+    private readonly accessPointService: PlatformDeviceAccessPointService = new PlatformDeviceAccessPointService(),
+    private readonly shareService: AccessPointShareService = new AccessPointShareService()
+  ) {}
 
   /**
    * Registra la entrega de un aparato disponible a un tenant.
@@ -289,10 +301,12 @@ export default class PlatformDeviceAssignmentService {
    *      cualquiera que sea el motivo de liberación capturado.
    *   3. Cualquier otro caso → `disponible` (regla 4).
    *
-   * Mismo patrón transaccional que `createAssignment`: `forUpdate()` sobre
-   * la fila **padre** de `platform_devices` (que siempre existe), nunca
-   * sobre el rango de `platform_device_assignments` (gotcha 9 del spec:
-   * un rango vacío no bloquea nada).
+   * Mismo patrón transaccional que `createAssignment`: el mutex es el
+   * `forUpdate()` sobre la fila **padre** de `platform_devices` (que siempre
+   * existe), no un rango de `platform_device_assignments` (gotcha 9 del spec:
+   * un rango vacío no bloquea nada). Después del aparato se bloquea la
+   * entrega vigente, que ya existe, para serializar con el otorgamiento de
+   * invitaciones que la toma por id (ver el comentario en el cuerpo).
    *
    * @throws PlatformDeviceServiceError 404 — unidad no encontrada.
    * @throws PlatformDeviceServiceError 422 — sin entrega vigente que cerrar.
@@ -321,12 +335,25 @@ export default class PlatformDeviceAssignmentService {
         )
       }
 
-      // Con la fila padre ya bloqueada, buscar la entrega vigente (regla 8).
+      /**
+       * Con la fila padre ya bloqueada, buscar la entrega vigente (regla 8).
+       *
+       * La entrega y los checadores de la unidad se bloquean ANTES de
+       * cualquier lectura consistente (la precarga va despues): con
+       * REPEATABLE READ esa primera lectura fija la snapshot de toda la
+       * transaccion. Si fuera antes de los candados, un otorgamiento o un
+       * envio confirmados mientras tanto quedarian fuera de lo que ve la
+       * revocacion de invitaciones (VLRH-P0065, 3.2.3): una invitacion viva
+       * sobre una entrega cerrada o un alta que escapa a la baja.
+       *
+       * Orden: aparato, entrega, checador; el mismo que otorgar (entrega y
+       * luego checador) y que el envio (checador primero), sin ciclo.
+       */
       const assignment = await PlatformDeviceAssignment.query({ client: trx })
         .where('platform_device_id', platformDeviceId)
         .whereNull('platform_device_assignment_released_at')
         .whereNull('platform_device_assignment_deleted_at')
-        .preload('businessUnit')
+        .forUpdate()
         .first()
 
       if (!assignment) {
@@ -338,6 +365,8 @@ export default class PlatformDeviceAssignmentService {
           'La unidad no tiene una asignación vigente que cerrar.'
         )
       }
+      const accessPointIds = await this.lockAccessPointsOf(assignment, trx)
+      await assignment.load('businessUnit')
 
       // Regla 2: releasedAt ∈ [deliveredAt de ESTA asignación, hoy en zona de negocio].
       // A propósito el mismo error de negocio para ambos bordes (CA-6 del spec).
@@ -383,6 +412,12 @@ export default class PlatformDeviceAssignmentService {
       }
       await device.save()
 
+      // Las invitaciones del checador se cierran en esta misma transaccion y
+      // antes de apagar el punto de acceso (VLRH-P0065, 3.2.3): sus empleados
+      // reciben la baja mientras la invitada sigue siendo participante. Las
+      // bajas van en `trx`: si algo de abajo revierte, no queda nada en cola.
+      await this.revokeSharesOf(accessPointIds, trx)
+
       // Punto de extensión declarado (§9 del spec 1881): "Desactivar el punto
       // de acceso del tenant al desasignar la unidad" (USRH1787189981883)
       // engancha aquí, dentro de la misma transacción, después de cerrar la
@@ -424,6 +459,43 @@ export default class PlatformDeviceAssignmentService {
         accessPointOutcome,
       }
     })
+  }
+
+  /**
+   * Bloquea (`FOR UPDATE`) los checadores vivos de la unidad en la empresa de
+   * la entrega y devuelve sus ids. Es lectura con candado: no fija la
+   * snapshot de la transaccion.
+   */
+  private async lockAccessPointsOf(
+    assignment: PlatformDeviceAssignment,
+    trx: TransactionClientContract
+  ): Promise<number[]> {
+    // Constructor crudo: sin mixin de empresa, no necesita bypass.
+    const rows = (await trx
+      .from('access_points')
+      .where('platform_device_id', assignment.platformDeviceId)
+      .where('business_unit_id', assignment.businessUnitId)
+      .whereNull('access_point_deleted_at')
+      .orderBy('access_point_id', 'asc')
+      .select('access_point_id')
+      .forUpdate()) as Array<{ access_point_id: number }>
+    return rows.map((row) => Number(row.access_point_id))
+  }
+
+  /**
+   * Revoca las invitaciones vivas de los checadores de la unidad al cerrar su
+   * entrega, con motivo `unassignment` y sin usuario (VLRH-P0065, 3.2.3). Los
+   * checadores ya vienen bloqueados por `lockAccessPointsOf`.
+   */
+  private async revokeSharesOf(
+    accessPointIds: number[],
+    trx: TransactionClientContract
+  ): Promise<number> {
+    let revoked = 0
+    for (const accessPointId of accessPointIds) {
+      revoked += await this.shareService.revokeAllForAccessPoint(accessPointId, null, trx)
+    }
+    return revoked
   }
 
   /**

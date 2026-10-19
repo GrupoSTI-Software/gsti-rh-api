@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import type DeviceCommand from '#models/device_command'
@@ -42,7 +43,10 @@ export default class DeviceCommandService implements DeviceCommandPort {
     private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql()
   ) {}
 
-  async enqueue(input: EnqueueCommandInput): Promise<EnqueueCommandResult> {
+  async enqueue(
+    input: EnqueueCommandInput,
+    trx?: TransactionClientContract
+  ): Promise<EnqueueCommandResult> {
     const payload = formatDeviceCommand(input.kind, input.fields)
     const priority = input.priority ?? DEVICE_COMMAND_PRIORITY[input.kind]
     const maxAttempts =
@@ -83,7 +87,8 @@ export default class DeviceCommandService implements DeviceCommandPort {
         biometricTemplateId: input.biometricTemplateId ?? null,
         biometricPhotoPublicationId: input.biometricPhotoPublicationId ?? null,
       },
-      wireIdCandidates
+      wireIdCandidates,
+      trx
     )
 
     if (!result) {
@@ -106,8 +111,12 @@ export default class DeviceCommandService implements DeviceCommandPort {
     return kind === DEVICE_COMMAND_KIND.USER_DELETE ? null : DEVICE_COMMAND_MAX_ATTEMPTS
   }
 
-  async cancel(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand> {
-    const command = await this.requireCommand(commandId)
+  async cancel(
+    commandId: number,
+    requestedByUserId: number | null,
+    trx?: TransactionClientContract
+  ): Promise<DeviceCommand> {
+    const command = await this.requireCommand(commandId, trx)
     if (command.deviceCommandStatus !== DEVICE_COMMAND_STATUS.PENDING) {
       throw new DeviceCommandError(
         'Solo se puede cancelar un comando que sigue pendiente',
@@ -134,9 +143,11 @@ export default class DeviceCommandService implements DeviceCommandPort {
    */
   async cancelLiveForPivot(
     accessPointEmployeeId: number,
-    requestedByUserId: number | null
+    requestedByUserId: number | null,
+    trx?: TransactionClientContract
   ): Promise<number> {
-    const commands = await this.repository.listLiveForPivot(accessPointEmployeeId)
+    // Leidos con `trx`, el modelo guarda dentro de la misma transaccion.
+    const commands = await this.repository.listLiveForPivot(accessPointEmployeeId, trx)
 
     let closed = 0
     for (const command of commands) {
@@ -276,8 +287,12 @@ export default class DeviceCommandService implements DeviceCommandPort {
     await this.pivots.updateStatus(command.accessPointEmployeeId, target)
   }
 
-  async listByDevice(accessPointId: number, status?: DeviceCommandStatus): Promise<DeviceCommand[]> {
-    return this.repository.listByDevice(accessPointId, status)
+  async listByDevice(
+    accessPointId: number,
+    status?: DeviceCommandStatus,
+    trx?: TransactionClientContract
+  ): Promise<DeviceCommand[]> {
+    return this.repository.listByDevice(accessPointId, status, trx)
   }
 
   async listByEmployee(employeeId: number): Promise<DeviceCommand[]> {
@@ -299,8 +314,11 @@ export default class DeviceCommandService implements DeviceCommandPort {
     command.deviceCommandStatus = to
   }
 
-  private async requireCommand(commandId: number): Promise<DeviceCommand> {
-    const command = await this.repository.findById(commandId)
+  private async requireCommand(
+    commandId: number,
+    trx?: TransactionClientContract
+  ): Promise<DeviceCommand> {
+    const command = await this.repository.findById(commandId, trx)
     if (!command) {
       throw new DeviceCommandError(
         'El comando no existe o no tienes acceso a el',

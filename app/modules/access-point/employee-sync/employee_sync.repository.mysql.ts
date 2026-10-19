@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { AdmsError } from '#exceptions/adms_error'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import AccessPointEmployee from '#models/access_point_employee'
@@ -8,22 +9,30 @@ import {
   type AccessPointEmployeeSyncStatus,
 } from '#models/access_point_employee'
 import AccessPointEmployeeEvent from '#models/access_point_employee_event'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import { canTransition, PIN_QUARANTINE_STATUSES } from './employee_sync_state.js'
+import { DeviceBusyError } from '#modules/access-point/device_busy_error'
+import logger from '@adonisjs/core/services/logger'
 import type { EmployeeSyncRepository, SyncEventInput } from './employee_sync.repository.js'
 
-/** Prefijo del cerrojo por equipo. Con nombre, no sobre una fila. */
-const DEVICE_LOCK_PREFIX = 'valanserh:access-point:'
-
 /**
- * Espera maxima por el cerrojo. Cinco segundos: una alta tarda milisegundos, y
- * quedarse mas tiempo significa que algo esta atorado, no que haya cola.
+ * Lectura del espacio de PIN de un aparato, sin filtro de empresa.
+ *
+ * En un checador compartido (VLRH-P0065) el numero lo ocupan todas las
+ * empresas que lo usan o lo usaron: tambien una invitada ya revocada cuya baja
+ * el aparato aun no confirma. Con el mixin, el scope del que pregunta dejaba
+ * fuera esos vinculos y el numero se daba por libre. La consulta se cierra
+ * dentro del bypass: un builder sin ejecutar correria fuera de el (M12).
  */
-const DEVICE_LOCK_TIMEOUT_SECONDS = 5
+function pinSpaceOf<T>(read: () => Promise<T>): Promise<T> {
+  return TenantContext.runUnscoped(read, TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
+}
 
 /**
  * El indice unico de la base rechazo el numero.
  *
- * Es la red de seguridad frente a la carrera que el cerrojo no cubre: el canal
+ * Es la red de seguridad frente a la carrera que el candado del aparato no cubre: el canal
  * crea pivotes por su cuenta cuando ve un PIN suelto. Se traduce a un conflicto
  * legible en lugar de dejar salir un error interno.
  */
@@ -31,49 +40,108 @@ function isDuplicatePin(error: unknown): boolean {
   return (error as { code?: string })?.code === 'ER_DUP_ENTRY'
 }
 
+/**
+ * Espera maxima por el candado del aparato, en segundos. Una operacion sobre
+ * el aparato tarda milisegundos: esperar mas significa que algo esta atorado,
+ * no que haya cola. Sin esto rige el `innodb_lock_wait_timeout` del servidor
+ * (50 s por defecto) y quien espera recibe un 500 en vez de un 409 legible.
+ */
+const DEVICE_LOCK_WAIT_SECONDS = 5
+
+/** InnoDB vencio la espera de un candado de fila (errno 1205). */
+function isLockWaitTimeout(error: unknown): boolean {
+  const failure = error as { code?: string; errno?: number }
+  return failure?.code === 'ER_LOCK_WAIT_TIMEOUT' || failure?.errno === 1205
+}
+
 /** Adaptador Lucid del pivote empleado por dispositivo. */
 export default class EmployeeSyncRepositoryMysql implements EmployeeSyncRepository {
   /**
-   * Serializa las altas de un mismo equipo con un cerrojo con nombre.
+   * Transaccion con la fila del aparato bloqueada (`FOR UPDATE`).
    *
-   * Antes bloqueaba la fila de `access_points` con `FOR UPDATE`. Dejo de
-   * servir cuando `access_point_employees` gano su llave foranea hacia esa
-   * tabla: al insertar el pivote, InnoDB pide un candado compartido sobre la
-   * fila padre, y esa fila la tenia tomada en exclusiva la propia transaccion
-   * del cerrojo. El alta se quedaba esperandose a si misma hasta el tiempo
-   * limite -- no fallaba, se colgaba, que es peor.
-   *
-   * `GET_LOCK` cumple lo mismo sin tocar ninguna fila: es un nombre, no un
-   * registro, asi que ninguna llave foranea lo cruza. La transaccion se
-   * conserva solo para fijar la conexion, porque el cerrojo vive en ella.
+   * Hubo un cerrojo con nombre (`GET_LOCK`) para las altas: el insert del
+   * pivote se hacia desde otra conexion y esperaba por la llave foranea el
+   * candado que tenia la propia transaccion del cerrojo. Hoy todo lo que lee
+   * y escribe la operacion va por `trx`, asi que la fila del aparato basta
+   * para serializar a todos los que escriben PIN, con una sola conexion por
+   * operacion.
    */
-  async withDeviceLock<T>(accessPointId: number, fn: () => Promise<T>): Promise<T> {
-    const name = `${DEVICE_LOCK_PREFIX}${accessPointId}`
+  async inDeviceTransaction<T>(
+    accessPointId: number,
+    fn: (trx: TransactionClientContract) => Promise<T>
+  ): Promise<T> {
     return db.transaction(async (trx) => {
-      const result = await trx.rawQuery('SELECT GET_LOCK(?, ?) AS obtained', [
-        name,
-        DEVICE_LOCK_TIMEOUT_SECONDS,
-      ])
-      const obtained = Number(result?.[0]?.[0]?.obtained ?? 0)
-      if (obtained !== 1) {
-        throw new AdmsError(
-          'El equipo esta ocupado con otra alta',
-          ADMS_ERROR_CODES.SYS_INTERNAL,
-          409,
-          'equipo-ocupado',
-          'Otra operacion sobre este checador sigue en curso. Intenta de nuevo en unos segundos.'
-        )
-      }
+      /**
+       * Espera corta solo para esta transaccion: se fija en la sesion de su
+       * conexion y se restaura antes de devolverla al pool, o la siguiente
+       * peticion que reciba esa conexion heredaria los 5 s.
+       */
+      const [rows] = (await trx.rawQuery(
+        'SELECT @@SESSION.innodb_lock_wait_timeout AS previous'
+      )) as [Array<{ previous: number }>, unknown]
+      const previous = Number(rows[0]?.previous)
+      await trx.rawQuery('SET SESSION innodb_lock_wait_timeout = ?', [DEVICE_LOCK_WAIT_SECONDS])
       try {
-        return await fn()
+        // Constructor crudo sobre `trx`: sin mixin, la fila se bloquea aunque sea de otra empresa.
+        await trx
+          .from('access_points')
+          .where('access_point_id', accessPointId)
+          .select('access_point_id')
+          .forUpdate()
+          .first()
+        return await fn(trx)
+      } catch (error) {
+        if (isLockWaitTimeout(error)) throw new DeviceBusyError()
+        throw error
       } finally {
-        await trx.rawQuery('SELECT RELEASE_LOCK(?)', [name])
+        await this.restoreOrDiscard(trx, previous)
       }
     })
   }
 
-  async findPivot(accessPointId: number, employeeId: number): Promise<AccessPointEmployee | null> {
-    return AccessPointEmployee.query()
+  /**
+   * Restaura la espera de candado de la sesion; si no puede, la conexion no
+   * vuelve al pool con los 5 s.
+   *
+   * La destruye (`destroy()` de mysql2 sobre la conexion cruda de la
+   * transaccion): knex valida cada conexion al prestarla (`validateConnection`
+   * revisa `_closing` y `stream.destroyed`) y descarta la destruida. Ademas
+   * lanza, para que la operacion no se de por confirmada: sin conexion, lo
+   * escrito en la transaccion se pierde.
+   *
+   * @throws Error si la restauracion fallo.
+   */
+  private async restoreOrDiscard(trx: TransactionClientContract, previous: number): Promise<void> {
+    try {
+      if (!Number.isFinite(previous)) {
+        throw new Error('No se leyo la espera de candado previa de la sesion')
+      }
+      await this.restoreLockWait(trx, previous)
+    } catch (error) {
+      logger.error(
+        { err: error },
+        'inDeviceTransaction: no se pudo restaurar innodb_lock_wait_timeout; se destruye la conexion'
+      )
+      const knexTrx = trx.knexClient as unknown as {
+        client: { acquireConnection(): Promise<{ destroy(): void } | null> }
+      }
+      const connection = await knexTrx.client.acquireConnection()
+      connection?.destroy()
+      throw new Error('No se pudo restaurar la conexion del checador; la operacion no se confirmo')
+    }
+  }
+
+  /** Devuelve a la sesion de la conexion su tiempo de espera de candado previo. */
+  protected async restoreLockWait(trx: TransactionClientContract, previous: number): Promise<void> {
+    await trx.rawQuery('SET SESSION innodb_lock_wait_timeout = ?', [previous])
+  }
+
+  async findPivot(
+    accessPointId: number,
+    employeeId: number,
+    trx?: TransactionClientContract
+  ): Promise<AccessPointEmployee | null> {
+    return AccessPointEmployee.query(trx ? { client: trx } : undefined)
       .where('access_point_id', accessPointId)
       .where('employee_id', employeeId)
       .first()
@@ -81,9 +149,10 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
 
   async findPivotWithTrashed(
     accessPointId: number,
-    employeeId: number
+    employeeId: number,
+    trx?: TransactionClientContract
   ): Promise<AccessPointEmployee | null> {
-    return AccessPointEmployee.query()
+    return AccessPointEmployee.query(trx ? { client: trx } : undefined)
       .withTrashed()
       .where('access_point_id', accessPointId)
       .where('employee_id', employeeId)
@@ -98,16 +167,24 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
    * haya borrado logicamente, que es cuando el aparato todavia no aplica la
    * baja.
    */
-  async findByPin(accessPointId: number, pin: string): Promise<AccessPointEmployee[]> {
-    return AccessPointEmployee.query()
-      .withTrashed()
-      .where('access_point_id', accessPointId)
-      .where('access_point_employee_pin', pin)
-      .where((group) => {
-        group
-          .whereNull('access_point_employee_deleted_at')
-          .orWhereIn('access_point_employee_sync_status', [...PIN_QUARANTINE_STATUSES])
-      })
+  async findByPin(
+    accessPointId: number,
+    pin: string,
+    trx?: TransactionClientContract
+  ): Promise<AccessPointEmployee[]> {
+    // El PIN es del aparato, no de una empresa: ver `pinSpaceOf`.
+    return pinSpaceOf(() =>
+      AccessPointEmployee.query(trx ? { client: trx } : undefined)
+        .withTrashed()
+        .where('access_point_id', accessPointId)
+        .where('access_point_employee_pin', pin)
+        .where((group) => {
+          group
+            .whereNull('access_point_employee_deleted_at')
+            .orWhereIn('access_point_employee_sync_status', [...PIN_QUARANTINE_STATUSES])
+        })
+        .exec()
+    )
   }
 
   async countConfirmedBefore(accessPointId: number, at: DateTime): Promise<number> {
@@ -128,8 +205,12 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     return Number(rows[0].$extras.total ?? 0)
   }
 
-  async listTakenPins(accessPointId: number, exceptPivotId?: number): Promise<string[]> {
-    const query = AccessPointEmployee.query()
+  async listTakenPins(
+    accessPointId: number,
+    exceptPivotId?: number,
+    trx?: TransactionClientContract
+  ): Promise<string[]> {
+    const query = AccessPointEmployee.query(trx ? { client: trx } : undefined)
       .withTrashed()
       .where('access_point_id', accessPointId)
       .whereNot('access_point_employee_pin', '')
@@ -144,7 +225,8 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
       query.whereNot('access_point_employee_id', exceptPivotId)
     }
 
-    const rows = await query.select('access_point_employee_pin')
+    // El PIN es del aparato, no de una empresa: ver `pinSpaceOf`.
+    const rows = await pinSpaceOf(() => query.select('access_point_employee_pin').exec())
 
     return rows.map((row) => row.accessPointEmployeePin).filter((pin) => pin.length > 0)
   }
@@ -153,7 +235,8 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     return AccessPointEmployee.query().where('employee_id', employeeId)
   }
 
-  async save(pivot: AccessPointEmployee): Promise<void> {
+  async save(pivot: AccessPointEmployee, trx?: TransactionClientContract): Promise<void> {
+    if (trx) pivot.useTransaction(trx)
     try {
       await pivot.save()
       return
@@ -169,8 +252,9 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     }
   }
 
-  async recordEvent(input: SyncEventInput): Promise<void> {
+  async recordEvent(input: SyncEventInput, trx?: TransactionClientContract): Promise<void> {
     const event = new AccessPointEmployeeEvent()
+    if (trx) event.useTransaction(trx)
     event.accessPointEmployeeId = input.accessPointEmployeeId
     event.businessUnitId = input.businessUnitId
     event.accessPointEmployeeEventKind = input.kind
@@ -182,6 +266,12 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
     event.deviceCommandId = input.deviceCommandId ?? null
     event.accessPointEmployeeEventDetail = input.detail ?? null
     await event.save()
+  }
+
+  async detach(pivot: AccessPointEmployee, trx?: TransactionClientContract): Promise<void> {
+    // SoftDeletes: conserva el historial. Con `trx` (o si se leyo con ella), borra en ella.
+    if (trx) pivot.useTransaction(trx)
+    await pivot.delete()
   }
 
   async findByCommandTarget(accessPointEmployeeId: number): Promise<AccessPointEmployee | null> {

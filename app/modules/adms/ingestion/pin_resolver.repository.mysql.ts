@@ -4,6 +4,8 @@ import AccessPointEmployee, {
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
 } from '#models/access_point_employee'
 import Employee from '#models/employee'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import type {
   EmployeeMatch,
   PinResolverRepository,
@@ -23,20 +25,32 @@ export default class PinResolverRepositoryMysql implements PinResolverRepository
    * de ejecucion.
    */
   async findPivot(accessPointId: number, pin: string): Promise<PivotMatch | null> {
-    const row = await AccessPointEmployee.query()
-      .where('access_point_id', accessPointId)
-      .where('access_point_employee_pin', pin)
-      .orderByRaw('CASE WHEN access_point_employee_sync_status = ? THEN 1 ELSE 0 END', [
-        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
-      ])
-      .orderBy('access_point_employee_id', 'desc')
-      .preload('employee', (query) => query.withTrashed())
-      .first()
+    /**
+     * El PIN es del aparato, no de una empresa (VLRH-P0065, 3.3): se lee el
+     * espacio completo, como `pinSpaceOf`. Con el mixin, el vinculo de una
+     * invitada fuera del scope del canal no aparecia y la checada caia al
+     * respaldo por codigo dentro de la responsable. La consulta se cierra
+     * dentro del bypass (M12).
+     */
+    const row = await TenantContext.runUnscoped(
+      () =>
+        AccessPointEmployee.query()
+          .where('access_point_id', accessPointId)
+          .where('access_point_employee_pin', pin)
+          .orderByRaw('CASE WHEN access_point_employee_sync_status = ? THEN 1 ELSE 0 END', [
+            ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+          ])
+          .orderBy('access_point_employee_id', 'desc')
+          .preload('employee', (query) => query.withTrashed())
+          .first(),
+      TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
+    )
     if (!row) return null
     return {
       accessPointEmployeeId: row.accessPointEmployeeId,
       employeeId: row.employeeId,
       employeeCode: row.employee?.employeeCode ? String(row.employee.employeeCode) : '',
+      businessUnitId: Number(row.businessUnitId),
       syncStatus: row.accessPointEmployeeSyncStatus,
     }
   }
@@ -64,7 +78,7 @@ export default class PinResolverRepositoryMysql implements PinResolverRepository
     businessUnitId: number
     employeeId: number
     pin: string
-  }): Promise<void> {
+  }): Promise<'created' | 'duplicate'> {
     const pivot = new AccessPointEmployee()
     pivot.accessPointId = input.accessPointId
     pivot.businessUnitId = input.businessUnitId
@@ -80,6 +94,7 @@ export default class PinResolverRepositoryMysql implements PinResolverRepository
     pivot.accessPointEmployeeSyncConfirmedAt = DateTime.utc()
     try {
       await pivot.save()
+      return 'created'
     } catch (error) {
       /**
        * El numero ya es de otra persona en ese equipo: el indice unico lo
@@ -88,6 +103,7 @@ export default class PinResolverRepositoryMysql implements PinResolverRepository
        * dueno para el PIN.
        */
       if ((error as { code?: string })?.code !== 'ER_DUP_ENTRY') throw error
+      return 'duplicate'
     }
   }
 }

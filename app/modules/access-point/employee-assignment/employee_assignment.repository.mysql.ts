@@ -1,6 +1,7 @@
-import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
 import Employee from '#models/employee'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import type EmployeeAssignmentRepository from './employee_assignment.repository.js'
 import type { BusinessUnitScope } from './employee_assignment.repository.js'
 
@@ -14,6 +15,10 @@ import type { BusinessUnitScope } from './employee_assignment.repository.js'
 export default class EmployeeAssignmentRepositoryMysql
   implements EmployeeAssignmentRepository
 {
+  constructor(
+    private readonly sharing: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+  ) {}
+
   /** Aplica el alcance de unidades de negocio cuando la petición lo acota. */
   private applyScope<T extends { whereIn: (column: string, values: number[]) => T }>(
     query: T,
@@ -23,16 +28,26 @@ export default class EmployeeAssignmentRepositoryMysql
     return query.whereIn('businessUnitId', scope)
   }
 
-  async accessPointExists(accessPointId: number, scope: BusinessUnitScope): Promise<boolean> {
-    const query = AccessPoint.query().where('accessPointId', accessPointId)
-    const found = await this.applyScope(query, scope).first()
-    return Boolean(found)
+  /**
+   * Quien ve el checador lo decide la regla unica `visibleTo`: el de otra
+   * empresa compartido con la del alcance tambien cuenta. Sin alcance falla
+   * cerrado: un llamador sin empresa (job, otra ruta) no ve ningun checador.
+   */
+  async accessPointScope(
+    accessPointId: number,
+    scope: BusinessUnitScope
+  ): Promise<number[] | null> {
+    const seen = await this.sharing.visibleTo(accessPointId, scope ?? [])
+    return seen ? seen.deviceScope : null
   }
 
-  async employeeExists(employeeId: number, scope: BusinessUnitScope): Promise<boolean> {
+  async employeeBusinessUnitId(
+    employeeId: number,
+    scope: BusinessUnitScope
+  ): Promise<number | null> {
     const query = Employee.query().where('employeeId', employeeId)
     const found = await this.applyScope(query, scope).first()
-    return Boolean(found)
+    return found ? (found.businessUnitId ?? null) : null
   }
 
   async findAssignment(

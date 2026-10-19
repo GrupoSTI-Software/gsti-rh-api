@@ -5,6 +5,8 @@ import type { DateTime } from 'luxon'
 import type { AdmsHealthStatus } from '#modules/access-point/health/health.constants'
 import { statusOf } from '#modules/access-point/health/health.service'
 import { isPinQuarantined } from '../employee_sync_state.js'
+import { requiredActionFor, type ResyncRequiredAction } from '../resync_pending.constants.js'
+import type { OpenResyncPendingRow } from '../resync_pending.repository.js'
 import type { FacePhotoDeviceStatus } from '#modules/biometric-vault/photo/device_face_status'
 
 /**
@@ -159,6 +161,8 @@ export interface EmployeeAvailableAccessPointDto {
     name: string
     slug: string
   } | null
+  /** Nombre de la empresa responsable si el checador es compartido; `null` si es propio. */
+  sharedBy: string | null
 }
 
 /** Biometricos que el colaborador tiene resguardados, por modalidad. */
@@ -174,4 +178,57 @@ export interface EmployeeDevicesDto {
   /** Equipos de la empresa donde la persona todavia no esta dada de alta. */
   available: EmployeeAvailableAccessPointDto[]
   biometrics: EmployeeBiometricSummaryDto
+}
+
+/**
+ * Checador pendiente de sincronizar tras deshacer la baja (VLRH-H1790812613831).
+ * Solo viaja a quien ve los biométricos: el nombre del checador revela el sitio
+ * físico y que la persona estuvo enrolada ahí.
+ */
+export interface ResyncPendingDto {
+  accessPointResyncPendingId: number
+  accessPointId: number
+  accessPointName: string
+  /** Estado ACTUAL del vínculo; la acción se deriva de él, no del estado al marcar. */
+  syncStatus: AccessPointEmployeeSyncStatus
+  requiredAction: ResyncRequiredAction
+  markedAt: string
+}
+
+/**
+ * Dos niveles decididos en el servidor (regla 6): el conteo para quien ve la
+ * ficha, el detalle solo con permiso de biométricos. Unión discriminada a
+ * propósito: en la rama de conteo el detalle no existe, ni vacío.
+ */
+export type EmployeeResyncPendingsDto =
+  | { employeeId: number; detail: 'count'; count: number }
+  | { employeeId: number; detail: 'full'; count: number; resyncPending: ResyncPendingDto[] }
+
+/** Nivel bajo: recibe solo el número, nunca las filas. */
+export function toResyncPendingsCountDto(
+  employeeId: number,
+  count: number
+): EmployeeResyncPendingsDto {
+  return { employeeId, detail: 'count', count }
+}
+
+/** Nivel alto: nombre del checador y acción requerida por cada marca viva. */
+export function toResyncPendingsFullDto(
+  employeeId: number,
+  rows: OpenResyncPendingRow[]
+): EmployeeResyncPendingsDto {
+  const resyncPending: ResyncPendingDto[] = []
+  for (const row of rows) {
+    const requiredAction = requiredActionFor(row.syncStatus)
+    if (requiredAction === null) continue
+    resyncPending.push({
+      accessPointResyncPendingId: row.accessPointResyncPendingId,
+      accessPointId: row.accessPointId,
+      accessPointName: row.accessPointName,
+      syncStatus: row.syncStatus,
+      requiredAction,
+      markedAt: row.markedAt.toISO() ?? row.markedAt.toString(),
+    })
+  }
+  return { employeeId, detail: 'full', count: resyncPending.length, resyncPending }
 }

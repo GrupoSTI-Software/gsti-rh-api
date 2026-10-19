@@ -63,6 +63,8 @@ export const ADMS_ERROR_CODES = {
   DEV_CHANNEL_HOST_UNKNOWN: 'ADMS.DEV.008',
   /** El equipo declara una identidad distinta de la registrada. */
   DEV_IDENTITY_CHANGED: 'ADMS.DEV.009',
+  /** El checador tiene invitadas vivas: no se borra hasta revocarlas (VLRH-P0065). */
+  DEV_SHARED_LIVE: 'ADMS.DEV.010',
   /** Recurso fuera del alcance de la empresa (responde 404). */
   AUTHZ_OUT_OF_SCOPE: 'ADMS.AUTHZ.001',
   AUTHZ_FORBIDDEN: 'ADMS.AUTHZ.002',

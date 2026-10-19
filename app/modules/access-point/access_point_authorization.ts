@@ -1,10 +1,33 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { PermissionGateOptions } from '#constants/permission_gate'
+import type AccessPoint from '#models/access_point'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import { AdmsError } from '#exceptions/adms_error'
-import AccessPoint from '#models/access_point'
 import PermissionGateService from '#services/permission_gate_service'
 import Employee from '#models/employee'
+import { AccessPointScope } from '#modules/access-point/sharing/access_point_scope'
+import type {
+  AccessPointRole,
+  AccessPointVisibility,
+  VisibilityOptions,
+} from '#modules/access-point/sharing/access_point_scope.port'
+import { AccessPointOutOfScopeError } from '#modules/access-point/access_point_out_of_scope_error'
+import {
+  EmployeeOutOfScopeError,
+  requireEmployeeBusinessUnitId,
+} from '#modules/access-point/employee_business_unit'
+
+export type { AccessPointRole }
+
+/** El checador que la peticion opera, con su papel y su scope (`visibleTo`). */
+export type ParticipantAccessPoint = AccessPointVisibility
+
+/** Checador y colaborador de una operacion del Backoffice, ya autorizados juntos. */
+export interface ParticipantPair extends ParticipantAccessPoint {
+  employee: Employee
+  /** Empresa del colaborador (no la del aparato): a su nombre va la operacion. */
+  employeeBusinessUnitId: number
+}
 
 /**
  * Autorizacion unica de las rutas del canal ADMS hacia el Backoffice
@@ -36,35 +59,9 @@ export async function ensureAccessPointPermission(
 }
 
 /**
- * Resuelve todo `:accessPointId` dentro del alcance de la peticion antes de
- * cualquier escritura. Un equipo de otra empresa se comporta como inexistente:
- * responder 403 revelaria que la serie existe en otra parte.
- */
-export async function resolveScopedAccessPoint(
-  ctx: HttpContext,
-  accessPointId: number
-): Promise<AccessPoint> {
-  const scope = ctx.businessUnitScope ?? []
-  const accessPoint =
-    scope.length === 0
-      ? null
-      : await AccessPoint.query()
-          .where('access_point_id', accessPointId)
-          .whereIn('business_unit_id', scope)
-          .first()
-  if (accessPoint) return accessPoint
-  throw new AdmsError(
-    ctx.i18n.formatMessage('adms_not_found_title'),
-    ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
-    404,
-    'punto-acceso-no-encontrado',
-    ctx.i18n.formatMessage('adms_not_found_message')
-  )
-}
-
-/**
- * Lo mismo para todo `:employeeId`. Un colaborador de otra empresa se comporta
- * como inexistente por la misma razon: un 403 confirmaria que existe.
+ * Resuelve todo `:employeeId` dentro del alcance de la peticion antes de
+ * cualquier escritura. Un colaborador de otra empresa se comporta como
+ * inexistente: un 403 confirmaria que existe.
  *
  * Se lee con el scope explicito y no con el mixin: el mixin filtra lecturas,
  * pero una escritura que se apoye en el se cae en cuanto alguien la llame desde
@@ -83,11 +80,131 @@ export async function resolveScopedEmployee(
           .whereIn('business_unit_id', scope)
           .first()
   if (employee) return employee
-  throw new AdmsError(
-    ctx.i18n.formatMessage('adms_not_found_title'),
-    ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
-    404,
-    'colaborador-no-encontrado',
-    ctx.i18n.formatMessage('adms_not_found_message')
+  // Titulo y detalle i18n los pone `resolveAdmsApiError`: el mismo 404 que un colaborador sin empresa.
+  throw new EmployeeOutOfScopeError()
+}
+
+function accessPointNotFound(): AdmsError {
+  // Titulo y detalle i18n los pone `resolveAdmsApiError`.
+  return new AccessPointOutOfScopeError()
+}
+
+/**
+ * Resuelve `:accessPointId` para la empresa de la peticion: el propio o el
+ * ajeno compartido con ella (VLRH-P0065, 6). Un equipo de otra empresa se
+ * comporta como inexistente: un 403 revelaria que la serie existe. Devuelve el rol y el scope del
+ * checador: toda operacion sobre el aparato corre dentro de ese scope, porque
+ * sus PIN y su cola son de todos los participantes.
+ *
+ * La empresa del colaborador se sigue resolviendo con `resolveScopedEmployee`
+ * en el scope de la peticion: compartir el aparato no da acceso a la gente de
+ * otra empresa.
+ */
+export async function resolveParticipantAccessPoint(
+  ctx: HttpContext,
+  accessPointId: number,
+  options: VisibilityOptions = {}
+): Promise<ParticipantAccessPoint> {
+  /**
+   * La regla vive en `AccessPointScopePort.visibleTo`; aqui solo se traduce
+   * "no lo ve" (alcance vacio, inexistente o ajeno) al 404. `includeLingering`
+   * admite tambien a la ex-invitada que aun tiene personal en el aparato sin
+   * baja confirmada: solo para cerrar esos vinculos (`forceRevoke`).
+   */
+  const participant = await AccessPointScope.visibleTo(
+    accessPointId,
+    ctx.businessUnitScope ?? [],
+    options
   )
+  if (!participant) throw accessPointNotFound()
+  return participant
+}
+
+/**
+ * El checador solo para su responsable: escrituras de configuracion (reloj,
+ * perfil, secreto, IP, avance). La invitada recibe 403 y no 404 porque ya sabe
+ * que el aparato existe: lo ve en su lista.
+ */
+export async function resolveOwnedAccessPoint(
+  ctx: HttpContext,
+  accessPointId: number
+): Promise<AccessPoint> {
+  const participant = await resolveParticipantAccessPoint(ctx, accessPointId)
+  if (participant.role === 'owner') return participant.accessPoint
+  throw sharedReadOnly(ctx)
+}
+
+/**
+ * Para el catalogo de equipos (`PUT`/`DELETE /api/access-points/:id`), que
+ * conserva su propio 404 para lo que no encuentra: solo corta a la invitada
+ * con el 403 de solo lectura. Un aparato ajeno o inexistente no lanza nada
+ * aqui y sigue su camino hacia el 404 de siempre.
+ */
+export async function rejectSharedGuest(ctx: HttpContext, accessPointId: number): Promise<void> {
+  let participant: ParticipantAccessPoint
+  try {
+    participant = await resolveParticipantAccessPoint(ctx, accessPointId)
+  } catch (error) {
+    if (error instanceof AdmsError && error.httpStatus === 404) return
+    throw error
+  }
+  if (participant.role === 'guest') throw sharedReadOnly(ctx)
+}
+
+function sharedReadOnly(ctx: HttpContext): AdmsError {
+  return new AdmsError(
+    ctx.i18n.formatMessage('access_point_shared_read_only_title'),
+    ADMS_ERROR_CODES.AUTHZ_FORBIDDEN,
+    403,
+    'solo-lectura-checador-compartido',
+    ctx.i18n.formatMessage('access_point_shared_read_only_message')
+  )
+}
+
+/**
+ * El colaborador de la peticion sobre un checador concreto: se resuelve en el
+ * scope de la peticion y ademas su empresa tiene que participar del aparato.
+ * Un aparato compartido solo atiende a la gente de sus participantes; para
+ * cualquier otra empresa ese checador no existe.
+ */
+export async function resolveParticipantEmployee(
+  ctx: HttpContext,
+  participant: ParticipantAccessPoint,
+  employeeId: number
+): Promise<Employee> {
+  const employee = await resolveScopedEmployee(ctx, employeeId)
+  if (participant.deviceScope.includes(requireEmployeeBusinessUnitId(employee))) return employee
+  throw accessPointNotFound()
+}
+
+/**
+ * Checador y colaborador de una operacion en un solo paso: el checador como
+ * participante (`resolveParticipantAccessPoint`) y el colaborador en el
+ * alcance de la peticion y de una empresa que participa del aparato
+ * (`resolveParticipantEmployee`). La operacion va a nombre de
+ * `employeeBusinessUnitId`, nunca de la empresa del aparato, y corre dentro de
+ * `deviceScope`.
+ *
+ * @throws AdmsError 404 si el checador o el colaborador no estan al alcance.
+ */
+export async function resolveParticipantPair(
+  ctx: HttpContext,
+  accessPointId: number,
+  employeeId: number,
+  options: VisibilityOptions = {}
+): Promise<ParticipantPair> {
+  const participant = await resolveParticipantAccessPoint(ctx, accessPointId, options)
+  const employee = await resolveParticipantEmployee(ctx, participant, employeeId)
+  return { ...participant, employee, employeeBusinessUnitId: requireEmployeeBusinessUnitId(employee) }
+}
+
+/**
+ * Lo que una empresa puede leer del checador: la responsable, todo el scope
+ * del aparato; la invitada, solo lo suyo (su personal, sus comandos). Para
+ * lecturas por fila de empleado o de comando, no para agregados del aparato.
+ */
+export function readScopeOf(ctx: HttpContext, participant: ParticipantAccessPoint): number[] {
+  if (participant.role === 'owner') return participant.deviceScope
+  const scope = ctx.businessUnitScope ?? []
+  return participant.deviceScope.filter((id) => scope.includes(id))
 }

@@ -21,3 +21,4 @@ router
   })
   .prefix('/api/competencies')
   .use(middleware.auth())
+  .use(middleware.businessScope())

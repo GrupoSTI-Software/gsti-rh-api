@@ -6,10 +6,15 @@ import type {
 } from '#modules/access-point/employee-sync/employee_sync.repository'
 import type AccessPointEmployee from '#models/access_point_employee'
 import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
-import type { DeviceCommandPort, EnqueueCommandInput } from '#modules/device-commands/device_command_port'
+import type {
+  DeviceCommandPort,
+  EnqueueCommandInput,
+} from '#modules/device-commands/device_command_port'
 import type DeviceCommand from '#models/device_command'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { AdmsError } from '#exceptions/adms_error'
 import type PhotoPublicationService from '#modules/biometric-vault/photo/photo_publication.service'
+import type { ResyncPendingCloser } from '#modules/access-point/employee-sync/resync_pending.service'
 
 function pivotOf(overrides: Partial<AccessPointEmployee> = {}): AccessPointEmployee {
   return {
@@ -36,6 +41,10 @@ interface Options {
   live?: AccessPointEmployee[]
   enqueueThrows?: boolean
   withdrawThrows?: boolean
+  /** La empresa sigue participando del aparato al tomar su candado (default: si). */
+  participant?: boolean
+  /** El cerrador de marcas de checador pendiente falla (VLRH-H1790812613831). */
+  resolveThrows?: boolean
 }
 
 function makeService(options: Options = {}) {
@@ -47,21 +56,46 @@ function makeService(options: Options = {}) {
   const statuses: Array<{ id: number; status: string }> = []
   /** Colaboradores a los que se les retiraron las publicaciones de foto. */
   const withdrawnFor: number[] = []
+  /** Vinculos cuya marca de checador pendiente se pidio cerrar al revivir. */
+  const resolvedPivots: number[] = []
+
+  /** Transaccion falsa del candado del aparato y lo que paso por ella. */
+  const deviceTrx = { fake: 'trx-del-aparato' } as unknown as TransactionClientContract
+  const lockedDevices: number[] = []
+  const trxSeen: Array<{ step: string; trx: TransactionClientContract | undefined }> = []
+  /** Orden de candados, revalidacion y escrituras del alta. */
+  const steps: string[] = []
+  /** Vinculos desprendidos (baja logica sin pasar por el aparato). */
+  const detached: AccessPointEmployee[] = []
+  /** Transaccion con la que se guardo cada pivote. */
+  const saveTrx: Array<TransactionClientContract | undefined> = []
+  /**
+   * Cada lectura de `assign`/`setPin` con la transaccion que recibio: una sin
+   * `trx` pide otra conexion del pool mientras esta operacion retiene la suya.
+   */
+  const reads: Array<{ step: string; trx: unknown }> = []
 
   const repository: EmployeeSyncRepository = {
-    async withDeviceLock(_id, fn) {
-      return fn()
+    async inDeviceTransaction(accessPointId, fn) {
+      lockedDevices.push(accessPointId)
+      steps.push('lock-aparato')
+      return fn(deviceTrx)
     },
-    async findPivot() {
+    async findPivot(_accessPointId, _employeeId, trx) {
+      trxSeen.push({ step: 'findPivot', trx })
+      reads.push({ step: 'findPivot', trx })
       return options.pivot ?? null
     },
-    async findPivotWithTrashed() {
+    async findPivotWithTrashed(_accessPointId, _employeeId, trx) {
+      reads.push({ step: 'findPivotWithTrashed', trx })
       return options.withTrashed ?? options.pivot ?? null
     },
-    async findByPin() {
+    async findByPin(_accessPointId, _pin, trx) {
+      reads.push({ step: 'findByPin', trx })
       return options.pinHolders ?? []
     },
-    async listTakenPins(_accessPointId, exceptPivotId) {
+    async listTakenPins(_accessPointId, exceptPivotId, trx) {
+      reads.push({ step: 'listTakenPins', trx })
       const ocupantes =
         options.pinOwners ?? (options.takenPins ?? []).map((pin) => ({ pivotId: -1, pin }))
       return ocupantes
@@ -74,11 +108,19 @@ function makeService(options: Options = {}) {
     async listLiveByEmployee() {
       return options.live ?? []
     },
-    async save(pivot) {
+    async save(pivot, trx) {
+      saveTrx.push(trx)
+      steps.push('save')
       saved.push(pivot)
     },
-    async recordEvent(input) {
+    async recordEvent(input, trx) {
+      trxSeen.push({ step: 'recordEvent', trx })
       events.push(input)
+    },
+    async detach(pivot, trx) {
+      trxSeen.push({ step: 'detach', trx })
+      pivot.deletedAt = { toISO: () => '2026-10-15' } as never
+      detached.push(pivot)
     },
     async findByCommandTarget() {
       return options.pivot ?? null
@@ -90,7 +132,8 @@ function makeService(options: Options = {}) {
   }
 
   const commands: DeviceCommandPort = {
-    async enqueue(input) {
+    async enqueue(input, trx) {
+      trxSeen.push({ step: 'enqueue', trx })
       if (options.enqueueThrows) throw new Error('la cola no respondio')
       enqueued.push(input)
       return {
@@ -133,13 +176,37 @@ function makeService(options: Options = {}) {
     },
   } as unknown as PhotoPublicationService
 
+  const scope = {
+    async isParticipant(accessPointId: number, businessUnitId: number, trx?: unknown) {
+      steps.push(`participa:${accessPointId}:${businessUnitId}`)
+      reads.push({ step: 'isParticipant', trx })
+      return options.participant ?? true
+    },
+  }
+
+  const resyncPendings: ResyncPendingCloser = {
+    async resolveForPivot(accessPointEmployeeId: number, trx?: unknown) {
+      if (options.resolveThrows) throw new Error('la tabla de marcas no respondio')
+      resolvedPivots.push(accessPointEmployeeId)
+      reads.push({ step: 'resolveForPivot', trx })
+    },
+  }
+
   return {
-    service: new EmployeeSyncService(repository, commands, publications),
+    service: new EmployeeSyncService(repository, commands, publications, scope, resyncPendings),
+    steps,
+    saveTrx,
+    detached,
+    reads,
     saved,
     events,
     enqueued,
     cancelledFor,
     withdrawnFor,
+    deviceTrx,
+    lockedDevices,
+    trxSeen,
+    resolvedPivots,
   }
 }
 
@@ -305,6 +372,46 @@ test.group('Envio y revocacion', () => {
     assert.equal(events[0].kind, 'send_requested')
   })
 
+  test('enviar lee, encola y deja evento dentro de la transaccion del aparato', async ({
+    assert,
+  }) => {
+    const { service, deviceTrx, lockedDevices, trxSeen } = makeService({
+      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'failed' }),
+    })
+    await service.send({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      employeeName: 'Juan Perez',
+      actor: ACTOR,
+    })
+    assert.deepEqual(lockedDevices, [12])
+    assert.deepEqual(
+      trxSeen.map((seen) => seen.step),
+      ['findPivot', 'enqueue', 'recordEvent']
+    )
+    for (const seen of trxSeen) assert.strictEqual(seen.trx, deviceTrx, seen.step)
+  })
+
+  test('si la cola rechaza el alta, el error sale de la transaccion del aparato', async ({
+    assert,
+  }) => {
+    const { service, events } = makeService({
+      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'failed' }),
+      enqueueThrows: true,
+    })
+    await assert.rejects(() =>
+      service.send({
+        accessPointId: 12,
+        businessUnitId: 1,
+        employeeId: 77,
+        employeeName: 'Juan Perez',
+        actor: ACTOR,
+      })
+    )
+    assert.lengthOf(events, 0)
+  })
+
   test('revocar pasa a revocando y encola el borrado', async ({ assert }) => {
     const { service, enqueued, events } = makeService({ pivot: pivotOf() })
     const pivot = await service.revoke({
@@ -405,6 +512,150 @@ test.group('Baja del colaborador', () => {
   })
 })
 
+test.group('Alta con la participacion revalidada bajo el candado del aparato (A2-14)', () => {
+  test('bloquea el aparato, vuelve a preguntar si la empresa participa y escribe en esa transaccion', async ({
+    assert,
+  }) => {
+    const { service, steps, trxSeen, saveTrx, deviceTrx, lockedDevices } = makeService({
+      withTrashed: null,
+      pivot: null,
+      takenPins: [],
+    })
+    await service.assign({ accessPointId: 12, businessUnitId: 2, employeeId: 77, actor: ACTOR })
+
+    assert.deepEqual(lockedDevices, [12])
+    assert.deepEqual(steps.slice(0, 2), ['lock-aparato', 'participa:12:2'])
+    const events = trxSeen.filter((seen) => seen.step === 'recordEvent')
+    assert.isAbove(saveTrx.length, 0)
+    assert.isAbove(events.length, 0)
+    for (const trx of saveTrx) assert.strictEqual(trx, deviceTrx, 'save')
+    for (const event of events) assert.strictEqual(event.trx, deviceTrx, 'recordEvent')
+  })
+
+  test('si la empresa dejo de participar es 404 del checador y no escribe nada', async ({
+    assert,
+  }) => {
+    const { service, saved, events } = makeService({
+      withTrashed: null,
+      pivot: null,
+      takenPins: [],
+      participant: false,
+    })
+    let capturado: unknown = null
+    try {
+      await service.assign({ accessPointId: 12, businessUnitId: 2, employeeId: 77, actor: ACTOR })
+    } catch (error) {
+      capturado = error
+    }
+
+    assert.instanceOf(capturado, AdmsError)
+    assert.equal((capturado as AdmsError).httpStatus, 404)
+    assert.equal((capturado as AdmsError).key, 'punto-acceso-no-encontrado')
+    assert.lengthOf(saved, 0)
+    assert.lengthOf(events, 0)
+  })
+})
+
+test.group('PIN con la participacion revalidada bajo el candado del aparato', () => {
+  test('bloquea el aparato, vuelve a preguntar y escribe pivote, baja y evento en esa transaccion', async ({
+    assert,
+  }) => {
+    const { service, steps, trxSeen, saveTrx, deviceTrx } = makeService({
+      pivot: pivotOf({ accessPointEmployeePin: '4' }),
+    })
+    await service.setPin({
+      accessPointId: 12,
+      businessUnitId: 2,
+      employeeId: 77,
+      pin: '8',
+      actor: ACTOR,
+    })
+
+    assert.deepEqual(steps.slice(0, 2), ['lock-aparato', 'participa:12:2'])
+    assert.isAbove(saveTrx.length, 0)
+    for (const trx of saveTrx) assert.strictEqual(trx, deviceTrx, 'save')
+    const writes = trxSeen.filter((seen) => seen.step === 'enqueue' || seen.step === 'recordEvent')
+    assert.lengthOf(writes, 2)
+    for (const write of writes) assert.strictEqual(write.trx, deviceTrx, write.step)
+  })
+
+  test('si la empresa dejo de participar es 404 del checador y no escribe nada', async ({
+    assert,
+  }) => {
+    const { service, saved, events, enqueued } = makeService({
+      pivot: pivotOf({ accessPointEmployeePin: '' }),
+      participant: false,
+    })
+    let capturado: unknown = null
+    try {
+      await service.setPin({
+        accessPointId: 12,
+        businessUnitId: 2,
+        employeeId: 77,
+        pin: '8',
+        actor: ACTOR,
+      })
+    } catch (error) {
+      capturado = error
+    }
+
+    assert.equal((capturado as AdmsError | null)?.key, 'punto-acceso-no-encontrado')
+    assert.equal((capturado as AdmsError).httpStatus, 404)
+    assert.lengthOf(saved, 0)
+    assert.lengthOf(events, 0)
+    assert.lengthOf(enqueued, 0)
+  })
+})
+
+/**
+ * Una operacion, una conexion: el candado de `access_points` ya serializa a
+ * todos los que escriben PIN, asi que `assign` y `setPin` corren completas en
+ * la transaccion del aparato. Una lectura fuera de ella pide otra conexion
+ * mientras esta retiene la suya, y unas cuantas altas concurrentes agotan el
+ * pool (cada una esperando una conexion que tienen las demas).
+ */
+test.group('Alta y PIN en una sola conexion', () => {
+  test('assign lee con la transaccion del aparato y no toma el cerrojo con nombre', async ({
+    assert,
+  }) => {
+    const { service, reads, steps, deviceTrx } = makeService({
+      withTrashed: null,
+      pivot: null,
+      takenPins: [],
+    })
+    await service.assign({ accessPointId: 12, businessUnitId: 1, employeeId: 77, actor: ACTOR })
+
+    assert.deepEqual(
+      reads.map((read) => read.step).sort(),
+      ['findByPin', 'findPivotWithTrashed', 'isParticipant', 'listTakenPins'].sort()
+    )
+    for (const read of reads) assert.strictEqual(read.trx, deviceTrx, read.step)
+    assert.equal(steps[0], 'lock-aparato')
+  })
+
+  test('setPin lee con la transaccion del aparato y no toma el cerrojo con nombre', async ({
+    assert,
+  }) => {
+    const { service, reads, steps, deviceTrx } = makeService({
+      pivot: pivotOf({ accessPointEmployeePin: '' }),
+    })
+    await service.setPin({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      pin: '8',
+      actor: ACTOR,
+    })
+
+    assert.deepEqual(
+      reads.map((read) => read.step).sort(),
+      ['findByPin', 'findPivot', 'isParticipant'].sort()
+    )
+    for (const read of reads) assert.strictEqual(read.trx, deviceTrx, read.step)
+    assert.equal(steps[0], 'lock-aparato')
+  })
+})
+
 test.group('Reasignacion', () => {
   test('una fila revocada revive en vez de crear otra', async ({ assert }) => {
     const revocada = pivotOf({
@@ -419,6 +670,42 @@ test.group('Reasignacion', () => {
       actor: ACTOR,
     })
     assert.isNull(pivot.deletedAt)
+    assert.equal(events[0].kind, 'reassigned')
+  })
+
+  test('revivir cierra la marca de checador pendiente de ese vinculo (VLRH-H1790812613831)', async ({
+    assert,
+  }) => {
+    const revocada = pivotOf({ accessPointEmployeeSyncStatus: 'revoked' })
+    const { service, resolvedPivots } = makeService({ withTrashed: revocada })
+    await service.assign({ accessPointId: 12, businessUnitId: 1, employeeId: 77, actor: ACTOR })
+    assert.deepEqual(resolvedPivots, [5])
+  })
+
+  test('un vinculo nuevo no toca las marcas', async ({ assert }) => {
+    const { service, resolvedPivots } = makeService()
+    await service.assign({ accessPointId: 12, businessUnitId: 1, employeeId: 77, actor: ACTOR })
+    assert.deepEqual(resolvedPivots, [])
+  })
+
+  test('la marca se cierra dentro de la transaccion del candado del aparato', async ({ assert }) => {
+    const revocada = pivotOf({ accessPointEmployeeSyncStatus: 'revoked' })
+    const { service, reads, deviceTrx } = makeService({ withTrashed: revocada })
+    await service.assign({ accessPointId: 12, businessUnitId: 1, employeeId: 77, actor: ACTOR })
+    const cierre = reads.find((read) => read.step === 'resolveForPivot')
+    assert.strictEqual(cierre?.trx, deviceTrx)
+  })
+
+  test('si cerrar la marca falla, la asignacion sigue completa', async ({ assert }) => {
+    const revocada = pivotOf({ accessPointEmployeeSyncStatus: 'revoked' })
+    const { service, events } = makeService({ withTrashed: revocada, resolveThrows: true })
+    const pivot = await service.assign({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      actor: ACTOR,
+    })
+    assert.equal(pivot.accessPointEmployeeId, 5)
     assert.equal(events[0].kind, 'reassigned')
   })
 
@@ -530,7 +817,9 @@ test.group('PIN correlativo por equipo', () => {
 test.group('Cerrar a mano una baja que el equipo no confirma', () => {
   test('cierra la baja pedida y deja constancia de quien la forzo', async ({ assert }) => {
     const { service, saved, events } = makeService({
-      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'revoking' as AccessPointEmployeeSyncStatus }),
+      pivot: pivotOf({
+        accessPointEmployeeSyncStatus: 'revoking' as AccessPointEmployeeSyncStatus,
+      }),
     })
 
     const pivot = await service.forceRevoke({
@@ -548,11 +837,56 @@ test.group('Cerrar a mano una baja que el equipo no confirma', () => {
     assert.include(events[0].detail ?? '', 'el checador se reemplazo')
   })
 
+  test('un vinculo sin PIN se desprende con su evento y sin encolar nada', async ({ assert }) => {
+    // Nunca llego al aparato: no hay baja que pedir ni que esperar.
+    const { service, detached, events, enqueued, cancelledFor, saved, lockedDevices, trxSeen, deviceTrx } =
+      makeService({
+        pivot: pivotOf({
+          accessPointEmployeePin: '',
+          accessPointEmployeeSyncStatus: 'pending_pin' as AccessPointEmployeeSyncStatus,
+        }),
+      })
+
+    const returned = await service.forceRevoke({
+      accessPointId: 12,
+      businessUnitId: 2,
+      employeeId: 77,
+      reason: 'la invitacion se revoco',
+      actor: ACTOR,
+    })
+
+    assert.lengthOf(detached, 1)
+    assert.lengthOf(enqueued, 0)
+    assert.lengthOf(cancelledFor, 0)
+    assert.lengthOf(saved, 0)
+    assert.lengthOf(events, 1)
+    assert.equal(events[0].fromStatus, 'pending_pin')
+    assert.isNull(events[0].toStatus ?? null)
+    assert.equal(events[0].actorUserId, ACTOR.userId)
+    assert.include(events[0].detail ?? '', 'la invitacion se revoco')
+
+    // Con el aparato bloqueado y todo en su transaccion: un setPin + send
+    // concurrente no puede dejar un alta en cola para un vinculo ya retirado.
+    // La primera lectura solo elige el camino; se relee ya con el aparato bloqueado.
+    assert.deepEqual(lockedDevices, [12])
+    const locked = trxSeen.filter((seen) => seen.trx === deviceTrx).map((seen) => seen.step)
+    assert.deepEqual(locked, ['findPivot', 'recordEvent', 'detach'])
+    assert.isTrue(
+      trxSeen
+        .filter((seen) => seen.step !== 'findPivot')
+        .every((seen) => seen.trx === deviceTrx)
+    )
+    // La respuesta es el vinculo ya desprendido.
+    assert.isNotNull(returned.deletedAt)
+  })
+
   test('no cierra una baja que nadie ha pedido', async ({ assert }) => {
     // Con el alta viva la via es pedir la baja: cerrarla a mano aqui dejaria a
     // la persona dentro del aparato y fuera del sistema, sin que nadie lo sepa.
     const { service, saved } = makeService({
-      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'confirmed' as AccessPointEmployeeSyncStatus }),
+      pivot: pivotOf({
+        accessPointEmployeeSyncStatus: 'confirmed' as AccessPointEmployeeSyncStatus,
+      }),
     })
 
     let capturado: unknown = null

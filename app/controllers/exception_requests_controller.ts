@@ -20,9 +20,9 @@ import { isTenantScopeActive, scopedEmployeeIds } from '#helpers/employee_tenant
 import ExceptionType from '#models/exception_type'
 import Ws from '#services/ws'
 import Role from '#models/role'
-
-/** Slug del rol de Recursos Humanos; ver `isRhManager`. */
-const RH_MANAGER_ROLE_SLUG = 'rh-manager'
+import RoleService from '#services/role_service'
+import { TenantContext } from '#utils/tenant_context'
+import { EXCEPTION_REQUEST_HR_REQUIRED_PERMISSION } from '#constants/exception_request_notification'
 import {
   exceptionRequestAcceptTouchesVacation,
   exceptionRequestsBatchTouchesVacation,
@@ -43,9 +43,6 @@ import {
 import type { PermissionGateOptions } from '#constants/permission_gate'
 import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
-
-/** Slugs de roles de RRHH que ven solicitudes sin jefe directo con usuario */
-const RRHH_ROLE_SLUGS = ['rh-manager', 'recursos-humanos'] as const
 
 /**
  * Roles que ven todas las solicitudes de su empresa sin depender de ser jefe
@@ -1253,18 +1250,42 @@ export default class ExceptionRequestsController {
    */
 
   /**
-   * Distingue una solicitud capturada por Recursos Humanos de una capturada
-   * por gerencia. Se resuelve por SLUG y no por `role_id`: el id es
-   * autoincremental y su valor depende del orden de siembra de cada
-   * instalación, así que comparar contra el literal 2 acertaba solo mientras
-   * los seeders fijaran los ids a mano.
+   * Distingue a Recursos Humanos de gerencia en la empresa en la que se trabaja.
+   *
+   * El rol que llega ya es el efectivo de la sesión. Cuenta si está marcado
+   * como Recursos Humanos, es de esta empresa o común a todas, y tiene acceso
+   * a Solicitudes de permisos. El nombre del rol no interviene. Sin una sola
+   * empresa activa, no hay vista de RH.
    */
   private async isRhManager(roleId: number | undefined): Promise<boolean> {
     if (!roleId) {
       return false
     }
-    const role = await Role.find(roleId)
-    return role?.roleSlug === RH_MANAGER_ROLE_SLUG
+
+    const scope = TenantContext.getScope()
+    const businessUnitId = scope[0]
+    if (scope.length !== 1 || businessUnitId === undefined) {
+      return false
+    }
+    const role = await Role.query()
+      .whereNull('role_deleted_at')
+      .where('role_id', roleId)
+      .where('role_active', 1)
+      .where('role_human_capital', 1)
+      .where((query) => {
+        query.where('business_unit_id', businessUnitId).orWhereNull('business_unit_id')
+      })
+      .first()
+
+    if (!role) {
+      return false
+    }
+
+    return new RoleService().hasAccess(
+      role.roleId,
+      EXCEPTION_REQUEST_HR_REQUIRED_PERMISSION.moduleSlug,
+      EXCEPTION_REQUEST_HR_REQUIRED_PERMISSION.permissionSlug
+    )
   }
 
   async update({ params, request, response }: HttpContext) {
@@ -1520,7 +1541,7 @@ export default class ExceptionRequestsController {
       const hasFullVisibility = FULL_VISIBILITY_ROLE_SLUGS.includes(
         roleSlug as (typeof FULL_VISIBILITY_ROLE_SLUGS)[number]
       )
-      const isRHH = RRHH_ROLE_SLUGS.includes(roleSlug as (typeof RRHH_ROLE_SLUGS)[number])
+      const isRHH = await this.isRhManager(user.roleId)
 
       /**
        * Criterios que comparten el listado y los conteos de las tabs. Viven en un
@@ -1649,7 +1670,7 @@ export default class ExceptionRequestsController {
    *     summary: Get unread exception requests
    *     description: |
    *       Requiere autenticación. Devuelve solo las solicitudes no leídas visibles para el usuario:
-   *       - Root ve todas. RRHH (rh-manager, recursos-humanos) ve solo las de empleados sin jefe directo con usuario.
+   *       - Root ve todas. Recursos Humanos ve solo las de empleados sin jefe directo con usuario.
    *       - El resto ve solo las de empleados cuyo jefe directo es el usuario actual.
    *     tags:
    *       - ExceptionRequests
@@ -1725,7 +1746,7 @@ export default class ExceptionRequestsController {
       const hasFullVisibility = FULL_VISIBILITY_ROLE_SLUGS.includes(
         roleSlug as (typeof FULL_VISIBILITY_ROLE_SLUGS)[number]
       )
-      const isRHH = RRHH_ROLE_SLUGS.includes(roleSlug as (typeof RRHH_ROLE_SLUGS)[number])
+      const isRHH = await this.isRhManager(user.roleId)
 
       const rhReadFilter = request.input('rhRead')
       const gerencialReadFilter = request.input('gerencialRead')

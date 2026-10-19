@@ -26,10 +26,31 @@ test.group('Cadena de aviso de solicitudes de permiso', () => {
     )
   })
 
-  test('cada eslabon por rol declara al menos un slug', ({ assert }) => {
+  test('el eslabon de Recursos Humanos se resuelve por la marca, no por slugs', ({ assert }) => {
+    const hr = EXCEPTION_REQUEST_ROLE_CHAIN.find(
+      (eslabon) => eslabon.link === EXCEPTION_REQUEST_APPROVER_LINK.HR
+    )
+
+    assert.equal(hr?.source, 'human-capital')
+    assert.notProperty(hr, 'slugs')
+  })
+
+  test('cada eslabon por nombre de rol declara al menos un slug', ({ assert }) => {
     for (const eslabon of EXCEPTION_REQUEST_ROLE_CHAIN) {
+      if (eslabon.source !== 'role-slugs') {
+        continue
+      }
       assert.isAbove(eslabon.slugs.length, 0, `el eslabon ${eslabon.link} se quedo sin slugs`)
     }
+  })
+
+  test('el eslabon de Recursos Humanos no vuelve a aceptar slugs', () => {
+    const hr = EXCEPTION_REQUEST_ROLE_CHAIN[0]
+    if (!hr || hr.source !== 'human-capital') {
+      throw new Error('el primer eslabon dejo de ser Recursos Humanos')
+    }
+    // @ts-expect-error el eslabon human-capital no declara slugs
+    void hr.slugs
   })
 
   test('el jefe directo no se resuelve por rol', ({ assert }) => {

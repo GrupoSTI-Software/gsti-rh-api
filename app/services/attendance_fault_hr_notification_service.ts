@@ -15,6 +15,7 @@ import {
 import AssistsService from '#services/assist_service'
 import mail from '@adonisjs/mail/services/main'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import Database from '@adonisjs/lucid/services/db'
 import i18nManager from '@adonisjs/i18n/services/main'
 import { DateTime } from 'luxon'
@@ -24,6 +25,9 @@ import { shiftStartInstant } from '#modules/attendance-time/attendance_clock'
 import SyncAssistsService from '#services/sync_assists_service'
 import { TenantContext } from '#utils/tenant_context'
 import type { AssistDayInterface } from '../interfaces/assist_day_interface.js'
+
+/** Color de plataforma del encabezado. El aviso de faltas no usa el color de la empresa. */
+const MAIL_HEADER_COLOR = '#0a3057'
 
 export interface AttendanceFaultHrNotifyRow {
   employeeAssistCalendarId: number
@@ -425,11 +429,6 @@ export default class AttendanceFaultHrNotificationService {
     return out.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
   }
 
-  formatSidebarColor(color: string): string {
-    const c = color?.trim() || '333333'
-    return c.startsWith('#') ? c : `#${c}`
-  }
-
   /**
    * URL de la foto para la plantilla del correo. Vacia cuando la referencia es
    * un objeto privado: un cliente de correo no puede autenticarse, y componerla
@@ -721,10 +720,11 @@ export default class AttendanceFaultHrNotificationService {
       return { sent: false, reason: 'no_employees' }
     }
 
-    const sidebarColor = this.formatSidebarColor(systemSetting.systemSettingSidebarColor || '333')
+    const companyName = systemSetting.systemSettingTradeName
     const emailData = {
-      tradeName: systemSetting.systemSettingTradeName,
-      sidebarColor,
+      tradeName: MAIL_BRAND_TRADE_NAME,
+      headerColor: MAIL_HEADER_COLOR,
+      companyName,
       calendarDayLabel: now.setZone(businessZone).setLocale('es').toFormat("cccc d 'de' LLLL yyyy"),
       employees: emailRows,
       faultCount: emailRows.length,
@@ -733,12 +733,15 @@ export default class AttendanceFaultHrNotificationService {
     }
 
     const subject = isTest
-      ? `[PRUEBA] Alerta: registro de asistencia no recibido — ${systemSetting.systemSettingTradeName}`
-      : `Alerta: registro de asistencia no recibido — ${systemSetting.systemSettingTradeName}`
+      ? `[PRUEBA] Alerta: registro de asistencia no recibido — ${companyName}`
+      : `Alerta: registro de asistencia no recibido — ${companyName}`
 
     try {
        await mail.send((message) => {
-         message.subject(subject).from(resolveMailSender()).htmlView('emails/attendance_fault_hr_batch', emailData)
+         message
+           .subject(subject)
+           .from(resolveMailSender(), MAIL_BRAND_TRADE_NAME)
+           .htmlView('emails/attendance_fault_hr_batch', emailData)
          // Un solo correo para todo RH: mismo cuerpo con la tabla completa de faltas
          message.to(recipients[0])
          if (recipients.length > 1) {
@@ -844,7 +847,6 @@ export default class AttendanceFaultHrNotificationService {
         'business_unit_id',
         'system_setting_active',
         'system_setting_trade_name',
-        'system_setting_sidebar_color',
         'system_setting_attendance_fault_hr_emails'
       )
 

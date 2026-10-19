@@ -303,6 +303,9 @@ export default class BillingTenantController {
    *       **Sin gate de rol:** cualquier usuario autenticado con scope sobre la
    *       empresa puede consultarlo (p. ej. el middleware del muro de contratación).
    *       Nunca responde 404 por ausencia de suscripción.
+   *
+   *       `paymentFailureMessage` (título, detalle, acción) solo lo recibe el dueño de la
+   *       cuenta, con suscripción stripe en `past_due` y fallo vigente; el resto recibe null.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -337,6 +340,7 @@ export default class BillingTenantController {
    *                     - accountStatus
    *                     - automaticBilling
    *                     - minimumContractedEmployees
+   *                     - paymentFailureMessage
    *                   properties:
    *                     businessUnitOrigin:
    *                       type: string
@@ -352,6 +356,20 @@ export default class BillingTenantController {
    *                       description: |
    *                         Mínimo contratable en bloques de 10 para empresas
    *                         self_service (también con suscripción viva). Null en platform.
+   *                     paymentFailureMessage:
+   *                       type: object
+   *                       nullable: true
+   *                       description: |
+   *                         Motivo legible del último cobro fallido (catálogo 0337).
+   *                         Solo dueño, stripe, past_due y fallo vigente; null para el resto.
+   *                       properties:
+   *                         title:
+   *                           type: string
+   *                         detail:
+   *                           type: string
+   *                         action:
+   *                           type: string
+   *                           enum: [tenant, valanserh]
    *                     subscription:
    *                       type: object
    *                       nullable: true
