@@ -2,6 +2,7 @@ import type { AssetsRepository } from './assets.repository.js'
 import AssetsRepositoryMysql from './assets.repository.mysql.js'
 import type { OwnEquipmentDeclarationsRepository } from './own_equipment_declarations.repository.js'
 import OwnEquipmentDeclarationsRepositoryMysql from './own_equipment_declarations.repository.mysql.js'
+import TeleworkComplianceSettingService from '#services/telework_compliance_setting_service'
 import type {
   EmployeeTeleworkSuppliesDto,
   TeleworkCoverageRow,
@@ -52,12 +53,18 @@ function groupOpenDeclarations(
 export class TeleworkSuppliesService {
   constructor(
     private readonly repository: AssetsRepository,
-    private readonly declarations: OwnEquipmentDeclarationsRepository = new OwnEquipmentDeclarationsRepositoryMysql()
+    private readonly declarations: OwnEquipmentDeclarationsRepository = new OwnEquipmentDeclarationsRepositoryMysql(),
+    private readonly settings: Pick<TeleworkComplianceSettingService, 'getEffective'> = new TeleworkComplianceSettingService()
   ) {}
 
   /**
    * Matriz de cumplimiento de un colaborador acotada al alcance. Perfil fuera
    * de alcance (o inexistente) → `null` (el 404 es solo por alcance, R12).
+   *
+   * Tras el perfil lee en paralelo la cobertura, las vigentes, el histórico y
+   * los ajustes de la empresa; el alcance de la ficha es UNA empresa (la del
+   * header) y el colaborador está dentro, así que `businessUnitIds[0]` es su
+   * empresa —con alcance vacío el perfil sale `null` antes de llegar aquí—.
    */
   async matrixForEmployee(
     businessUnitIds: readonly number[],
@@ -67,15 +74,18 @@ export class TeleworkSuppliesService {
     const profile = profiles.find((candidate) => candidate.employeeId === employeeId) ?? null
     if (profile === null) return null
 
-    const [rows, declarations] = await Promise.all([
+    const [rows, declarations, history, settings] = await Promise.all([
       this.repository.findTeleworkCoverage(businessUnitIds, [employeeId]),
       this.declarations.findOpenByEmployees(businessUnitIds, [employeeId]),
+      this.declarations.findHistoryByEmployee(businessUnitIds, employeeId),
+      this.settings.getEffective(businessUnitIds[0]),
     ])
 
     return buildEmployeeTeleworkSupplies(
       profile,
       rows,
-      groupOpenDeclarations(declarations).get(employeeId) ?? new Map()
+      groupOpenDeclarations(declarations).get(employeeId) ?? new Map(),
+      { history, feeDefault: settings.ownEquipmentFeeDefault }
     )
   }
 
@@ -123,12 +133,14 @@ export class TeleworkSuppliesService {
 
 /**
  * Única forma de construcción para los consumidores (los cinco HUs que leen el
- * cumplimiento). Cablea los dos adaptadores MySQL; la firma pública no cambia y
- * el controller nunca instancia la clase directamente.
+ * cumplimiento). Cablea los tres adaptadores (repositorio de activos,
+ * declaraciones y ajustes de la empresa); la firma pública no cambia y el
+ * controller nunca instancia la clase directamente.
  */
 export function makeTeleworkSuppliesService(): TeleworkSuppliesService {
   return new TeleworkSuppliesService(
     new AssetsRepositoryMysql(),
-    new OwnEquipmentDeclarationsRepositoryMysql()
+    new OwnEquipmentDeclarationsRepositoryMysql(),
+    new TeleworkComplianceSettingService()
   )
 }

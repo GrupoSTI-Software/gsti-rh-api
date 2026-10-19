@@ -439,3 +439,91 @@ test('hasOwnEquipmentChanges exige un cambio real en cuota, descripcion o condic
     hasOwnEquipmentChanges(current, { monthlyFee: 350, conditions: 'x' })
   )
 })
+
+test('la matriz viaja con historico, cuota estandar y vigentes por cerrar', ({ assert }) => {
+  const closed = makeDeclaration({
+    declarationId: 90,
+    category: 'computing_equipment',
+    status: 'closed',
+    endDate: '2026-09-30',
+    closedReason: 'telework_ended',
+  })
+  const chair = makeDeclaration({ category: 'ergonomic_chair' })
+  const lifecycle = { history: [closed], feeDefault: 350 }
+
+  // Aplica: la cuota y el histórico viajan; nadie por cerrar (el tipo lo fija).
+  const applied = buildEmployeeTeleworkSupplies(
+    makeProfile(),
+    [makeRow({ category: 'ergonomic_chair', assignmentStatus: 'active', hasContract: true })],
+    ownEquipmentMap(chair),
+    lifecycle
+  )
+  assert.isTrue(applied.applies)
+  assert.deepEqual(applied.ownEquipmentHistory, [closed])
+  assert.equal(applied.ownEquipmentFeeDefault, 350)
+  assert.deepEqual(applied.ownEquipmentToClose, [])
+
+  // No aplica (presencial): las vigentes del mapa salen por cerrar; la cuota se conserva.
+  const onsite = buildEmployeeTeleworkSupplies(
+    makeProfile({ workSchedule: EMPLOYEE_WORK_SCHEDULE.ONSITE, teleworkPercentage: 0 }),
+    [],
+    ownEquipmentMap(chair),
+    lifecycle
+  )
+  assert.isFalse(onsite.applies)
+  assert.isEmpty(onsite.categories)
+  assert.deepEqual(onsite.ownEquipmentToClose, [chair])
+  assert.equal(onsite.ownEquipmentFeeDefault, 350)
+  assert.deepEqual(onsite.ownEquipmentHistory, [closed])
+
+  // Sin ciclo de vida explícito el default deja todo vacío: los callers viejos no cambian.
+  const legacy = buildEmployeeTeleworkSupplies(makeProfile(), [])
+  assert.isTrue(legacy.applies)
+  assert.deepEqual(legacy.ownEquipmentHistory, [])
+  assert.isNull(legacy.ownEquipmentFeeDefault)
+  assert.deepEqual(legacy.ownEquipmentToClose, [])
+})
+
+test('el aviso de sustitucion solo en delivered/shipping y con vigente', ({ assert }) => {
+  const chairDeclaration = makeDeclaration({ category: 'ergonomic_chair' })
+
+  // Cubierta por un activo y con vigente: el aviso prende.
+  const delivered = buildEmployeeTeleworkSupplies(
+    makeProfile(),
+    [makeRow({ category: 'ergonomic_chair', assignmentStatus: 'active', hasContract: true })],
+    ownEquipmentMap(chairDeclaration)
+  )
+  const deliveredChair = categoryAt(delivered, 0)
+  assert.equal(deliveredChair.status, 'delivered')
+  assert.isTrue(deliveredChair.ownEquipmentSuperseded)
+
+  // Cubierta pero sin vigente: nada que sustituir.
+  const withoutDeclaration = buildEmployeeTeleworkSupplies(makeProfile(), [
+    makeRow({ category: 'ergonomic_chair', assignmentStatus: 'active', hasContract: true }),
+  ])
+  assert.isFalse(categoryAt(withoutDeclaration, 0).ownEquipmentSuperseded)
+
+  // En envío con vigente: también prende.
+  const shipping = buildEmployeeTeleworkSupplies(
+    makeProfile(),
+    [makeRow({ category: 'ergonomic_chair', assignmentStatus: 'shipping', hasContract: false })],
+    ownEquipmentMap(chairDeclaration)
+  )
+  assert.equal(categoryAt(shipping, 0).status, 'shipping')
+  assert.isTrue(categoryAt(shipping, 0).ownEquipmentSuperseded)
+
+  // own_equipment, uncovered y not_delivered: false literal (el aviso no compila).
+  const ownEquipment = buildEmployeeTeleworkSupplies(
+    makeProfile(),
+    [],
+    ownEquipmentMap(chairDeclaration)
+  )
+  assert.equal(categoryAt(ownEquipment, 0).status, 'own_equipment')
+  assert.isFalse(categoryAt(ownEquipment, 0).ownEquipmentSuperseded)
+
+  const bare = buildEmployeeTeleworkSupplies(makeProfile(), [])
+  assert.equal(categoryAt(bare, 0).status, 'uncovered')
+  assert.isFalse(categoryAt(bare, 0).ownEquipmentSuperseded)
+  assert.equal(categoryAt(bare, 2).status, 'not_delivered')
+  assert.isFalse(categoryAt(bare, 2).ownEquipmentSuperseded)
+})

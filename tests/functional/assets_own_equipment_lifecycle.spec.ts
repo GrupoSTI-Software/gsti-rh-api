@@ -10,6 +10,7 @@ import {
   type EmployeeFixture,
 } from '#tests/helpers/employee_fixture'
 import {
+  addRoleModulePermissions,
   assertModuleEnforced,
   assertPermissionDenied,
   cleanupTenantActor,
@@ -419,8 +420,13 @@ test.group('Ciclo de vida de la declaración de equipo propio — endpoint HTTP'
 
     actorA = await createTenantActor('equipo-propio-vida-http-a')
     await grantModulePermissions(actorA, 'employees', ['manage-employee-supplies'])
+    // La parte 5 lee la matriz (gate `supplies:read`): se SUMA a la concesión de
+    // Empleados, porque `grantModulePermissions` la reemplazaría por completo.
+    await addRoleModulePermissions(actorA.role, 'supplies', ['read'])
     actorB = await createTenantActor('equipo-propio-vida-http-b')
     await grantModulePermissions(actorB, 'employees', ['manage-employee-supplies'])
+    // B también lee su propia matriz para probar la cuota estándar de su empresa (CA-15).
+    await addRoleModulePermissions(actorB.role, 'supplies', ['read'])
     // Actor lector (CA-16): `supplies:read` en el módulo supplies, SIN el permiso
     // de escritura de Empleados. Prueba que el gate del ajuste es por permiso y
     // no por módulo, y lee la matriz sobre su propio colaborador (Tarea 6).
@@ -1239,5 +1245,235 @@ test.group('Ciclo de vida de la declaración de equipo propio — endpoint HTTP'
     } finally {
       await setTelework(employeeIdA(), 100)
     }
+  })
+
+  // ── Parte 5: la matriz de insumos gana histórico, cuota estándar, aviso de
+  //    sustitución y vigentes por cerrar (CA-12 a CA-15 y los Review Focus
+  //    4/5). Reutiliza los actores, la siembra por tabla y `upsertTeleworkSettings`
+  //    de las partes 2-4; espeja los helpers `matrixBody`/`matrixCategoryOf` del
+  //    alta (`assets_own_equipment_declarations.spec.ts`). ─────────────────────
+
+  /** Declaración del ciclo de vida tal como sale por HTTP en la matriz. */
+  interface MatrixDeclarationResponse {
+    declarationId: number
+    employeeId: number
+    category: OwnEquipmentCategory
+    description: string
+    conditions: string | null
+    startDate: string
+    endDate: string | null
+    monthlyFee: number
+    feeSource: string
+    status: string
+    closedReason: string | null
+    createdAt: string
+  }
+
+  /** Categoría de insumos tal como sale por HTTP, con su declaración y su aviso (§11). */
+  interface MatrixCategoryResponse {
+    category: OwnEquipmentCategory
+    status: 'delivered' | 'shipping' | 'own_equipment' | 'uncovered' | 'not_delivered'
+    assets: Array<{ employeeSupplyId: number; assignmentStatus: string }>
+    ownEquipment: MatrixDeclarationResponse | null
+    ownEquipmentSuperseded: boolean
+  }
+
+  /** Cuerpo de la matriz de insumos que consume la parte 5. */
+  interface MatrixResponse {
+    employeeId: number
+    applies: boolean
+    isLegallyRequired: boolean
+    teleworkPercentage: number
+    legalThresholdPercent: number
+    categories: MatrixCategoryResponse[]
+    ownEquipmentHistory: MatrixDeclarationResponse[]
+    ownEquipmentFeeDefault: number | null
+    ownEquipmentToClose: MatrixDeclarationResponse[]
+    teleworkSuppliesSummary: {
+      applies: boolean
+      isLegallyRequired: boolean
+      deliveredCount: number
+      shippingCount: number
+      ownEquipmentCount: number
+      uncoveredCount: number
+      unsignedCustodyCount: number
+    }
+  }
+
+  /** GET de la matriz como el usuario y la empresa dados (gate `supplies:read`). */
+  async function matrixAs(
+    client: ApiClient,
+    user: User,
+    buPublicId: string,
+    employeeId: number
+  ): Promise<MatrixResponse> {
+    const response = await client
+      .get(`/api/employees/${employeeId}/telework-supplies`)
+      .loginAs(user)
+      .headers({ 'X-Business-Unit-Id': buPublicId })
+    response.assertStatus(200)
+    return response.body().data as MatrixResponse
+  }
+
+  /** GET de la matriz como el actor A sobre su empresa (colaborador A). */
+  const matrixBody = (client: ApiClient, employeeId: number) =>
+    matrixAs(client, actorAUser(), buPublicIdA(), employeeId)
+
+  /** Categoría de la matriz por nombre; falla si el API no la trae. */
+  function matrixCategoryOf(
+    body: MatrixResponse,
+    category: OwnEquipmentCategory
+  ): MatrixCategoryResponse {
+    const found = body.categories.find((item) => item.category === category)
+    if (found === undefined) throw new Error(`Falta la categoría ${category} en la matriz.`)
+    return found
+  }
+
+  test('CA-12: el historico viaja ordenado por fin desc y luego id desc', async ({
+    client,
+    assert,
+  }) => {
+    // Dos cierres empatados en 2026-09-30 y uno en 2026-08-31; el orden de
+    // inserción fija los ids y el empate lo desempata el id desc.
+    const chairId = await insertDeclaration({
+      category: 'ergonomic_chair',
+      status: 'closed',
+      endDate: '2026-09-30',
+    })
+    const computingId = await insertDeclaration({
+      category: 'computing_equipment',
+      status: 'closed',
+      endDate: '2026-08-31',
+    })
+    const accessoryId = await insertDeclaration({
+      category: 'accessory',
+      status: 'closed',
+      endDate: '2026-09-30',
+    })
+
+    const body = await matrixBody(client, employeeIdA())
+
+    assert.deepEqual(
+      body.ownEquipmentHistory.map((declaration) => declaration.declarationId),
+      [accessoryId, chairId, computingId]
+    )
+    assert.isTrue(body.ownEquipmentHistory.every((declaration) => declaration.status === 'closed'))
+  })
+
+  test('CA-13: la categoria cubierta por un activo prende el aviso y la declaracion sigue vigente', async ({
+    client,
+    assert,
+  }) => {
+    const declarationId = await insertDeclaration({ category: 'ergonomic_chair' })
+    // Resguardo `active` de la silla: la cubre y el activo manda en el estado.
+    await createTeleworkSupply({ category: 'ergonomic_chair', status: 'active' })
+
+    const body = await matrixBody(client, employeeIdA())
+    const chair = matrixCategoryOf(body, 'ergonomic_chair')
+    assert.equal(chair.status, 'delivered')
+    assert.equal(chair.ownEquipment?.declarationId, declarationId)
+    assert.isTrue(chair.ownEquipmentSuperseded)
+
+    // Las categorías sin vigente no llevan aviso: el literal es falso.
+    assert.isFalse(matrixCategoryOf(body, 'computing_equipment').ownEquipmentSuperseded)
+    assert.isFalse(matrixCategoryOf(body, 'accessory').ownEquipmentSuperseded)
+
+    // La declaración sigue vigente aunque el activo mande en el estado (regla 7).
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 1)
+  })
+
+  test('CA-14: con 0% la matriz devuelve las vigentes para terminarlas y no se puede declarar', async ({
+    client,
+    assert,
+  }) => {
+    await upsertTeleworkSettings(buIdA(), 350)
+    await setTelework(employeeIdA(), 0)
+    try {
+      const declarationId = await insertDeclaration({ category: 'computing_equipment' })
+
+      const before = await matrixBody(client, employeeIdA())
+      assert.isFalse(before.applies)
+      assert.isEmpty(before.categories)
+      assert.deepEqual(
+        before.ownEquipmentToClose.map((declaration) => declaration.declarationId),
+        [declarationId]
+      )
+      // Resumen en ceros: sin teletrabajo no cuenta nada.
+      assert.deepEqual(before.teleworkSuppliesSummary, {
+        applies: false,
+        isLegallyRequired: false,
+        deliveredCount: 0,
+        shippingCount: 0,
+        ownEquipmentCount: 0,
+        uncoveredCount: 0,
+        unsignedCustodyCount: 0,
+      })
+
+      // Sin teletrabajo el alta se rechaza (la vigente se conserva).
+      const rejected = await postAsA(client, employeeIdA(), {
+        ...BASE_PAYLOAD,
+        category: 'ergonomic_chair',
+      })
+      rejected.assertStatus(422)
+      assert.equal(rejected.body().key, 'colaborador-sin-teletrabajo')
+
+      // Terminar su vigente procede aunque ya no teletrabaje.
+      const closed = await postCloseAsA(client, declarationId, {
+        endDate: '2026-10-20',
+        closedReason: 'telework_ended',
+      })
+      closed.assertStatus(200)
+      assert.equal(closed.body().data.status, 'closed')
+
+      // Sin vigentes la lista por cerrar queda vacía.
+      const after = await matrixBody(client, employeeIdA())
+      assert.isFalse(after.applies)
+      assert.deepEqual(after.ownEquipmentToClose, [])
+    } finally {
+      await setTelework(employeeIdA(), 100)
+    }
+  })
+
+  test('CA-15: la cuota estandar de la empresa viaja en la matriz', async ({ client, assert }) => {
+    await upsertTeleworkSettings(buIdA(), 350)
+
+    const a = await matrixBody(client, employeeIdA())
+    assert.equal(a.ownEquipmentFeeDefault, 350)
+
+    // La empresa de B no tiene fila de ajustes: sin estándar.
+    const b = await matrixAs(client, actorBUser(), buPublicIdB(), employeeIdB())
+    assert.isNull(b.ownEquipmentFeeDefault)
+  })
+
+  test('Review Focus 4 y 5: la borrada logica no aparece; la vigente no viaja en el historico', async ({
+    client,
+    assert,
+  }) => {
+    // Vigente de silla: no es histórico (solo viajan las cerradas).
+    const openChairId = await insertDeclaration({ category: 'ergonomic_chair' })
+    const closedChairId = await insertDeclaration({
+      category: 'ergonomic_chair',
+      status: 'closed',
+      endDate: '2026-09-30',
+    })
+    // Cerrada borrada lógicamente: fuera del histórico aunque siga en la tabla.
+    const deletedId = await insertDeclaration({
+      category: 'computing_equipment',
+      status: 'closed',
+      endDate: '2026-07-31',
+      deletedAt: new Date(),
+    })
+
+    const body = await matrixBody(client, employeeIdA())
+    const historyIds = body.ownEquipmentHistory.map((declaration) => declaration.declarationId)
+
+    assert.deepEqual(historyIds, [closedChairId])
+    assert.notInclude(historyIds, deletedId)
+    assert.notInclude(historyIds, openChairId)
+    // La vigente sí sale adjunta a su categoría.
+    assert.equal(
+      matrixCategoryOf(body, 'ergonomic_chair').ownEquipment?.declarationId,
+      openChairId
+    )
   })
 })

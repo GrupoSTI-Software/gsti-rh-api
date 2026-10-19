@@ -17,6 +17,7 @@ import type {
   EmployeeTeleworkSuppliesDto,
   TeleworkCoverageRow,
   TeleworkProfile,
+  TeleworkSuppliesLifecycle,
   TeleworkSuppliesSummary,
   TeleworkSupplyAssetDto,
   TeleworkSupplyCategoryDto,
@@ -111,11 +112,17 @@ export function resolveCategoryStatus(
  * LLAVES del mapa alimentan a `resolveCategoryStatus` (el estado lo sigue
  * decidiendo la regla pura) y el valor se adjunta como `ownEquipment` a la
  * categoría. Vacío por defecto: los callers existentes no cambian.
+ *
+ * `lifecycle` (VLRH-H1791493045968, Tarea 6) acompaña a la matriz con el
+ * histórico ordenado y la cuota estándar de la empresa; con `applies: false`
+ * las vigentes del mapa salen además en `ownEquipmentToClose` para terminarlas.
+ * El default deja todo vacío: el resumen por lote construye con él y no cambia.
  */
 export function buildEmployeeTeleworkSupplies(
   profile: TeleworkProfile,
   rows: readonly TeleworkCoverageRow[],
-  ownEquipmentDeclarations: ReadonlyMap<SupplyTypeTeleworkCategory, OwnEquipmentDeclarationDto> = new Map()
+  ownEquipmentDeclarations: ReadonlyMap<SupplyTypeTeleworkCategory, OwnEquipmentDeclarationDto> = new Map(),
+  lifecycle: TeleworkSuppliesLifecycle = { history: [], feeDefault: null }
 ): EmployeeTeleworkSuppliesDto {
   const applicability = resolveTeleworkApplicability(profile)
   const ownRows = rows.filter((row) => row.employeeId === profile.employeeId)
@@ -128,6 +135,11 @@ export function buildEmployeeTeleworkSupplies(
       teleworkPercentage: profile.teleworkPercentage,
       legalThresholdPercent: TELEWORK_LEGAL_THRESHOLD_PERCENT,
       categories: [],
+      ownEquipmentHistory: lifecycle.history,
+      ownEquipmentFeeDefault: lifecycle.feeDefault,
+      // Quien dejó de aplicar conserva TODAS sus vigentes listadas para
+      // terminarlas (incluidas las de un colaborador dado de baja).
+      ownEquipmentToClose: [...ownEquipmentDeclarations.values()],
       teleworkSuppliesSummary: emptySummary(),
     }
     return { ...matrix, teleworkSuppliesSummary: summarizeTeleworkSupplies(matrix) }
@@ -148,6 +160,10 @@ export function buildEmployeeTeleworkSupplies(
     teleworkPercentage: profile.teleworkPercentage,
     legalThresholdPercent: TELEWORK_LEGAL_THRESHOLD_PERCENT,
     categories,
+    ownEquipmentHistory: lifecycle.history,
+    ownEquipmentFeeDefault: lifecycle.feeDefault,
+    // Quien aplica no tiene nada que cerrar por dejar de teletrabajar (el tipo lo fija).
+    ownEquipmentToClose: [],
     teleworkSuppliesSummary: emptySummary(),
   }
   return { ...matrix, teleworkSuppliesSummary: summarizeTeleworkSupplies(matrix) }
@@ -231,6 +247,11 @@ function buildCategoryDto(
       status,
       assets: assets as [TeleworkSupplyAssetDto, ...TeleworkSupplyAssetDto[]],
       ownEquipment: ownEquipmentDeclarations.get(category) ?? null,
+      // El aviso solo prende con la categoría cubierta y una vigente que sustituir.
+      ownEquipmentSuperseded: isOwnEquipmentSuperseded(
+        status,
+        ownEquipmentDeclarations.has(category)
+      ),
     }
   }
 
@@ -243,11 +264,13 @@ function buildCategoryDto(
       status,
       assets: [],
       ownEquipment: ownEquipmentDeclarations.get(category) as OwnEquipmentDeclarationDto,
+      // El equipo propio no se sustituye a sí mismo: literal `false` (el tipo lo exige).
+      ownEquipmentSuperseded: false,
     }
   }
 
   if (status === 'uncovered' && category !== SUPPLY_TYPE_TELEWORK_CATEGORY.ACCESSORY) {
-    return { category, status, assets: [], ownEquipment: null }
+    return { category, status, assets: [], ownEquipment: null, ownEquipmentSuperseded: false }
   }
 
   // Inalcanzable por construcción: el resolver solo da `not_delivered` al aditamento, así que `category` ya es ACCESSORY aquí; se deja explícito por la unión discriminada, no como sustitución silenciosa.
@@ -256,6 +279,7 @@ function buildCategoryDto(
     status: 'not_delivered',
     assets: [],
     ownEquipment: null,
+    ownEquipmentSuperseded: false,
   }
 }
 
