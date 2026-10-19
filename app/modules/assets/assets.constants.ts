@@ -78,7 +78,18 @@ export const ASSET_FILE_NAME_PREFIX = {
   responseContract: 'resguardo-activo',
   assignationPhoto: 'foto-asignacion-activo',
   returnPhoto: 'foto-devolucion-activo',
+  /** Descarga de la evidencia de la declaración de equipo propio (CA-7). */
+  ownEquipmentEvidence: 'equipo-propio',
 } as const
+
+/**
+ * Carpeta del objeto de la evidencia de una declaración de equipo propio
+ * (VLRH-H1791493046616, §14): la key es
+ * `own-equipment-declarations/${businessUnitId}/${cuid()}` —la empresa sale de
+ * la fila del colaborador leída en alcance, nunca del body— y sin el nombre que
+ * mandó el cliente, que solo aporta su extensión.
+ */
+export const OWN_EQUIPMENT_EVIDENCE_S3_FOLDER = 'own-equipment-declarations'
 
 /**
  * Estados de una declaración de equipo propio (`..._status`, regla 3): `active`

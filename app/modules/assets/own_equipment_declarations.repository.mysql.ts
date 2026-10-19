@@ -47,6 +47,8 @@ const DECLARATION_DTO_COLUMNS = [
   'employee_own_equipment_declaration_fee_source as fee_source',
   'employee_own_equipment_declaration_status as status',
   'employee_own_equipment_declaration_closed_reason as closed_reason',
+  // La key de la evidencia es privada: solo alimenta `hasEvidence` en el mapper.
+  'employee_own_equipment_declaration_file as evidence_file',
   'employee_own_equipment_declaration_created_at as created_at',
 ]
 
@@ -63,6 +65,7 @@ interface DeclarationRow {
   fee_source: OwnEquipmentFeeSource
   status: OwnEquipmentDeclarationStatus
   closed_reason: OwnEquipmentClosedReason | null
+  evidence_file: string | null
   created_at: string | Date
 }
 
@@ -80,6 +83,8 @@ function toDto(row: DeclarationRow): OwnEquipmentDeclarationDto {
     feeSource: row.fee_source,
     status: row.status,
     closedReason: row.closed_reason,
+    // La key NUNCA sale (§14): un archivo vacío o de solo espacios tampoco cuenta.
+    hasEvidence: row.evidence_file !== null && row.evidence_file.trim() !== '',
     createdAt: new Date(row.created_at).toISOString(),
   }
 }
@@ -218,6 +223,9 @@ export default class OwnEquipmentDeclarationsRepositoryMysql
       employee_own_equipment_declaration_monthly_fee: row.monthlyFee,
       employee_own_equipment_declaration_fee_source: row.feeSource,
       employee_own_equipment_declaration_status: 'active',
+      // Sin archivo la columna queda NULL (§14): el ajuste y el término no la
+      // mandan, así que la versión nueva nace sin evidencia de facto (regla 5).
+      employee_own_equipment_declaration_file: row.file ?? null,
       employee_own_equipment_declaration_created_by_user_id: row.createdByUserId,
       employee_own_equipment_declaration_created_at: new Date(),
     })
@@ -239,6 +247,28 @@ export default class OwnEquipmentDeclarationsRepositoryMysql
       .first()
 
     return row ? toDto(row) : null
+  }
+
+  async findEvidencePath(
+    businessUnitIds: readonly number[],
+    declarationId: number
+  ): Promise<{ declarationId: number; storedPath: string | null } | null> {
+    // Espejo de `findById`, pero sin filtrar por estado: la declaración cerrada
+    // conserva su evidencia (regla 8) y su descarga sigue viva.
+    const row: { declaration_id: number; evidence_file: string | null } | null = await db
+      .from('employee_own_equipment_declarations')
+      .where('employee_own_equipment_declaration_id', declarationId)
+      .whereIn('business_unit_id', [...businessUnitIds]) // el scope DENTRO de la consulta (§13)
+      .whereNull('employee_own_equipment_declaration_deleted_at')
+      .select(
+        'employee_own_equipment_declaration_id as declaration_id',
+        'employee_own_equipment_declaration_file as evidence_file'
+      )
+      .first()
+
+    return row
+      ? { declarationId: Number(row.declaration_id), storedPath: row.evidence_file }
+      : null
   }
 
   async findOpenByEmployees(

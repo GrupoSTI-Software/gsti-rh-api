@@ -70,6 +70,8 @@ function makeDeclaration(
     endDate: null,
     closedReason: null,
     feeSource: 'adjusted',
+    // Sin evidencia: es el estado de la declaración que no sube archivo (VLRH-H1791493046616).
+    hasEvidence: false,
     ...overrides,
   }
 }
