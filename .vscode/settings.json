@@ -1,0 +1,4 @@
+{
+  "files.autoSave": "onFocusChange",
+  "workbench.localHistory.maxFileEntries": 500
+}
