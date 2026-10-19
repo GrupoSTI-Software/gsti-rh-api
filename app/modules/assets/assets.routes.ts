@@ -72,6 +72,15 @@ router
       .use(
         middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateOwnEquipmentDeclaration)
       )
+    // Término de la declaración vigente: fija fecha de fin y motivo del catálogo.
+    router
+      .post(
+        '/own-equipment-declarations/:declarationId/close',
+        '#modules/assets/own_equipment_declarations.controller.close'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.closeOwnEquipmentDeclaration)
+      )
   })
   .prefix('/api')
   .use(middleware.auth())

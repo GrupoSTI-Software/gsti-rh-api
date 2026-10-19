@@ -3483,6 +3483,8 @@
   "own_equipment_declaration_created_message": "Own equipment declaration saved",
   "own_equipment_declaration_adjusted_title": "Own equipment declaration",
   "own_equipment_declaration_adjusted_message": "Own equipment declaration adjusted",
+  "own_equipment_declaration_closed_title": "Own equipment declaration",
+  "own_equipment_declaration_closed_message": "Own equipment declaration closed",
   "asset_employee_telework_supplies_title": "Employee telework supplies",
   "asset_employee_telework_supplies_successfully": "Employee telework supplies retrieved successfully",
   "vacation_period_not_started_title": "The period has not started",

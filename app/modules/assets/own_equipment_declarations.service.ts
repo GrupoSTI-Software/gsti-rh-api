@@ -5,7 +5,7 @@ import { MAX_ALLOWANCE } from '#constants/telework_compliance_setting'
 import TeleworkComplianceSettingService from '#services/telework_compliance_setting_service'
 import { CIVIL_DATE_ANCHOR_ZONE, toBusinessDateString } from '#utils/business_date'
 import { TenantContext } from '#utils/tenant_context'
-import { ASSET_ERROR_KEYS, OWN_EQUIPMENT_ADJUSTED_CLOSE_REASON } from './assets.constants.js'
+import { ASSET_ERROR_KEYS, OWN_EQUIPMENT_ADJUSTED_CLOSE_REASON, type OwnEquipmentClosedReason } from './assets.constants.js'
 import { AssetError } from './assets.error.js'
 import type { OwnEquipmentDeclarationDto } from './dto/own_equipment_declarations.dto.js'
 import type { OwnEquipmentDeclarationsRepository } from './own_equipment_declarations.repository.js'
@@ -85,6 +85,16 @@ export interface OwnEquipmentDeclarationAdjustInput {
   effectiveDate?: string
   description?: string
   conditions?: string | null
+}
+
+/**
+ * Campos del término que ya validó Vine (sin `monthlyFee`): fecha de fin
+ * opcional —por omisión, el día de hoy en zona de negocio— y motivo
+ * obligatorio del catálogo (Vine rebota `adjusted`).
+ */
+export interface OwnEquipmentCloseInput {
+  endDate?: string
+  closedReason: OwnEquipmentClosedReason
 }
 
 export default class OwnEquipmentDeclarationsService {
@@ -339,6 +349,82 @@ export default class OwnEquipmentDeclarationsService {
     if (declaration === null) {
       // No debería faltar: se acaba de insertar y el alcance es el mismo.
       throw new Error('La declaración de equipo propio ajustada no se pudo leer.')
+    }
+    return declaration
+  }
+
+  /**
+   * Termina la declaración vigente (VLRH-H1791493045968): fija su periodo, su
+   * motivo del catálogo y su autor. El término solo bloquea la DECLARACIÓN,
+   * nunca el colaborador: procede con el colaborador dado de baja o a 0% para
+   * poder limpiar siempre.
+   *
+   * Orden: pre-chequeo sin candado (404/409) → transacción con el candado de la
+   * declaración y su re-chequeo → fecha (borde INCLUSIVO: `endDate` igual al
+   * inicio es válido) → cierre. `endDate` por omisión es hoy en zona de negocio.
+   *
+   * @throws AssetError 404 `declaracion-de-equipo-propio-no-encontrada` |
+   *   409 `declaracion-de-equipo-propio-no-vigente` | 422 `entrada-invalida`.
+   */
+  async close(
+    declarationId: number,
+    input: OwnEquipmentCloseInput,
+    userId: number
+  ): Promise<OwnEquipmentDeclarationDto> {
+    const scope = TenantContext.getScope()
+
+    // Pre-chequeo sin candado (respuesta rápida): inexistente, ajena o borrada
+    // → 404 indistinguible (CA-11); ya cerrada → 409.
+    const prechecked = await this.repository.findDeclarationForChange(db, scope, declarationId, {
+      lock: false,
+    })
+    if (prechecked === null) throw AssetError.ownEquipmentDeclarationNotFound()
+    if (prechecked.status !== 'active') throw AssetError.ownEquipmentDeclarationNotActive()
+
+    await db.transaction(async (trx) => {
+      // Solo el candado de la DECLARACIÓN: el término no exige al colaborador
+      // vivo ni con teletrabajo (baja y 0% se permiten para poder limpiar).
+      const forChange = await this.repository.findDeclarationForChange(trx, scope, declarationId, {
+        lock: true,
+      })
+      if (forChange === null) throw AssetError.ownEquipmentDeclarationNotFound()
+      if (forChange.status !== 'active') throw AssetError.ownEquipmentDeclarationNotActive()
+
+      // `endDate` por omisión es hoy en zona de negocio, nunca `new Date()` en UTC.
+      const endDate = input.endDate ?? toBusinessDateString()
+      if (!CALENDAR_DATE.test(endDate) || !DateTime.fromISO(endDate).isValid) {
+        // Prefijo i18n fantasma (no existe en `resources/langs/*`): el detalle
+        // propio es siempre el del respaldo.
+        throw new AssetError(
+          422,
+          ASSET_ERROR_KEYS.INVALID_INPUT,
+          'asset_own_equipment_declaration_invalid_date',
+          'Datos inválidos',
+          'La fecha de término no es una fecha válida'
+        )
+      }
+      // Borde INCLUSIVO: `endDate` igual al inicio de la vigente es válido (regla 8).
+      if (endDate < forChange.startDate) {
+        throw new AssetError(
+          422,
+          ASSET_ERROR_KEYS.INVALID_INPUT,
+          'asset_own_equipment_declaration_invalid_date',
+          'Datos inválidos',
+          'La fecha de término no puede ser anterior al inicio de la declaración'
+        )
+      }
+
+      await this.repository.closeDeclaration(trx, declarationId, {
+        endDate,
+        reason: input.closedReason,
+        userId,
+      })
+    })
+
+    const declaration = await this.repository.findById(db, scope, declarationId)
+    if (declaration === null) {
+      // No debería faltar: se acaba de cerrar y el alcance es el mismo.
+      throw new Error('La declaración de equipo propio terminada no se pudo leer.')
     }
     return declaration
   }

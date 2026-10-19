@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
 import db from '@adonisjs/lucid/services/db'
 import type User from '#models/user'
+import { toBusinessDateString } from '#utils/business_date'
 import OwnEquipmentDeclarationsRepositoryMysql from '#modules/assets/own_equipment_declarations.repository.mysql'
 import {
   cleanupEmployeeFixture,
@@ -1040,5 +1041,203 @@ test.group('Ciclo de vida de la declaración de equipo propio — endpoint HTTP'
     assertPermissionDenied(assert, denied)
 
     assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 0)
+  })
+
+  // ── Parte 4: el término por HTTP
+  //    (CA-9, CA-10 close, CA-11 close, CA-14 y el Review Focus 3). Reutiliza
+  //    los actores y la siembra por tabla de la parte 3. ──────────────────────
+
+  /** POST del término como el usuario dado, con la empresa indicada en la cabecera. */
+  function postCloseAs(
+    client: ApiClient,
+    user: User,
+    buPublicId: string,
+    declarationId: number,
+    payload: Record<string, unknown>
+  ) {
+    return client
+      .post(`/api/own-equipment-declarations/${declarationId}/close`)
+      .loginAs(user)
+      .headers({ 'X-Business-Unit-Id': buPublicId })
+      .json(payload)
+  }
+
+  const postCloseAsA = (
+    client: ApiClient,
+    declarationId: number,
+    payload: Record<string, unknown>
+  ) => postCloseAs(client, actorAUser(), buPublicIdA(), declarationId, payload)
+
+  test('CA-9: el término cierra con fecha y motivo; sin fecha usa hoy en zona de negocio', async ({
+    client,
+    assert,
+  }) => {
+    // Con fecha y motivo del catálogo.
+    const first = await insertDeclaration({ category: 'ergonomic_chair' })
+    const closed = await postCloseAsA(client, first, {
+      endDate: '2026-10-20',
+      closedReason: 'telework_ended',
+    })
+    closed.assertStatus(200)
+
+    const body = closed.body()
+    assert.equal(body.type, 'success')
+    assert.equal(body.title, 'Declaración de equipo propio')
+    assert.equal(body.message, 'Declaración de equipo propio terminada')
+    assert.equal(body.data.declarationId, first)
+    assert.equal(body.data.status, 'closed')
+    assert.equal(body.data.endDate, '2026-10-20')
+    assert.equal(body.data.closedReason, 'telework_ended')
+
+    const row = await declarationRow(first)
+    assert.equal(row.employee_own_equipment_declaration_status, 'closed')
+    assert.equal(row.employee_own_equipment_declaration_end_date, '2026-10-20')
+    assert.equal(row.employee_own_equipment_declaration_closed_reason, 'telework_ended')
+    assert.equal(row.employee_own_equipment_declaration_closed_by_user_id, actorAUser().userId)
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'ergonomic_chair'), 0)
+
+    // Sin fecha: hoy en zona de negocio, nunca `new Date()` en UTC.
+    const second = await insertDeclaration({ category: 'computing_equipment' })
+    const defaulted = await postCloseAsA(client, second, { closedReason: 'other' })
+    defaulted.assertStatus(200)
+    assert.equal(defaulted.body().data.endDate, toBusinessDateString())
+    assert.equal(defaulted.body().data.closedReason, 'other')
+
+    // Motivo obligatorio y del catálogo: sin motivo, `adjusted` y cualquier otro
+    // literal rebotan en Vine (422) antes de tocar la fila.
+    for (const payload of [{}, { closedReason: 'adjusted' }, { closedReason: 'whatever' }]) {
+      const invalid = await postCloseAsA(client, second, payload)
+      invalid.assertStatus(422)
+      assert.equal(invalid.body().key, 'entrada-invalida')
+    }
+
+    // Fecha anterior al inicio de la vigente (inicio 2026-09-01): 422 de fecha.
+    const third = await insertDeclaration({ category: 'accessory', startDate: '2026-09-01' })
+    const beforeStart = await postCloseAsA(client, third, {
+      endDate: '2026-08-31',
+      closedReason: 'telework_ended',
+    })
+    beforeStart.assertStatus(422)
+    assert.equal(beforeStart.body().key, 'entrada-invalida')
+    assert.equal(
+      beforeStart.body().detail,
+      'La fecha de término no puede ser anterior al inicio de la declaración'
+    )
+    assert.equal(await activeDeclarationCount(employeeIdA(), 'accessory'), 1)
+    const stillOpen = await declarationRow(third)
+    assert.equal(stillOpen.employee_own_equipment_declaration_status, 'active')
+  })
+
+  test('Review Focus 3: cerrar con endDate igual al inicio es válido (borde inclusivo)', async ({
+    client,
+    assert,
+  }) => {
+    const id = await insertDeclaration({ category: 'ergonomic_chair', startDate: '2026-09-01' })
+
+    const response = await postCloseAsA(client, id, {
+      endDate: '2026-09-01',
+      closedReason: 'conditions_changed',
+    })
+    response.assertStatus(200)
+    assert.equal(response.body().data.endDate, '2026-09-01')
+
+    const row = await declarationRow(id)
+    assert.equal(row.employee_own_equipment_declaration_status, 'closed')
+    assert.equal(row.employee_own_equipment_declaration_end_date, '2026-09-01')
+  })
+
+  test('CA-10: cerrar sobre una cerrada responde 409 sin efecto', async ({ client, assert }) => {
+    const id = await insertDeclaration({ category: 'ergonomic_chair' })
+    const first = await postCloseAsA(client, id, {
+      endDate: '2026-10-20',
+      closedReason: 'telework_ended',
+    })
+    first.assertStatus(200)
+
+    const second = await postCloseAsA(client, id, {
+      endDate: '2026-10-25',
+      closedReason: 'other',
+    })
+    second.assertStatus(409)
+    assert.equal(second.body().key, 'declaracion-de-equipo-propio-no-vigente')
+
+    // La fila queda intacta: el segundo término no toca el periodo ya escrito.
+    const after = await declarationRow(id)
+    assert.equal(after.employee_own_equipment_declaration_status, 'closed')
+    assert.equal(after.employee_own_equipment_declaration_end_date, '2026-10-20')
+    assert.equal(after.employee_own_equipment_declaration_closed_reason, 'telework_ended')
+  })
+
+  test('CA-11: el close ajeno, inexistente y borrado responde el mismo 404', async ({
+    client,
+    assert,
+  }) => {
+    const foreignId = await insertDeclaration({
+      employeeId: employeeIdB(),
+      businessUnitId: buIdB(),
+    })
+    const deletedId = await insertDeclaration({
+      category: 'computing_equipment',
+      deletedAt: new Date(),
+    })
+
+    // El cuerpo debe ser VÁLIDO: Vine corre antes del pre-chequeo, así que un
+    // cuerpo inválido entregaría 422 en vez del 404 indistinguible.
+    const payload = { closedReason: 'telework_ended' }
+    const foreign = await postCloseAsA(client, foreignId, payload)
+    const missing = await postCloseAsA(client, 2_000_000_000, payload)
+    const deleted = await postCloseAsA(client, deletedId, payload)
+
+    for (const response of [foreign, missing, deleted]) response.assertStatus(404)
+
+    const expected = {
+      type: 'error',
+      title: 'Declaración de equipo propio no encontrada',
+      message: 'La declaración no existe o no pertenece a la empresa.',
+      detail: 'La declaración no existe o no pertenece a la empresa.',
+      key: 'declaracion-de-equipo-propio-no-encontrada',
+      data: null,
+    }
+    assert.deepEqual(foreign.body(), expected)
+    assert.deepEqual(missing.body(), expected)
+    assert.deepEqual(deleted.body(), expected)
+  })
+
+  test('CA-14: el término procede con el colaborador a 0% o dado de baja', async ({
+    client,
+    assert,
+  }) => {
+    // A 0%: limpiar la vigente procede aunque ya no teletrabaje.
+    await setTelework(employeeIdA(), 0)
+    try {
+      const atZero = await insertDeclaration({ category: 'ergonomic_chair' })
+      const zeroResponse = await postCloseAsA(client, atZero, {
+        endDate: '2026-10-20',
+        closedReason: 'telework_ended',
+      })
+      zeroResponse.assertStatus(200)
+      assert.equal(zeroResponse.body().data.status, 'closed')
+
+      // Dado de baja lógica: el término solo bloquea la DECLARACIÓN, nunca el
+      // colaborador, para poder limpiar siempre.
+      const withBaja = await insertDeclaration({ category: 'computing_equipment' })
+      await db
+        .from('employees')
+        .where('employee_id', employeeIdA())
+        .update({ employee_deleted_at: new Date() })
+      const bajaResponse = await postCloseAsA(client, withBaja, {
+        endDate: '2026-10-20',
+        closedReason: 'other',
+      })
+      await db
+        .from('employees')
+        .where('employee_id', employeeIdA())
+        .update({ employee_deleted_at: null })
+
+      bajaResponse.assertStatus(200)
+      assert.equal(bajaResponse.body().data.status, 'closed')
+    } finally {
+      await setTelework(employeeIdA(), 100)
+    }
   })
 })

@@ -34,9 +34,10 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
   // 159: entra storeOwnEquipmentDeclaration, la declaración de equipo propio de
   // la ficha.
   // 160: entra updateOwnEquipmentDeclaration, el ajuste versionado de la declaración.
-  test('declara exactamente 160 operaciones con module employees y bypass standard', ({ assert }) => {
+  // 161: entra closeOwnEquipmentDeclaration, el término de la declaración de equipo propio.
+  test('declara exactamente 161 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 160)
+    assert.equal(keys.length, 161)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -261,6 +262,7 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.createEmployeeSupply.action, 'manage-employee-supplies')
     assert.equal(d.storeOwnEquipmentDeclaration.action, 'manage-employee-supplies')
     assert.equal(d.updateOwnEquipmentDeclaration.action, 'manage-employee-supplies')
+    assert.equal(d.closeOwnEquipmentDeclaration.action, 'manage-employee-supplies')
     assert.equal(d.updateEmployeeSupply.action, 'manage-employee-supplies')
     assert.equal(d.retireEmployeeSupply.action, 'manage-employee-supplies')
     assert.equal(d.deleteEmployeeSupply.action, 'manage-employee-supplies')
