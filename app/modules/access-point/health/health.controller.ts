@@ -6,9 +6,13 @@ import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import {
   ensureAccessPointPermission,
-  resolveScopedAccessPoint,
+  resolveOwnedAccessPoint,
+  resolveParticipantAccessPoint,
 } from '#modules/access-point/access_point_authorization'
-import HealthService from './health.service.js'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import { TenantContext } from '#utils/tenant_context'
+import HealthService, { forGuest } from './health.service.js'
 import DeviceSyncService from './device_sync.service.js'
 
 const idValidator = vine.compile(
@@ -24,6 +28,9 @@ const idValidator = vine.compile(
  * cualquier autenticado, que es lo que haria `evaluate`.
  */
 export default class HealthController {
+  /** Scope del checador: puerto con su adaptador por defecto, reemplazable en pruebas. */
+  private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+
   /**
    * @swagger
    * /api/v1/access-points/health:
@@ -77,14 +84,20 @@ export default class HealthController {
       const { params } = await request.validateUsing(idValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      // Salud del aparato: agregados de todos sus participantes, en su scope.
+      const { accessPoint, deviceScope, role } = await resolveParticipantAccessPoint(
+        ctx,
+        params.accessPointId
+      )
 
       const service = new HealthService()
-      const row = await service.buildFor(accessPoint, DateTime.utc())
+      const row = await TenantContext.run(deviceScope, () =>
+        service.buildFor(accessPoint, DateTime.utc())
+      )
 
       return StandardResponseFormatter.success(
         response,
-        row,
+        role === 'guest' ? forGuest(row) : row,
         i18n.formatMessage('access_point_health_title'),
         i18n.formatMessage('access_point_health_message'),
         200,
@@ -110,6 +123,8 @@ export default class HealthController {
    *     responses:
    *       200:
    *         description: Ficha en data.accessPoint, con outcome answered, pending o failed
+   *       403:
+   *         description: La empresa es invitada del equipo (solo lectura)
    *       404:
    *         description: El equipo no esta en el alcance
    */
@@ -120,20 +135,30 @@ export default class HealthController {
       const { params } = await request.validateUsing(idValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      // Pedir al aparato que se reporte dispara trafico hacia el equipo: es de
+      // su responsable. La invitada lo lee (estado) pero no lo opera.
+      const accessPoint = await resolveOwnedAccessPoint(ctx, params.accessPointId)
+      const deviceScope = await this.scope.participants(
+        accessPoint.accessPointId,
+        accessPoint.businessUnitId
+      )
 
-      const outcome = await new DeviceSyncService().requestAndWait({
-        accessPointId: accessPoint.accessPointId,
-        businessUnitId: accessPoint.businessUnitId,
-        userId: auth.user?.userId ?? null,
-      })
+      const outcome = await TenantContext.run(deviceScope, () =>
+        new DeviceSyncService().requestAndWait({
+          accessPointId: accessPoint.accessPointId,
+          businessUnitId: accessPoint.businessUnitId,
+          userId: auth.user?.userId ?? null,
+        })
+      )
 
       /**
        * Se relee el equipo: si contesto, su ficha cambio mientras esperabamos.
        * Leer la instancia vieja mostraria justo lo que se pidio refrescar.
        */
-      const fresh = await resolveScopedAccessPoint(ctx, params.accessPointId)
-      const row = await new HealthService().buildFor(fresh, DateTime.utc())
+      const { accessPoint: fresh } = await resolveParticipantAccessPoint(ctx, params.accessPointId)
+      const row = await TenantContext.run(deviceScope, () =>
+        new HealthService().buildFor(fresh, DateTime.utc())
+      )
 
       const messageKey =
         outcome.kind === 'answered'

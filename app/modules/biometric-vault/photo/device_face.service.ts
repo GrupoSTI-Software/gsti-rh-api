@@ -9,6 +9,9 @@ import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/emp
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 import type AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
+import { isPinQuarantined } from '#modules/access-point/employee-sync/employee_sync_state'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import ConsentGate from '../consent/consent_gate.js'
 import PhotoDerivativeService from './photo_derivative.service.js'
 import PhotoPublicationService, { photoDeleteCorrelationKey } from './photo_publication.service.js'
@@ -60,7 +63,8 @@ export default class DeviceFaceService {
     private readonly publications: PhotoPublicationService = new PhotoPublicationService(),
     private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
     private readonly commands: DeviceCommandPort = new DeviceCommandService(),
-    private readonly consent: ConsentGate = new ConsentGate()
+    private readonly consent: ConsentGate = new ConsentGate(),
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
   ) {}
 
   async enable(input: EnableFaceInput): Promise<EnableFaceResult> {
@@ -170,7 +174,7 @@ export default class DeviceFaceService {
 
     const withdrawn = await this.publications.withdrawForEmployee(input.employeeId, now)
 
-    const pivots = await this.pivots.listLiveByEmployee(input.employeeId)
+    const pivots = await this.operable(await this.pivots.listLiveByEmployee(input.employeeId))
     const supported = await this.faceCapableAccessPoints(pivots)
     let deleteCommands = 0
     for (const pivot of pivots) {
@@ -244,6 +248,25 @@ export default class DeviceFaceService {
     return this.disable(input)
   }
 
+  /**
+   * Vinculos donde todavia se puede operar la cara (VLRH-P0065, 3.3): fuera
+   * los que estan en baja y los de aparatos donde la empresa del vinculo ya no
+   * participa (ex-invitada con la baja sin confirmar). A nombre de esa empresa
+   * la cola rechazaria el comando y, sin transaccion, el recorrido se cortaria
+   * a medias: la cara se quedaria en los demas checadores. La baja de la
+   * persona en ese aparato ya retira su rostro.
+   */
+  private async operable(pivots: AccessPointEmployee[]): Promise<AccessPointEmployee[]> {
+    const result: AccessPointEmployee[] = []
+    for (const pivot of pivots) {
+      const status = pivot.accessPointEmployeeSyncStatus
+      if (isPinQuarantined(status) || status === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED) continue
+      if (!(await this.scope.isParticipant(pivot.accessPointId, pivot.businessUnitId))) continue
+      result.push(pivot)
+    }
+    return result
+  }
+
   /** Equipos de la lista que no declararon carecer de rostro. */
   private async faceCapableAccessPoints(pivots: AccessPointEmployee[]): Promise<Set<number>> {
     const ids = [...new Set(pivots.map((pivot) => pivot.accessPointId))]
@@ -274,7 +297,7 @@ export default class DeviceFaceService {
    * como usuario no sirve de nada.
    */
   private async resolveTargets(input: EnableFaceInput): Promise<AccessPointEmployee[]> {
-    const pivots = await this.pivots.listLiveByEmployee(input.employeeId)
+    const pivots = await this.operable(await this.pivots.listLiveByEmployee(input.employeeId))
     if (input.accessPointIds.length > 0) {
       const wanted = new Set(input.accessPointIds)
       return pivots.filter((pivot) => wanted.has(pivot.accessPointId))

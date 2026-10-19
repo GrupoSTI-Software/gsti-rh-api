@@ -1,10 +1,12 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Competency from './competency.js'
 import BusinessUnitCompetencyLevel from './business_unit_competency_level.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * @swagger
@@ -31,9 +33,17 @@ import BusinessUnitCompetencyLevel from './business_unit_competency_level.js'
  *            type: string
  *          competencyDescriptorDeletedAt:
  *            type: string
+ *          businessUnitId:
+ *            type: number
+ *            nullable: true
+ *            description: Unidad de negocio dueña, heredada de la competencia padre (VLRH-H1792026427127)
  */
 
-export default class CompetencyDescriptor extends compose(BaseModel, SoftDeletes) {
+export default class CompetencyDescriptor extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare competencyDescriptorId: number
 
@@ -45,7 +55,23 @@ export default class CompetencyDescriptor extends compose(BaseModel, SoftDeletes
 
   @column()
   declare competencyDescriptorDescription: string
-  
+
+  /** Marca de pertenencia propia, heredada de la competencia padre (VLRH-H1792026427127). */
+  @column()
+  declare businessUnitId: number | null
+
+  /** Resuelve businessUnitId desde la competencia padre (nunca del payload). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: CompetencyDescriptor) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(async () => {
+      const parent = await Competency.query()
+        .where('competencyId', instance.competencyId)
+        .first()
+      return parent?.businessUnitId ? { businessUnitId: parent.businessUnitId } : null
+    }, 'la competencia')
+  }
+
   @column.dateTime({ autoCreate: true })
   declare competencyDescriptorCreatedAt: DateTime
 

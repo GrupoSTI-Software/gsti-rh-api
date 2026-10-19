@@ -4,6 +4,11 @@ import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '#constants/billing_subscription_error_codes'
 import { isBillingPaymentFailureReason } from '#constants/billing_payment_failure_reasons'
 import type { BillingPaymentFailureReason } from '#constants/billing_payment_failure_reasons'
+import type { StripeErrorAction } from '#constants/billing_stripe_error_catalog'
+import {
+  resolvePaymentFailureMessage,
+  type PaymentFailureMessage,
+} from '#helpers/billing_payment_failure_message'
 import { BillingSubscriptionServiceError } from '#exceptions/billing_subscription_service_error'
 import { BILLING_PROVIDER_KEYS } from '#modules/billing-provider/billing_provider.port'
 import { TenantContext } from '#utils/tenant_context'
@@ -22,11 +27,14 @@ export interface RecurringBillingPayment {
   periodEnd: string | null
 }
 
-/** Último intento fallido con motivo del catálogo. */
-export interface RecurringBillingFailure {
+/** Último intento fallido con motivo resumido y, si hay códigos, texto del catálogo. */
+export type RecurringBillingFailure = {
   at: string
   reason: BillingPaymentFailureReason
-}
+} & (
+  | PaymentFailureMessage
+  | { title: null; detail: null; action: null }
+)
 
 /** Vista de lectura del cobro automático en Mi suscripción. */
 export type RecurringBillingView =
@@ -45,6 +53,37 @@ export type RecurringBillingView =
  * @param latestStripePaidAt - Momento del último pago con proveedor stripe.
  * @returns Verdadero cuando no hay pago stripe en o después del fallo (empate cuenta como superado).
  */
+/**
+ * Último pago registrado con proveedor Stripe para la suscripción.
+ */
+export async function findLatestStripePaidAt(
+  billingSubscriptionId: number
+): Promise<DateTime | null> {
+  const latestStripeRow = await BillingPayment.query()
+    .where('billing_subscription_id', billingSubscriptionId)
+    .where('billing_payment_provider', BILLING_PROVIDER_KEYS.STRIPE)
+    .orderBy('billing_payment_paid_at', 'desc')
+    .select('billing_payment_paid_at')
+    .first()
+
+  return latestStripeRow?.billingPaymentPaidAt ?? null
+}
+
+function resolveLastFailureMessageFields(
+  code: string | null,
+  declineCode: string | null
+): PaymentFailureMessage | { title: null; detail: null; action: null } {
+  const resolved = resolvePaymentFailureMessage({ code, declineCode })
+  if (resolved === null) {
+    return { title: null, detail: null, action: null }
+  }
+  return {
+    title: resolved.title,
+    detail: resolved.detail,
+    action: resolved.action as StripeErrorAction,
+  }
+}
+
 export function isPaymentFailureActive(
   lastFailedAt: DateTime | null,
   latestStripePaidAt: DateTime | null
@@ -117,14 +156,7 @@ export default class BillingRecurringBillingService {
     const lastFailedAt = subscription.billingSubscriptionLastPaymentFailedAt
     const rawReason = subscription.billingSubscriptionLastPaymentFailureReason
 
-    const latestStripeRow = await BillingPayment.query()
-      .where('billing_subscription_id', subscription.billingSubscriptionId)
-      .where('billing_payment_provider', BILLING_PROVIDER_KEYS.STRIPE)
-      .orderBy('billing_payment_paid_at', 'desc')
-      .select('billing_payment_paid_at')
-      .first()
-
-    const latestStripePaidAt = latestStripeRow?.billingPaymentPaidAt ?? null
+    const latestStripePaidAt = await findLatestStripePaidAt(subscription.billingSubscriptionId)
     const failureActive = isPaymentFailureActive(lastFailedAt, latestStripePaidAt)
 
     let lastFailure: RecurringBillingFailure | null = null
@@ -132,9 +164,14 @@ export default class BillingRecurringBillingService {
       const reason: BillingPaymentFailureReason = isBillingPaymentFailureReason(rawReason)
         ? rawReason
         : 'other'
+      const messageFields = resolveLastFailureMessageFields(
+        subscription.billingSubscriptionLastPaymentFailureCode,
+        subscription.billingSubscriptionLastPaymentFailureDeclineCode
+      )
       lastFailure = {
         at: toRecurringCalendarDate(lastFailedAt),
         reason,
+        ...messageFields,
       }
     }
 

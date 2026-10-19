@@ -5,8 +5,10 @@ import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import {
   ensureAccessPointPermission,
-  resolveScopedAccessPoint,
+  resolveOwnedAccessPoint,
+  resolveParticipantAccessPoint,
 } from '#modules/access-point/access_point_authorization'
+import { TenantContext } from '#utils/tenant_context'
 import UploadProgressService from './upload_progress.service.js'
 import { accessPointParamValidator } from './validators/access_point_param.validator.js'
 
@@ -44,9 +46,14 @@ export default class UploadProgressController {
       const { params } = await request.validateUsing(accessPointParamValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      const { accessPoint, deviceScope } = await resolveParticipantAccessPoint(
+        ctx,
+        params.accessPointId
+      )
       const service = new UploadProgressService()
-      const progress = await service.list(accessPoint.accessPointId)
+      const progress = await TenantContext.run(deviceScope, () =>
+        service.list(accessPoint.accessPointId)
+      )
       return StandardResponseFormatter.success(
         response,
         progress,
@@ -91,7 +98,9 @@ export default class UploadProgressController {
       const { params } = await request.validateUsing(accessPointParamValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      // Reiniciar el avance hace que el aparato vuelva a subir todo: es
+      // configuracion del equipo, solo de la responsable.
+      const accessPoint = await resolveOwnedAccessPoint(ctx, params.accessPointId)
       const service = new UploadProgressService()
       const progress = await service.reset(
         accessPoint.accessPointId,

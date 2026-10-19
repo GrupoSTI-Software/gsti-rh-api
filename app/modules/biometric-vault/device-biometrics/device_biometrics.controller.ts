@@ -7,9 +7,14 @@ import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_wr
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 import {
   ensureAccessPointPermission,
-  resolveScopedAccessPoint,
+  resolveParticipantAccessPoint,
+  resolveParticipantPair,
   resolveScopedEmployee,
 } from '#modules/access-point/access_point_authorization'
+import { requireEmployeeBusinessUnitId } from '#modules/access-point/employee_business_unit'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import { TenantContext } from '#utils/tenant_context'
 import { toDeviceCommandDto } from '#modules/device-commands/dto/device_command.dto'
 import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
 import { DeviceCommandError } from '#exceptions/device_command_error'
@@ -90,6 +95,9 @@ const enrollmentValidator = vine.compile(
  * catalogo de equipos: la operacion es sobre la persona.
  */
 export default class DeviceBiometricsController {
+  /** Scope del checador: puerto con su adaptador por defecto, reemplazable en pruebas. */
+  private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+
   /**
    * @swagger
    * /api/v1/employees/{employeeId}/device-biometrics/fingerprint-enrollment:
@@ -121,17 +129,23 @@ export default class DeviceBiometricsController {
         },
       })
 
-      const accessPoint = await resolveScopedAccessPoint(ctx, payload.accessPointId)
-      const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
+      const pair = await resolveParticipantPair(
+        ctx,
+        payload.accessPointId,
+        payload.params.employeeId
+      )
+      const { accessPoint } = pair
 
       const service = new FingerprintEnrollmentService()
-      const result = await service.request({
-        accessPointId: accessPoint.accessPointId,
-        businessUnitId: accessPoint.businessUnitId,
-        employeeId: employee.employeeId,
-        fingerId: payload.fingerId,
-        requestedByUserId: auth.user?.userId ?? null,
-      })
+      const result = await TenantContext.run(pair.deviceScope, () =>
+        service.request({
+          accessPointId: accessPoint.accessPointId,
+          businessUnitId: pair.employeeBusinessUnitId,
+          employeeId: pair.employee.employeeId,
+          fingerId: payload.fingerId,
+          requestedByUserId: auth.user?.userId ?? null,
+        })
+      )
 
       return StandardResponseFormatter.success(
         response,
@@ -208,32 +222,42 @@ export default class DeviceBiometricsController {
       })
 
       const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
-      /** Origen y destinos, todos resueltos dentro del alcance antes de tocar nada. */
+      const businessUnitId = requireEmployeeBusinessUnitId(employee)
+      /**
+       * Origen y destinos, todos resueltos antes de tocar nada: propios o
+       * compartidos con la empresa del colaborador. La copia corre en la union
+       * de sus scopes, porque perfil y PIN de cada destino son del aparato.
+       */
+      const scopes = new Set<number>([businessUnitId])
       const source =
         payload.sourceAccessPointId === null || payload.sourceAccessPointId === undefined
           ? null
-          : await resolveScopedAccessPoint(ctx, payload.sourceAccessPointId)
+          : await resolveParticipantPair(ctx, payload.sourceAccessPointId, employee.employeeId)
+      source?.deviceScope.forEach((id) => scopes.add(id))
       const targetAccessPointIds: number[] = []
       for (const accessPointId of payload.targetAccessPointIds) {
-        const target = await resolveScopedAccessPoint(ctx, accessPointId)
-        targetAccessPointIds.push(target.accessPointId)
+        const target = await resolveParticipantPair(ctx, accessPointId, employee.employeeId)
+        target.deviceScope.forEach((id) => scopes.add(id))
+        targetAccessPointIds.push(target.accessPoint.accessPointId)
       }
 
       const service = new ReplicationService()
-      const result = await service.replicate({
-        employeeId: employee.employeeId,
-        businessUnitId: employee.businessUnitId as number,
-        sourceAccessPointId: source?.accessPointId ?? null,
-        targetAccessPointIds,
-        modalities: payload.modalities ?? [],
-        actor: {
-          userId: auth.user?.userId ?? null,
-          ip: request.ip(),
-          userAgent: request.header('user-agent') ?? null,
-          requestId: request.id() ?? null,
-        },
-        dryRun,
-      })
+      const result = await TenantContext.run([...scopes], () =>
+        service.replicate({
+          employeeId: employee.employeeId,
+          businessUnitId,
+          sourceAccessPointId: source?.accessPoint.accessPointId ?? null,
+          targetAccessPointIds,
+          modalities: payload.modalities ?? [],
+          actor: {
+            userId: auth.user?.userId ?? null,
+            ip: request.ip(),
+            userAgent: request.header('user-agent') ?? null,
+            requestId: request.id() ?? null,
+          },
+          dryRun,
+        })
+      )
 
       return StandardResponseFormatter.success(
         response,
@@ -286,15 +310,19 @@ export default class DeviceBiometricsController {
       })
       const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
 
-      // El equipo se resuelve con el alcance de la peticion: preguntar por uno
-      // de otra empresa no puede revelar nada de la propia.
-      const accessPoint =
+      // El equipo se resuelve como participante: preguntar por uno de otra
+      // empresa que no lo comparte no puede revelar nada de la propia.
+      const participant =
         payload.accessPointId === undefined
           ? null
-          : await resolveScopedAccessPoint(ctx, payload.accessPointId)
+          : await resolveParticipantPair(ctx, payload.accessPointId, employee.employeeId)
+      const scope =
+        participant?.deviceScope ?? (await this.scope.forEmployee(requireEmployeeBusinessUnitId(employee)))
 
       const service = new EmployeeBiometricSummaryService()
-      const biometrics = await service.of(employee.employeeId, accessPoint?.accessPointId)
+      const biometrics = await TenantContext.run(scope, () =>
+        service.of(employee.employeeId, participant?.accessPoint.accessPointId)
+      )
 
       return StandardResponseFormatter.success(
         response,
@@ -358,18 +386,24 @@ export default class DeviceBiometricsController {
         )
       }
 
+      // En el scope del colaborador: el checador compartido donde tiene la
+      // huella tambien cuenta para retenerla.
+      const businessUnitId = requireEmployeeBusinessUnitId(employee)
+      const scope = await this.scope.forEmployee(businessUnitId)
       const service = new FingerprintDeletionService()
-      const result = await service.delete({
-        employeeId: employee.employeeId,
-        fingerId: payload.params.fingerId,
-        actor: {
-          userId: actorUserId,
-          businessUnitId: employee.businessUnitId as number,
-          ip: request.ip(),
-          userAgent: request.header('user-agent') ?? null,
-          requestId: request.id() ?? null,
-        },
-      })
+      const result = await TenantContext.run(scope, () =>
+        service.delete({
+          employeeId: employee.employeeId,
+          fingerId: payload.params.fingerId,
+          actor: {
+            userId: actorUserId,
+            businessUnitId,
+            ip: request.ip(),
+            userAgent: request.header('user-agent') ?? null,
+            requestId: request.id() ?? null,
+          },
+        })
+      )
 
       return StandardResponseFormatter.success(
         response,
@@ -435,9 +469,9 @@ export default class DeviceBiometricsController {
         )
       }
 
-      // El equipo se vuelve a resolver con el alcance de la peticion: la fila
-      // del comando guarda su identificador, no el permiso para verlo.
-      const accessPoint = await resolveScopedAccessPoint(ctx, command.accessPointId)
+      // El equipo se vuelve a resolver como participante: la fila del comando
+      // guarda su identificador, no el permiso para verlo.
+      const { accessPoint } = await resolveParticipantAccessPoint(ctx, command.accessPointId)
 
       return StandardResponseFormatter.success(
         response,
@@ -483,20 +517,26 @@ export default class DeviceBiometricsController {
       })
       const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
 
-      /** Cada equipo del cuerpo se resuelve dentro del alcance antes de tocarlo. */
+      /** Cada equipo del cuerpo se resuelve como participante antes de tocarlo. */
       const accessPointIds: number[] = []
       for (const accessPointId of payload.accessPointIds ?? []) {
-        const accessPoint = await resolveScopedAccessPoint(ctx, accessPointId)
-        accessPointIds.push(accessPoint.accessPointId)
+        const participant = await resolveParticipantPair(ctx, accessPointId, employee.employeeId)
+        accessPointIds.push(participant.accessPoint.accessPointId)
       }
 
+      // En el scope del colaborador: sin el, el perfil del checador compartido
+      // no se ve y el rostro no se publica ahi.
+      const businessUnitId = requireEmployeeBusinessUnitId(employee)
+      const scope = await this.scope.forEmployee(businessUnitId)
       const service = new DeviceFaceService()
-      const result = await service.enable({
-        employeeId: employee.employeeId,
-        businessUnitId: employee.businessUnitId as number,
-        accessPointIds,
-        actorUserId: auth.user?.userId ?? null,
-      })
+      const result = await TenantContext.run(scope, () =>
+        service.enable({
+          employeeId: employee.employeeId,
+          businessUnitId,
+          accessPointIds,
+          actorUserId: auth.user?.userId ?? null,
+        })
+      )
 
       return StandardResponseFormatter.success(
         response,
@@ -535,12 +575,18 @@ export default class DeviceBiometricsController {
       })
       const employee = await resolveScopedEmployee(ctx, params.employeeId)
 
+      // En el scope del colaborador: retirar el rostro tiene que alcanzar
+      // tambien el checador compartido donde esta dado de alta.
+      const businessUnitId = requireEmployeeBusinessUnitId(employee)
+      const scope = await this.scope.forEmployee(businessUnitId)
       const service = new DeviceFaceService()
-      const result = await service.disable({
-        employeeId: employee.employeeId,
-        businessUnitId: employee.businessUnitId as number,
-        actorUserId: auth.user?.userId ?? null,
-      })
+      const result = await TenantContext.run(scope, () =>
+        service.disable({
+          employeeId: employee.employeeId,
+          businessUnitId,
+          actorUserId: auth.user?.userId ?? null,
+        })
+      )
 
       return StandardResponseFormatter.success(
         response,

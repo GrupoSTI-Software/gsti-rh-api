@@ -1,7 +1,11 @@
 import db from '@adonisjs/lucid/services/db'
+import logger from '@adonisjs/core/services/logger'
 import PlatformTenantGroup from '#models/platform_tenant_group'
 import { PLATFORM_TENANT_GROUP_ERROR_CODES } from '../constants/platform_tenant_group_error_codes.js'
 import { PlatformTenantGroupServiceError } from '../exceptions/platform_tenant_group_service_error.js'
+import AccessPointShareService, {
+  type ShareGroupWarning,
+} from '#modules/access-point/sharing/access_point_share.service'
 
 const TITULO_NOMBRE_GRUPO_YA_REGISTRADO = 'No fue posible crear el grupo de tenants'
 const TITULO_ASIGNACION_MIEMBROS = 'No fue posible asignar las cuentas al grupo'
@@ -36,6 +40,8 @@ export interface ListTenantGroupsResult {
 export interface DeleteTenantGroupResult {
   platformTenantGroupId: number
   tenantsLiberados: number
+  /** Invitaciones a checadores que quedan fuera del grupo; no se revocan (VLRH-P0065, D5). */
+  warnings: ShareGroupWarning[]
 }
 
 /** Cuenta que sale de un grupo anterior para entrar al grupo destino (regla 3). */
@@ -54,9 +60,13 @@ export interface ReplaceTenantGroupMembersResult {
   liberados: number
   /** Cuentas que se movieron desde otro grupo vivo, con su procedencia. */
   movidos: TenantGroupMovedItem[]
+  /** Invitaciones a checadores que quedan fuera del grupo; no se revocan (VLRH-P0065, D5). */
+  warnings: ShareGroupWarning[]
 }
 
 export default class PlatformTenantGroupService {
+  constructor(private readonly shares: AccessPointShareService = new AccessPointShareService()) {}
+
   /**
    * Normaliza un nombre para comparar unicidad: recorta espacios y mayúsculas.
    */
@@ -306,24 +316,52 @@ export default class PlatformTenantGroupService {
       )
     }
 
+    let liberadosIds: number[] = []
     const trx = await db.transaction()
     try {
-      const conteo = await trx
+      const miembros = (await trx
         .from('platform_tenant_group_members')
         .where('platform_tenant_group_id', id)
-        .count('* as total')
-        .first()
-        .then((r) => Number((r as { total: string | number } | null)?.total ?? 0))
+        .select('business_unit_id')) as Array<{ business_unit_id: number }>
 
       await trx.from('platform_tenant_group_members').where('platform_tenant_group_id', id).delete()
       grupo.useTransaction(trx)
       await grupo.delete()
       await trx.commit()
 
-      return { platformTenantGroupId: id, tenantsLiberados: conteo }
+      liberadosIds = miembros.map((m) => Number(m.business_unit_id))
     } catch (error) {
       await trx.rollback()
       throw error
+    }
+
+    // Despues del commit: el aviso se calcula con las membresias ya movidas.
+    const warnings = await this.safeWarnings(liberadosIds, id)
+    return { platformTenantGroupId: id, tenantsLiberados: liberadosIds.length, warnings }
+  }
+
+  /**
+   * Avisos de invitaciones fuera del grupo, sin tumbar la operacion: corre
+   * DESPUES del commit, asi que un fallo aqui no puede revertir nada y
+   * responder 500 haria creer que el cambio no se guardo. Se degrada a sin
+   * avisos y queda en el log; la discrepancia del inventario la sigue mostrando.
+   */
+  private async safeWarnings(
+    businessUnitIds: number[],
+    platformTenantGroupId: number
+  ): Promise<ShareGroupWarning[]> {
+    try {
+      return await this.shares.warningsForGroupExit(businessUnitIds)
+    } catch (error) {
+      logger.warn(
+        {
+          platformTenantGroupId,
+          businessUnitIds,
+          error: (error as Error).message.slice(0, 200),
+        },
+        'grupos: no se pudieron calcular los avisos de invitaciones fuera del grupo'
+      )
+      return []
     }
   }
 
@@ -496,6 +534,13 @@ export default class PlatformTenantGroupService {
     }
 
     // ── 5. Reemplazo indivisible ──────────────────────────────────────────────
+    // Los que salen de un grupo: liberados de este y movidos desde otro.
+    const movidosIds = movidos
+      .map((m) => filas.find((f) => f.publicId === m.businessUnitPublicId)?.buId)
+      .filter((buId): buId is number => buId !== undefined)
+      .map(Number)
+    let salientes: number[] = []
+    let liberados = 0
     const trx = await db.transaction()
     try {
       // Miembros vivos actuales del grupo: los únicos que este reemplazo puede liberar.
@@ -508,7 +553,8 @@ export default class PlatformTenantGroupService {
 
       const actualesIds = (actuales as Array<{ buId: number }>).map((a) => Number(a.buId))
       const entrantes = new Set(buIds)
-      const liberados = actualesIds.filter((buId) => !entrantes.has(buId)).length
+      const liberadosIds = actualesIds.filter((buId) => !entrantes.has(buId))
+      liberados = liberadosIds.length
 
       // Vacía el grupo sin tocar membresías de cuentas con baja lógica.
       if (actualesIds.length > 0) {
@@ -533,8 +579,7 @@ export default class PlatformTenantGroupService {
       }
 
       await trx.commit()
-
-      return { platformTenantGroupId: id, asignados: buIds.length, liberados, movidos }
+      salientes = [...liberadosIds, ...movidosIds]
     } catch (error) {
       // Si la transacción ya falló (p. ej. deadlock), el rollback puede fallar a
       // su vez; ese fallo secundario no debe tapar el error original que sí traduce
@@ -561,5 +606,9 @@ export default class PlatformTenantGroupService {
       }
       throw error
     }
+
+    // Despues del commit: el aviso se calcula con las membresias ya movidas (D5).
+    const warnings = await this.safeWarnings(salientes, id)
+    return { platformTenantGroupId: id, asignados: buIds.length, liberados, movidos, warnings }
   }
 }

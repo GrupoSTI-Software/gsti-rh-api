@@ -3,4 +3,6 @@ export interface AccessPointFilterSearchInterface {
   page: number
   limit: number
   businessUnitId: number
+  /** Alcance de la peticion: la empresa pedida solo cuenta si esta aqui. */
+  allowedBusinessUnitIds: number[]
 }

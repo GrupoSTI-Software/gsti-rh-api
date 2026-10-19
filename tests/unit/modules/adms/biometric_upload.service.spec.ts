@@ -32,6 +32,8 @@ const DEVICE: ResolvedAdmsDevice = {
   timezone: null,
   receivedAt: NOW,
   configuredAt: null,
+  participantBusinessUnitIds: [1],
+  shared: false,
 }
 
 const FINGER_BLOB = 'A'.repeat(1120)
@@ -54,6 +56,7 @@ const EMPLOYEE: PinResolution = {
   kind: 'employee',
   employeeId: 77,
   employeeCode: 'EMP-77',
+  businessUnitId: 1,
   pinInferred: false,
 }
 

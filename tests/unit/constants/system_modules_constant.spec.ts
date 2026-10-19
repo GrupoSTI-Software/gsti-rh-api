@@ -332,7 +332,6 @@ test.group('system_modules.constant — contrato del catálogo', () => {
 const APAGADOS_POR_ALCANCE_DE_LANZAMIENTO: readonly string[] = [
   'assessment-templates',
   'certifications',
-  'competencies',
 ]
 
 const SYSTEM_MODULES_SOURCE = join(

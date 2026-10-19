@@ -1,4 +1,5 @@
 import type { I18n } from '@adonisjs/i18n'
+import { requireStoredEmployeeBusinessUnitId } from '#modules/access-point/employee_business_unit'
 import { ACCESS_POINT_EMPLOYEE_ERROR_CODES } from '#constants/access_point_employee_error_codes'
 import AccessPointEmployeeServiceError from '#exceptions/access_point_employee_service_error'
 import {
@@ -6,11 +7,16 @@ import {
   type AccessPointEmployeeDto,
 } from './dto/employee_assignment.dto.js'
 import EmployeeAssignmentRepositoryMysql from './employee_assignment.repository.mysql.js'
-import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
+import EmployeeSyncService, {
+  type AssignInput,
+} from '#modules/access-point/employee-sync/employee_sync.service'
+import { AdmsError } from '#exceptions/adms_error'
+import type AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import { canDetachAssignment } from '#modules/access-point/employee-sync/employee_sync_state'
 import Employee from '#models/employee'
 import logger from '@adonisjs/core/services/logger'
+import { TenantContext } from '#utils/tenant_context'
 import ReplicationService from '#modules/biometric-vault/replication/replication.service'
 import {
   REPLICATION_MODALITY,
@@ -69,35 +75,41 @@ export default class EmployeeAssignmentService {
     return this.i18n.formatMessage(key)
   }
 
+  private accessPointNotFound(): AccessPointEmployeeServiceError {
+    return new AccessPointEmployeeServiceError({
+      key: 'punto-acceso-no-encontrado',
+      errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.ACCESS_POINT_NOT_FOUND,
+      httpStatus: 404,
+      title: this.t('access_point_employee_access_point_not_found_title'),
+      detail: this.t('access_point_employee_access_point_not_found_message'),
+    })
+  }
+
 
   /**
    * Comprueba que ambos extremos existan dentro del alcance de la petición.
    *
    * Un identificador de otra unidad de negocio se trata como inexistente, para
-   * no revelar su existencia a quien no puede verlo.
+   * no revelar su existencia a quien no puede verlo. El checador compartido con
+   * la empresa del alcance si existe para ella (VLRH-P0065, 6); el colaborador
+   * se sigue buscando solo en el alcance.
    *
+   * @returns El scope del checador, en el que corre el resto de la operacion:
+   *   sus PIN son de todos los participantes.
    * @throws AccessPointEmployeeServiceError si alguno no existe.
    */
   private async assertBothExist(
     accessPointId: number,
     employeeId: number,
     scope: BusinessUnitScope
-  ): Promise<void> {
-    const accessPointExists = await this.repository.accessPointExists(accessPointId, scope)
+  ): Promise<number[]> {
+    const deviceScope = await this.repository.accessPointScope(accessPointId, scope)
 
-    if (!accessPointExists) {
-      throw new AccessPointEmployeeServiceError({
-        key: 'punto-acceso-no-encontrado',
-        errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.ACCESS_POINT_NOT_FOUND,
-        httpStatus: 404,
-        title: this.t('access_point_employee_access_point_not_found_title'),
-        detail: this.t('access_point_employee_access_point_not_found_message'),
-      })
-    }
+    if (!deviceScope) throw this.accessPointNotFound()
 
-    const employeeExists = await this.repository.employeeExists(employeeId, scope)
+    const employeeBusinessUnitId = await this.repository.employeeBusinessUnitId(employeeId, scope)
 
-    if (!employeeExists) {
+    if (employeeBusinessUnitId === null) {
       throw new AccessPointEmployeeServiceError({
         key: 'colaborador-no-encontrado',
         errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.EMPLOYEE_NOT_FOUND,
@@ -106,6 +118,16 @@ export default class EmployeeAssignmentService {
         detail: this.t('access_point_employee_employee_not_found_message'),
       })
     }
+
+    /**
+     * La empresa del colaborador tiene que participar del aparato: un usuario
+     * con varias empresas en su alcance no puede colgar a alguien de una
+     * tercera en un checador que no se le comparte (VLRH-P0065, 6). Para esa
+     * empresa el checador no existe.
+     */
+    if (!deviceScope.includes(employeeBusinessUnitId)) throw this.accessPointNotFound()
+
+    return deviceScope
   }
 
   /**
@@ -139,8 +161,20 @@ export default class EmployeeAssignmentService {
     actorUserId: number | null = null,
     trace: AssignmentTrace = {}
   ): Promise<AccessPointEmployeeDto> {
-    await this.assertBothExist(accessPointId, employeeId, scope)
+    const deviceScope = await this.assertBothExist(accessPointId, employeeId, scope)
+    return TenantContext.run(deviceScope, () =>
+      this.assignWithin(accessPointId, employeeId, scope, actorUserId, trace)
+    )
+  }
 
+  /** `assign` ya dentro del scope del checador. */
+  private async assignWithin(
+    accessPointId: number,
+    employeeId: number,
+    scope: BusinessUnitScope,
+    actorUserId: number | null,
+    trace: AssignmentTrace
+  ): Promise<AccessPointEmployeeDto> {
     const existing = await this.repository.findAssignment(accessPointId, employeeId, scope)
 
     if (
@@ -157,15 +191,11 @@ export default class EmployeeAssignmentService {
     }
 
     const employee = await Employee.query().where('employee_id', employeeId).firstOrFail()
-    const businessUnitId = employee.businessUnitId as number
+    // `assertBothExist` ya lo resolvio en el alcance: aqui un null es de integridad.
+    const businessUnitId = requireStoredEmployeeBusinessUnitId(employee)
     const actor = { userId: actorUserId }
 
-    const pivot = await this.sync.assign({
-      accessPointId,
-      businessUnitId,
-      employeeId,
-      actor,
-    })
+    const pivot = await this.assignPivot({ accessPointId, businessUnitId, employeeId, actor })
 
     const pin = pivot.accessPointEmployeePin
     if (!pin || pin.length === 0) return toAccessPointEmployeeDto(pivot)
@@ -194,6 +224,35 @@ export default class EmployeeAssignmentService {
   }
 
   /**
+   * Alta del vinculo en el aparato. El modulo de sincronizacion revalida la
+   * participacion de la empresa con el aparato bloqueado: si una revocacion
+   * la saco mientras tanto, para ella el checador ya no existe y se responde
+   * el mismo 404 que la autorizacion (A2-14).
+   *
+   * La traduccion no es redundante con `resolveAccessPointEmployeeApiError`:
+   * ese resolutor daria el 404 del canal (`adms_not_found_message`, codigo
+   * `ADMS.AUTHZ.001`), distinto en detalle y codigo del que este mismo
+   * endpoint responde cuando la empresa no participa desde el principio
+   * (`assertBothExist`: `access_point_employee_access_point_not_found_*`,
+   * `ACCP.ASSIGN.ACCESS_POINT_NOT_FOUND`). Sin ella, perder la carrera seria
+   * distinguible de no haber participado nunca.
+   */
+  private async assignPivot(input: AssignInput): Promise<AccessPointEmployee> {
+    try {
+      return await this.sync.assign(input)
+    } catch (error) {
+      if (
+        error instanceof AdmsError &&
+        error.httpStatus === 404 &&
+        error.key === 'punto-acceso-no-encontrado'
+      ) {
+        throw this.accessPointNotFound()
+      }
+      throw error
+    }
+  }
+
+  /**
    * Retira la asignación entre el empleado y el punto de acceso.
    *
    * Exige que el colaborador ya no esté dentro del aparato. Retirar la fila es
@@ -214,8 +273,18 @@ export default class EmployeeAssignmentService {
     employeeId: number,
     scope: BusinessUnitScope
   ): Promise<void> {
-    await this.assertBothExist(accessPointId, employeeId, scope)
+    const deviceScope = await this.assertBothExist(accessPointId, employeeId, scope)
+    return TenantContext.run(deviceScope, () =>
+      this.removeWithin(accessPointId, employeeId, scope)
+    )
+  }
 
+  /** `remove` ya dentro del scope del checador. */
+  private async removeWithin(
+    accessPointId: number,
+    employeeId: number,
+    scope: BusinessUnitScope
+  ): Promise<void> {
     const assignment = await this.repository.findAssignment(accessPointId, employeeId, scope)
 
     if (!assignment) {

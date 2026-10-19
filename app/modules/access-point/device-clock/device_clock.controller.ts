@@ -5,7 +5,7 @@ import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import {
   ensureAccessPointPermission,
-  resolveScopedAccessPoint,
+  resolveOwnedAccessPoint,
 } from '#modules/access-point/access_point_authorization'
 import { accessPointParamValidator } from '#modules/access-point/upload-progress/validators/access_point_param.validator'
 import { toDeviceCommandDto } from '#modules/device-commands/dto/device_command.dto'
@@ -45,7 +45,8 @@ export default class DeviceClockController {
       const { params } = await request.validateUsing(accessPointParamValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      // Fijar la hora es configuracion del aparato: solo la responsable.
+      const accessPoint = await resolveOwnedAccessPoint(ctx, params.accessPointId)
 
       const service = new DeviceClockSyncService()
       const now = DateTime.utc()

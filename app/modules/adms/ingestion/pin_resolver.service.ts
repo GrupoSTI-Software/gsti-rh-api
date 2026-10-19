@@ -4,13 +4,22 @@ import PinResolverRepositoryMysql from './pin_resolver.repository.mysql.js'
 import type { PinResolverRepository } from './pin_resolver.repository.js'
 
 export type PinResolution =
-  | { kind: 'employee'; employeeId: number; employeeCode: string; pinInferred: boolean }
+  | {
+      kind: 'employee'
+      employeeId: number
+      employeeCode: string
+      /** Empresa del colaborador; en checador compartido no es la del aparato. */
+      businessUnitId: number
+      pinInferred: boolean
+    }
   | { kind: 'held'; reason: AdmsHeldPunchReason }
 
 export interface PinResolverInput {
   accessPointId: number
   businessUnitId: number
   pin: string
+  /** El aparato tiene invitadas: el codigo de colaborador choca entre empresas (VLRH-P0065, D7). */
+  shared: boolean
 }
 
 /**
@@ -43,8 +52,17 @@ export default class PinResolverService {
         kind: 'employee',
         employeeId: pivot.employeeId,
         employeeCode: pivot.employeeCode,
+        businessUnitId: pivot.businessUnitId,
         pinInferred: false,
       }
+    }
+
+    /**
+     * En checador compartido el codigo de colaborador no identifica: dos empresas
+     * pueden tener el mismo. Sin pivote la checada se retiene, no se infiere.
+     */
+    if (input.shared) {
+      return { kind: 'held', reason: ADMS_HELD_PUNCH_REASON.SHARED_DEVICE_NO_PIVOT }
     }
 
     const candidates = await this.repository.findEmployeesByCode(input.businessUnitId, input.pin)
@@ -60,17 +78,26 @@ export default class PinResolverService {
       return { kind: 'held', reason: ADMS_HELD_PUNCH_REASON.EMPLOYEE_TERMINATED }
     }
 
-    await this.repository.createInferredPivot({
+    const inferred = await this.repository.createInferredPivot({
       accessPointId: input.accessPointId,
       businessUnitId: input.businessUnitId,
       employeeId: candidate.employeeId,
       pin: input.pin,
     })
+    /**
+     * El numero ya tiene dueno en el aparato (lo gano otro vinculo entre la
+     * lectura y el alta, o es de una empresa que ya no participa): el
+     * candidato por codigo NO es el dueno. Se retiene, nunca se le acredita.
+     */
+    if (inferred === 'duplicate') {
+      return { kind: 'held', reason: ADMS_HELD_PUNCH_REASON.UNKNOWN_PIN }
+    }
 
     return {
       kind: 'employee',
       employeeId: candidate.employeeId,
       employeeCode: candidate.employeeCode,
+      businessUnitId: input.businessUnitId,
       pinInferred: true,
     }
   }

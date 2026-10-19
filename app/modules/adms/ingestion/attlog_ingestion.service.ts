@@ -147,6 +147,7 @@ export default class AttlogIngestionService {
         accessPointId: device.accessPointId,
         businessUnitId: device.businessUnitId,
         pin: row.pin,
+        shared: device.shared,
       })
 
       if (resolution.kind === 'held') {
@@ -339,7 +340,8 @@ export default class AttlogIngestionService {
     const { device } = context
     if (
       reason === ADMS_HELD_PUNCH_REASON.UNKNOWN_PIN ||
-      reason === ADMS_HELD_PUNCH_REASON.AMBIGUOUS_CODE
+      reason === ADMS_HELD_PUNCH_REASON.AMBIGUOUS_CODE ||
+      reason === ADMS_HELD_PUNCH_REASON.SHARED_DEVICE_NO_PIVOT
     ) {
       await this.held.touchUnmappedPin({
         accessPointId: device.accessPointId,

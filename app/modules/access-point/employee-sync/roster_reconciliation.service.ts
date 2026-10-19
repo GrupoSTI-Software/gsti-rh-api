@@ -168,7 +168,7 @@ export default class RosterReconciliationService {
         status === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED &&
         pivot.accessPointEmployeeUpdatedAt <= input.receivedAt
       ) {
-        await this.markRevoked(pivot, input)
+        await this.markRevoked(pivot)
         result.revoked += 1
       }
     }
@@ -242,15 +242,7 @@ export default class RosterReconciliationService {
         .first()
       if (!check) continue
 
-      await this.markRevoked(pivot, {
-        accessPointId: pivot.accessPointId,
-        businessUnitId: pivot.businessUnitId,
-        pins: [],
-        hasFingerprints: false,
-        serial: '',
-        rawMessageId: null,
-        receivedAt: now,
-      })
+      await this.markRevoked(pivot)
       cerradas += 1
     }
     return cerradas
@@ -266,7 +258,8 @@ export default class RosterReconciliationService {
     await this.repository.save(pivot)
     await this.repository.recordEvent({
       accessPointEmployeeId: pivot.accessPointEmployeeId,
-      businessUnitId: input.businessUnitId,
+      // El evento es del pivote: en un checador compartido puede ser de la invitada.
+      businessUnitId: pivot.businessUnitId,
       kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.STATUS_CHANGED,
       fromStatus: from,
       toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED,
@@ -275,16 +268,14 @@ export default class RosterReconciliationService {
     })
   }
 
-  private async markRevoked(
-    pivot: AccessPointEmployee,
-    input: RosterReconciliationInput
-  ): Promise<void> {
+  private async markRevoked(pivot: AccessPointEmployee): Promise<void> {
     const from = pivot.accessPointEmployeeSyncStatus
     pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
     await this.repository.save(pivot)
     await this.repository.recordEvent({
       accessPointEmployeeId: pivot.accessPointEmployeeId,
-      businessUnitId: input.businessUnitId,
+      // El evento es del pivote: en un checador compartido puede ser de la invitada.
+      businessUnitId: pivot.businessUnitId,
       kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.STATUS_CHANGED,
       fromStatus: from,
       toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
@@ -309,7 +300,8 @@ export default class RosterReconciliationService {
   ): Promise<void> {
     await this.repository.recordEvent({
       accessPointEmployeeId: pivot.accessPointEmployeeId,
-      businessUnitId: input.businessUnitId,
+      // El evento es del pivote: en un checador compartido puede ser de la invitada.
+      businessUnitId: pivot.businessUnitId,
       kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.STATUS_CHANGED,
       fromStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
       toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
@@ -354,7 +346,8 @@ export default class RosterReconciliationService {
     await this.repository.save(pivot)
     await this.repository.recordEvent({
       accessPointEmployeeId: pivot.accessPointEmployeeId,
-      businessUnitId: input.businessUnitId,
+      // El evento es del pivote: en un checador compartido puede ser de la invitada.
+      businessUnitId: pivot.businessUnitId,
       kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.STATUS_CHANGED,
       fromStatus: from,
       toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_FAILED,

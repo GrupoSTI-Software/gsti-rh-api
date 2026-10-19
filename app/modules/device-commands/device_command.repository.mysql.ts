@@ -1,9 +1,12 @@
 import type { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import DeviceCommand from '#models/device_command'
 import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import {
@@ -34,6 +37,10 @@ const LIVE_STATUSES: readonly DeviceCommandStatus[] = [
 export default class DeviceCommandRepositoryMysql
   implements DeviceCommandRepository, ExecutedCopyLookup
 {
+  constructor(
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+  ) {}
+
   /**
    * Bloquea la fila del punto de acceso, busca por llave de correlacion e
    * inserta, todo en la MISMA transaccion.
@@ -44,9 +51,17 @@ export default class DeviceCommandRepositoryMysql
    */
   async enqueueIdempotent(
     input: CommandInsert,
-    wireIdCandidates: number[]
+    wireIdCandidates: number[],
+    outerTrx?: TransactionClientContract
   ): Promise<EnqueueIdempotentResult | null> {
-    return db.transaction(async (trx) => {
+    /**
+     * Con transaccion del llamador, el comando nace y muere con ella: si esa
+     * operacion se revierte, no queda nada en cola (p. ej. desasignar la
+     * unidad, VLRH-P0065 3.2.3). El candado del equipo se toma igual.
+     */
+    const run = <T>(fn: (trx: TransactionClientContract) => Promise<T>): Promise<T> =>
+      outerTrx ? fn(outerTrx) : db.transaction(fn)
+    return run(async (trx) => {
       const device = await trx
         .from('access_points')
         .where('access_point_id', input.accessPointId)
@@ -63,7 +78,17 @@ export default class DeviceCommandRepositoryMysql
        * por empresa de todas las lecturas posteriores lo daba por bueno.
        */
       const owner = device?.business_unit_id ?? null
-      if (owner === null || owner !== input.businessUnitId) {
+      /**
+       * La empresa del comando es la del colaborador y tiene que ser
+       * participante del equipo: la responsable o una invitada viva
+       * (VLRH-P0065, 4). Fuera de eso, el equipo se comporta como inexistente.
+       */
+      const participant =
+        owner !== null &&
+        (owner === input.businessUnitId ||
+          // En la transaccion que ya bloqueo el equipo: sin pedir otra conexion.
+          (await this.scope.isParticipant(input.accessPointId, input.businessUnitId, trx)))
+      if (!participant) {
         throw new DeviceCommandError(
           'El checador no pertenece a esa empresa',
           DEVICE_COMMAND_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
@@ -148,8 +173,10 @@ export default class DeviceCommandRepositoryMysql
     return row !== null
   }
 
-  async findById(commandId: number): Promise<DeviceCommand | null> {
-    return DeviceCommand.query().where('device_command_id', commandId).first()
+  async findById(commandId: number, trx?: TransactionClientContract): Promise<DeviceCommand | null> {
+    return DeviceCommand.query(trx ? { client: trx } : undefined)
+      .where('device_command_id', commandId)
+      .first()
   }
 
   async findByIdForDevice(commandId: number, accessPointId: number): Promise<DeviceCommand | null> {
@@ -187,15 +214,22 @@ export default class DeviceCommandRepositoryMysql
 
   async listByDevice(
     accessPointId: number,
-    status?: DeviceCommandStatus
+    status?: DeviceCommandStatus,
+    trx?: TransactionClientContract
   ): Promise<DeviceCommand[]> {
-    const query = DeviceCommand.query().where('access_point_id', accessPointId)
+    const query = DeviceCommand.query(trx ? { client: trx } : undefined).where(
+      'access_point_id',
+      accessPointId
+    )
     if (status) query.where('device_command_status', status)
     return query.orderBy('device_command_id', 'desc').limit(200)
   }
 
-  async listLiveForPivot(accessPointEmployeeId: number): Promise<DeviceCommand[]> {
-    return DeviceCommand.query()
+  async listLiveForPivot(
+    accessPointEmployeeId: number,
+    trx?: TransactionClientContract
+  ): Promise<DeviceCommand[]> {
+    return DeviceCommand.query(trx ? { client: trx } : undefined)
       .where('access_point_employee_id', accessPointEmployeeId)
       .whereIn('device_command_status', [...LIVE_STATUSES])
       .orderBy('device_command_id', 'asc')

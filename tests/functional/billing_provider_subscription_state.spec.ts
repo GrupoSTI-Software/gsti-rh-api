@@ -9,6 +9,7 @@ import BillingProviderEvent, {
   BILLING_PROVIDER_EVENT_STATUSES,
 } from '#models/billing_provider_event'
 import BillingProviderSubscriptionStateMail from '#mails/billing_provider_subscription_state_mail'
+import BillingProviderAccountIssueMail from '#mails/billing_provider_account_issue_mail'
 import { BILLING_SUBSCRIPTION_TRANSITION_CLOCK_ORIGIN_KEY } from '#models/billing_subscription_transition'
 import BillingSubscription from '#models/billing_subscription'
 import BillingSubscriptionTransition from '#models/billing_subscription_transition'
@@ -1064,5 +1065,222 @@ test.group('POST /api/webhooks/stripe — estado Stripe (7723)', () => {
       restore()
       await cleanupSubscription(subscription.billingSubscriptionId)
     }
+  })
+
+  test('CA-2373-3: charge_exceeds_transaction_limit envía aviso de cuenta', async ({ client }) => {
+    const subscription = await createStripeSubscriptionFixture()
+    const { restore } = registerStateAdapter(subscription.subRef, subscription.cusRef, {
+      invoiceRef: 'in_fixtureLimit',
+      subscriptionRef: subscription.subRef,
+      customerRef: subscription.cusRef,
+      errorCode: 'charge_exceeds_transaction_limit',
+      declineCode: null,
+      intentStatus: 'requires_payment_method',
+    })
+
+    await withSmtpConfigured(async () => {
+      await withEnvVars(
+        { BILLING_INTERNAL_NOTIFICATION_EMAILS: `${DEV_GATE_RECIPIENT_A},${DEV_GATE_RECIPIENT_B}` },
+        async () => {
+          const fake = mail.fake()
+          try {
+            await postStripeWebhook(
+              client,
+              stripeEventPayload(`evt_fixtureLimit_${Date.now()}`, 'invoice.payment_failed', {
+                id: 'in_fixtureLimit',
+                object: 'invoice',
+                customer: subscription.cusRef,
+                parent: { subscription_details: { subscription: subscription.subRef } },
+              })
+            )
+
+            fake.mails.assertSent(BillingProviderAccountIssueMail, ({ message }) => {
+              message.assertHtmlIncludes('in_fixtureLimit')
+              message.assertHtmlIncludes('charge_exceeds_transaction_limit')
+              message.assertHtmlIncludes('Se resuelve con soporte de Stripe')
+              return true
+            })
+            fake.mails.assertSentCount(BillingProviderAccountIssueMail, 1)
+          } finally {
+            mail.restore()
+          }
+        }
+      )
+    })
+
+    restore()
+    await cleanupSubscription(subscription.billingSubscriptionId)
+  })
+
+  test('CA-2373-4: account_invalid avisa sin recuadro de soporte Stripe', async ({
+    client,
+    assert,
+  }) => {
+    const subscription = await createStripeSubscriptionFixture()
+    const { restore } = registerStateAdapter(subscription.subRef, subscription.cusRef, {
+      invoiceRef: 'in_fixtureAccount',
+      subscriptionRef: subscription.subRef,
+      customerRef: subscription.cusRef,
+      errorCode: 'account_invalid',
+      declineCode: null,
+      intentStatus: 'requires_payment_method',
+    })
+
+    await withSmtpConfigured(async () => {
+      await withEnvVars(
+        { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A },
+        async () => {
+          const fake = mail.fake()
+          try {
+            await postStripeWebhook(
+              client,
+              stripeEventPayload(`evt_fixtureAccount_${Date.now()}`, 'invoice.payment_failed', {
+                id: 'in_fixtureAccount',
+                object: 'invoice',
+                customer: subscription.cusRef,
+                parent: { subscription_details: { subscription: subscription.subRef } },
+              })
+            )
+
+            fake.mails.assertSent(BillingProviderAccountIssueMail, ({ message }) => {
+              const html = (message.toJSON() as { message: { html: string } }).message.html
+              assert.notInclude(html, 'Se resuelve con soporte de Stripe')
+              return true
+            })
+          } finally {
+            mail.restore()
+          }
+        }
+      )
+    })
+
+    restore()
+    await cleanupSubscription(subscription.billingSubscriptionId)
+  })
+
+  test('CA-2373-5: dedupe aviso por factura y código', async ({ client }) => {
+    const subscription = await createStripeSubscriptionFixture()
+    const baseSnap = {
+      subscriptionRef: subscription.subRef,
+      customerRef: subscription.cusRef,
+      intentStatus: 'requires_payment_method' as const,
+    }
+
+    await withSmtpConfigured(async () => {
+      await withEnvVars(
+        { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A },
+        async () => {
+          const fake = mail.fake()
+          let restore = () => {}
+          try {
+            const postFailure = async (
+              invoiceRef: string,
+              errorCode: string,
+              created: number,
+              eventSuffix: string
+            ) => {
+              restore()
+              ;({ restore } = registerStateAdapter(subscription.subRef, subscription.cusRef, {
+                invoiceRef,
+                ...baseSnap,
+                errorCode,
+                declineCode: null,
+              }))
+              await postStripeWebhook(
+                client,
+                stripeEventPayload(
+                  `evt_fixtureDedupe_${eventSuffix}_${Date.now()}`,
+                  'invoice.payment_failed',
+                  {
+                    id: invoiceRef,
+                    object: 'invoice',
+                    customer: subscription.cusRef,
+                    parent: { subscription_details: { subscription: subscription.subRef } },
+                  },
+                  created
+                )
+              )
+            }
+
+            await postFailure(
+              'in_F',
+              'charge_exceeds_transaction_limit',
+              EVENT_CREATED,
+              '1'
+            )
+            await postFailure(
+              'in_F',
+              'charge_exceeds_transaction_limit',
+              EVENT_CREATED + 10,
+              '2'
+            )
+            await postFailure(
+              'in_F',
+              'charge_exceeds_transaction_limit',
+              EVENT_CREATED + 20,
+              '3'
+            )
+            await postFailure(
+              'in_G',
+              'charge_exceeds_transaction_limit',
+              EVENT_CREATED + 30,
+              '4'
+            )
+            await postFailure(
+              'in_G',
+              'charge_exceeds_source_limit',
+              EVENT_CREATED + 40,
+              '5'
+            )
+            await postFailure('in_F', 'charge_exceeds_transaction_limit', EVENT_CREATED - 100, '6')
+
+            fake.mails.assertSentCount(BillingProviderAccountIssueMail, 3)
+          } finally {
+            mail.restore()
+            restore()
+          }
+        }
+      )
+    })
+
+    await cleanupSubscription(subscription.billingSubscriptionId)
+  })
+
+  test('CA-2373-2: insufficient_funds no envía aviso de cuenta', async ({ client }) => {
+    const subscription = await createStripeSubscriptionFixture()
+    const { restore } = registerStateAdapter(subscription.subRef, subscription.cusRef, {
+      invoiceRef: 'in_fixtureTenant',
+      subscriptionRef: subscription.subRef,
+      customerRef: subscription.cusRef,
+      errorCode: 'card_declined',
+      declineCode: 'insufficient_funds',
+      intentStatus: 'requires_payment_method',
+    })
+
+    await withSmtpConfigured(async () => {
+      await withEnvVars(
+        { BILLING_INTERNAL_NOTIFICATION_EMAILS: DEV_GATE_RECIPIENT_A },
+        async () => {
+          const fake = mail.fake()
+          try {
+            await postStripeWebhook(
+              client,
+              stripeEventPayload(`evt_fixtureTenant_${Date.now()}`, 'invoice.payment_failed', {
+                id: 'in_fixtureTenant',
+                object: 'invoice',
+                customer: subscription.cusRef,
+                parent: { subscription_details: { subscription: subscription.subRef } },
+              })
+            )
+            fake.mails.assertSentCount(BillingProviderAccountIssueMail, 0)
+          } finally {
+            mail.restore()
+          }
+        }
+      )
+    })
+
+    restore()
+    await cleanupSubscription(subscription.billingSubscriptionId)
   })
 })

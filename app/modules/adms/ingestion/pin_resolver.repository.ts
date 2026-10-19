@@ -5,6 +5,8 @@ export interface PivotMatch {
   accessPointEmployeeId: number
   employeeId: number
   employeeCode: string
+  /** Empresa del vinculo: en checador compartido no es la del aparato. */
+  businessUnitId: number
   syncStatus: AccessPointEmployeeSyncStatus
 }
 
@@ -24,5 +26,5 @@ export interface PinResolverRepository {
     businessUnitId: number
     employeeId: number
     pin: string
-  }): Promise<void>
+  }): Promise<'created' | 'duplicate'>
 }

@@ -24,3 +24,4 @@ router
   })
   .prefix('/api/competency-brackets')
   .use(middleware.auth())
+  .use(middleware.businessScope())

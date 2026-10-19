@@ -1,0 +1,1904 @@
+import { test } from '@japa/runner'
+import type { ApiResponse } from '@japa/api-client'
+import AccessPoint from '#models/access_point'
+import AccessPointEmployee from '#models/access_point_employee'
+import BusinessUnit from '#models/business_unit'
+import DeviceCommand from '#models/device_command'
+import Employee from '#models/employee'
+import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
+import db from '@adonisjs/lucid/services/db'
+import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
+import { TenantContext } from '#utils/tenant_context'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
+import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
+import ReplicationService from '#modules/biometric-vault/replication/replication.service'
+import ConsentGate from '#modules/biometric-vault/consent/consent_gate'
+import type { ConsentRecord } from '#modules/biometric-vault/consent/consent_gate.repository'
+import { REPLICATION_SKIP } from '#modules/biometric-vault/replication/replication.types'
+import { DateTime } from 'luxon'
+import {
+  cleanupUnitUser,
+  createBypassUserInBusinessUnit,
+  type UnitUser,
+} from '#tests/helpers/tenant_actor'
+import {
+  anotherLiveEmployee,
+  createSharedAccessPointFixture,
+  seedPendingPinPivot,
+  seedUnmappedPin,
+  type SharedFixture,
+} from '#tests/helpers/shared_access_point_fixture'
+import { lockHolderOf, waitForLockWaitOn } from '#tests/helpers/lock_wait'
+import AccessPointShareRepositoryMysql from '#modules/access-point/sharing/access_point_share.repository.mysql'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import UnmappedPinsService from '#modules/access-point/unmapped-pins/unmapped_pins.service'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { AdmsError } from '#exceptions/adms_error'
+
+const unscoped = <T>(fn: () => Promise<T>) =>
+  TenantContext.runUnscoped(async () => await fn(), TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING)
+
+let commandSeq = 0
+
+/** Lo que respondio una peticion lanzada en paralelo. */
+interface Outcome {
+  status: number
+  body: unknown
+}
+
+/**
+ * Lanza `request` mientras una revocacion de la invitacion de `own` tiene el
+ * aparato bloqueado (el aparato primero, despues la invitacion: el mismo orden
+ * del servicio), espera a que la peticion choque con ESE candado y entonces
+ * confirma la revocacion. Devuelve lo que respondio la peticion.
+ */
+async function duringRevocation(
+  own: SharedFixture,
+  request: () => PromiseLike<ApiResponse>
+): Promise<Outcome> {
+  const revokeTrx = await db.transaction()
+  let pending: Promise<Outcome> | null = null
+  try {
+    const holder = await lockHolderOf(revokeTrx)
+    await new AccessPointShareRepositoryMysql().lockAccessPoint(
+      own.accessPoint.accessPointId,
+      revokeTrx
+    )
+    await revokeTrx
+      .from('access_point_shares')
+      .where('access_point_share_id', own.share.accessPointShareId)
+      .update({ access_point_share_revoked_at: new Date() })
+
+    pending = Promise.resolve(request()).then(
+      (res) => ({ status: res.status(), body: res.body() as unknown }),
+      // El cliente rechaza un 5xx: se conserva como respuesta para afirmar sobre ella.
+      (error: unknown) => ({ status: 500, body: { error: String(error) } as unknown })
+    )
+    await waitForLockWaitOn(holder, 'access_points', pending)
+    await revokeTrx.commit()
+    return await pending
+  } finally {
+    if (!revokeTrx.isCompleted) await revokeTrx.rollback()
+    if (pending) await pending
+  }
+}
+
+interface Actor {
+  user: UnitUser
+  /** Valor del encabezado `X-Business-Unit-Id`: el id publico de la empresa. */
+  publicId: string
+}
+
+/**
+ * El Backoffice sobre un checador compartido (VLRH-P0065, 6; Tarea 7 de
+ * VLRH-P0066): la invitada opera a su personal en el aparato de la responsable,
+ * la configuracion es solo de la responsable y una empresa ajena no lo ve.
+ */
+test.group('Checador compartido: Backoffice', (group) => {
+  let fx: SharedFixture
+  const actors: UnitUser[] = []
+  const byBu = new Map<number, Actor>()
+
+  /** Usuario `owner` (pasa el gate por salvoconducto) colgado de la empresa. */
+  const actorFor = async (businessUnitId: number): Promise<Actor> => {
+    const cached = byBu.get(businessUnitId)
+    if (cached) return cached
+    const actor = await unscoped(async () => {
+      const unit = await BusinessUnit.findOrFail(businessUnitId)
+      const user = await createBypassUserInBusinessUnit('owner', 'share-bo', businessUnitId)
+      return { user, publicId: String(unit.businessUnitPublicId) }
+    })
+    actors.push(actor.user)
+    byBu.set(businessUnitId, actor)
+    return actor
+  }
+
+  /**
+   * Comando pendiente en el checador de la fixture, a nombre de la empresa
+   * dada. Lo borra el cleanup de la fixture (cuelga de su `access_point_id`).
+   */
+  const pendingCommand = async (
+    businessUnitId: number,
+    employeeId: number,
+    pin: string
+  ): Promise<DeviceCommand> => {
+    commandSeq += 1
+    const stamp = Date.now() * 100 + commandSeq
+    const result = await TenantContext.run([fx.ownerBu, fx.guestBu], () =>
+      new DeviceCommandRepositoryMysql().enqueueIdempotent(
+        {
+          accessPointId: fx.accessPoint.accessPointId,
+          businessUnitId,
+          kind: DEVICE_COMMAND_KIND.USER_DELETE,
+          payload: `DATA DELETE USERINFO PIN=${pin}`,
+          pin,
+          bioNo: null,
+          priority: 0,
+          maxAttempts: null,
+          employeeId,
+          accessPointEmployeeId: null,
+          correlationKey: `test-share-bo-${stamp}`,
+          requestedByUserId: null,
+          biometricTemplateId: null,
+          biometricPhotoPublicationId: null,
+        },
+        [stamp]
+      )
+    )
+    if (!result) throw new Error('No se pudo encolar el comando de prueba')
+    return result.command
+  }
+
+  group.setup(async () => {
+    fx = await createSharedAccessPointFixture()
+    return async () => {
+      try {
+        await unscoped(async () => {
+          for (const actor of actors) await cleanupUnitUser(actor)
+        })
+      } finally {
+        await fx.cleanup()
+      }
+    }
+  })
+
+  test('la invitada da de alta a su empleado sin chocar PIN con la responsable', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const extra = await anotherLiveEmployee(fx.guestBu, [fx.guestEmployee.employeeId])
+    const res = await client
+      .post(`/api/access-points/${fx.accessPoint.accessPointId}/employee/${extra.employeeId}`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(201)
+
+    const pivot = await unscoped(() =>
+      AccessPointEmployee.query()
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .where('employee_id', extra.employeeId)
+        .firstOrFail()
+    )
+    assert.notInclude([fx.ownerPin, fx.guestPin], pivot.accessPointEmployeePin)
+    assert.isAbove(pivot.accessPointEmployeePin.length, 0)
+    assert.equal(pivot.businessUnitId, fx.guestBu)
+  })
+
+  test('la invitada no puede fijar a su empleado un PIN que ya tiene la responsable', async ({
+    client,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .put(
+        `/api/access-points/${fx.accessPoint.accessPointId}/employee/${fx.guestEmployee.employeeId}/pin`
+      )
+      .json({ pin: fx.ownerPin })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(409)
+    res.assertBodyContains({ key: 'pin-ocupado' })
+  })
+
+  test('el envio de la invitada encola el alta a nombre de su empresa', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .post(
+        `/api/access-points/${fx.accessPoint.accessPointId}/employee/${fx.guestEmployee.employeeId}/send`
+      )
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+
+    const command = await unscoped(() =>
+      DeviceCommand.query()
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .where('employee_id', fx.guestEmployee.employeeId)
+        .where('device_command_kind', DEVICE_COMMAND_KIND.USER_UPSERT)
+        .orderBy('device_command_id', 'desc')
+        .firstOrFail()
+    )
+    assert.equal(command.businessUnitId, fx.guestBu)
+  })
+
+  test('un envio que la cola rechaza no deja el vinculo en pendiente sin comando', async ({
+    assert,
+  }) => {
+    const apId = fx.accessPoint.accessPointId
+    const pivotRow = () =>
+      unscoped(() =>
+        db
+          .from('access_point_employees')
+          .where('access_point_id', apId)
+          .where('employee_id', fx.guestEmployee.employeeId)
+          .select('access_point_employee_id', 'access_point_employee_sync_status')
+          .first()
+      ) as Promise<{ access_point_employee_id: number; access_point_employee_sync_status: string }>
+    const before = await pivotRow()
+    const eventCount = async () => {
+      const row = await unscoped(() =>
+        db
+          .from('access_point_employee_events')
+          .where('access_point_employee_id', before.access_point_employee_id)
+          .count('* as total')
+          .first()
+      )
+      return Number(row?.total ?? 0)
+    }
+    const eventsBefore = await eventCount()
+    // La invitacion se revoca entre la autorizacion y el encolado: la cola la rechaza.
+    await unscoped(async () => {
+      await db
+        .from('access_point_employees')
+        .where('access_point_employee_id', before.access_point_employee_id)
+        .update({ access_point_employee_sync_status: 'failed' })
+      await db
+        .from('access_point_shares')
+        .where('access_point_share_id', fx.share.accessPointShareId)
+        .update({ access_point_share_revoked_at: DateTime.utc().toSQL({ includeOffset: false }) })
+    })
+    try {
+      let rejected = false
+      try {
+        await TenantContext.run([fx.ownerBu, fx.guestBu], () =>
+          new EmployeeSyncService().send({
+            accessPointId: apId,
+            businessUnitId: fx.guestBu,
+            employeeId: fx.guestEmployee.employeeId,
+            employeeName: 'Invitada',
+            actor: { userId: null },
+          })
+        )
+      } catch {
+        rejected = true
+      }
+      assert.isTrue(rejected)
+      const after = await pivotRow()
+      assert.equal(after.access_point_employee_sync_status, 'failed')
+      assert.equal(await eventCount(), eventsBefore)
+    } finally {
+      await unscoped(async () => {
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', fx.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: null })
+        await db
+          .from('access_point_employees')
+          .where('access_point_employee_id', before.access_point_employee_id)
+          .update({ access_point_employee_sync_status: before.access_point_employee_sync_status })
+      })
+    }
+  })
+
+  test('la invitada no puede tocar a un empleado de la responsable', async ({ client }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .post(
+        `/api/access-points/${fx.accessPoint.accessPointId}/employee/${fx.ownerEmployee.employeeId}/revoke`
+      )
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(404)
+    // Criterio 7: el colaborador ajeno se comporta como inexistente, no el checador.
+    res.assertBodyContains({ key: 'colaborador-no-encontrado' })
+  })
+
+  /**
+   * A2-14: la participacion de la invitada se valida al autorizar, sin
+   * candado. Si la revocacion (que bloquea `access_points` antes de cerrar la
+   * invitacion) esta en curso, el alta tiene que esperar ese candado y volver
+   * a preguntar: ya revocada, es 404 sin crear el vinculo. Antes el pivote
+   * esperaba la llave foranea y se escribia en cuanto la revocacion confirmaba,
+   * dejando un `pending_pin` de una ex-invitada que bloqueaba el borrado.
+   */
+  test('una revocacion concurrente no deja a la ex-invitada un vinculo en el aparato', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    try {
+      const actor = await actorFor(own.guestBu)
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+
+      const res = await duringRevocation(own, () =>
+        client
+          .post(`/api/access-points/${apId}/employee/${extra.employeeId}`)
+          .loginAs(actor.user.user)
+          .header('X-Business-Unit-Id', actor.publicId)
+      )
+
+      assert.equal(res.status, 404, JSON.stringify(res.body))
+      assert.containsSubset(res.body, { key: 'punto-acceso-no-encontrado' })
+      const pivots = await unscoped(() =>
+        AccessPointEmployee.query()
+          .withTrashed()
+          .where('access_point_id', apId)
+          .where('employee_id', extra.employeeId)
+      )
+      assert.lengthOf(pivots, 0)
+
+      // Perder la carrera no se distingue de no participar desde el principio.
+      const again = await client
+        .post(`/api/access-points/${apId}/employee/${extra.employeeId}`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      again.assertStatus(404)
+      assert.deepEqual(res.body, again.body())
+    } finally {
+      await own.cleanup()
+    }
+  })
+
+  /**
+   * El mismo hueco que A2-14 al fijar el PIN de un vinculo sin numero: sin
+   * cambio de PIN no se encola nada, asi que la guarda de la cola no lo cubre
+   * y el vinculo pasaba a `pending` para una empresa que ya no participa.
+   */
+  test('una revocacion concurrente no deja a la ex-invitada fijar un PIN en el aparato', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    try {
+      const actor = await actorFor(own.guestBu)
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+      await seedPendingPinPivot(own, extra, own.guestBu)
+
+      const res = await duringRevocation(own, () =>
+        client
+          .put(`/api/access-points/${apId}/employee/${extra.employeeId}/pin`)
+          .json({ pin: '7777' })
+          .loginAs(actor.user.user)
+          .header('X-Business-Unit-Id', actor.publicId)
+      )
+
+      assert.equal(res.status, 404, JSON.stringify(res.body))
+      assert.containsSubset(res.body, { key: 'punto-acceso-no-encontrado' })
+      const pivot = await unscoped(() =>
+        AccessPointEmployee.query()
+          .where('access_point_id', apId)
+          .where('employee_id', extra.employeeId)
+          .firstOrFail()
+      )
+      assert.equal(pivot.accessPointEmployeeSyncStatus, 'pending_pin')
+      assert.equal(pivot.accessPointEmployeePin, '')
+    } finally {
+      await own.cleanup()
+    }
+  })
+
+  /** El mismo hueco que A2-14 en el reclamo de un PIN no mapeado por la invitada. */
+  test('una revocacion concurrente no deja a la ex-invitada reclamar un PIN no mapeado', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    try {
+      const pending = await seedUnmappedPin(own, '9131')
+      const actor = await actorFor(own.guestBu)
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+
+      const res = await duringRevocation(own, () =>
+        client
+          .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/link`)
+          .json({ employeeId: extra.employeeId })
+          .loginAs(actor.user.user)
+          .header('X-Business-Unit-Id', actor.publicId)
+      )
+
+      assert.equal(res.status, 404, JSON.stringify(res.body))
+      assert.containsSubset(res.body, { key: 'colaborador-no-encontrado' })
+      const pivots = await unscoped(() =>
+        AccessPointEmployee.query()
+          .withTrashed()
+          .where('access_point_id', apId)
+          .where('employee_id', extra.employeeId)
+      )
+      assert.lengthOf(pivots, 0)
+      const row = await unscoped(() =>
+        db
+          .from('adms_unmapped_pins')
+          .where('adms_unmapped_pin_id', pending.admsUnmappedPinId)
+          .first()
+      )
+      assert.equal(row?.adms_unmapped_pin_status, 'pending')
+    } finally {
+      await own.cleanup()
+    }
+  })
+
+  /**
+   * Una operacion, una conexion. Con el cerrojo con nombre, cada alta retenia
+   * una conexion esperando el cerrojo y la que lo tenia pedia dos mas (su
+   * transaccion del aparato y sus lecturas): con mas altas concurrentes que el
+   * pool (10 por defecto) se quedaban esperandose entre si hasta vencer. Ahora
+   * el candado del aparato las serializa con una conexion cada una, y cada
+   * una se lleva un numero distinto.
+   */
+  test('doce altas simultaneas en el mismo checador terminan con numeros distintos', async ({
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    try {
+      const employees = await unscoped(() =>
+        Employee.query()
+          .whereNull('employee_deleted_at')
+          .where('business_unit_id', own.guestBu)
+          .whereNot('employee_id', own.guestEmployee.employeeId)
+          .orderBy('employee_id', 'asc')
+          .limit(12)
+          .exec()
+      )
+      assert.lengthOf(employees, 12, 'la fixture necesita doce colaboradores de la invitada')
+
+      const service = new EmployeeSyncService()
+      const outcomes = await Promise.allSettled(
+        employees.map((employee) =>
+          TenantContext.run([own.ownerBu, own.guestBu], () =>
+            service.assign({
+              accessPointId: apId,
+              businessUnitId: own.guestBu,
+              employeeId: employee.employeeId,
+              actor: { userId: null },
+            })
+          )
+        )
+      )
+
+      const failures = outcomes.filter(
+        (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected'
+      )
+      assert.lengthOf(failures, 0, JSON.stringify(failures.map((f) => String(f.reason))))
+      const pins = await unscoped(() =>
+        AccessPointEmployee.query()
+          .where('access_point_id', apId)
+          .whereIn(
+            'employee_id',
+            employees.map((employee) => employee.employeeId)
+          )
+          .exec()
+      )
+      const numbers = pins.map((pivot) => pivot.accessPointEmployeePin)
+      assert.lengthOf(numbers, 12)
+      assert.lengthOf(new Set(numbers), 12)
+      assert.notInclude(numbers, own.ownerPin)
+      assert.notInclude(numbers, own.guestPin)
+    } finally {
+      await own.cleanup()
+    }
+  })
+
+  /**
+   * Sin el cerrojo con nombre, quien espera el candado del aparato tiene que
+   * seguir recibiendo un 409 rapido y legible (`equipo-ocupado`), no un 500
+   * tras los 50 s de `innodb_lock_wait_timeout` del servidor.
+   */
+  test('con el aparato ocupado, el alta responde 409 equipo-ocupado en unos segundos', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    const holderTrx = await db.transaction()
+    try {
+      const actor = await actorFor(own.guestBu)
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+      await new AccessPointShareRepositoryMysql().lockAccessPoint(apId, holderTrx)
+
+      const started = Date.now()
+      const res = await client
+        .post(`/api/access-points/${apId}/employee/${extra.employeeId}`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      const elapsed = Date.now() - started
+
+      res.assertStatus(409)
+      res.assertBodyContains({ key: 'equipo-ocupado', title: 'Checador ocupado' })
+      assert.isAtLeast(elapsed, 4000)
+      assert.isBelow(elapsed, 10000)
+    } finally {
+      await holderTrx.rollback()
+      await own.cleanup()
+    }
+  }).timeout(90000)
+
+  /**
+   * El tiempo de espera corto es de la transaccion del aparato, no de la
+   * conexion: al volver al pool, cada conexion tiene el valor de siempre, o
+   * contaminaria a cualquier otra peticion que la reciba despues.
+   */
+  test('la conexion vuelve al pool con su tiempo de espera de candado original', async ({
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    const holderTrx = await db.transaction()
+    const scanned: TransactionClientContract[] = []
+    try {
+      const [globalRows] = (await db.rawQuery(
+        'SELECT @@GLOBAL.innodb_lock_wait_timeout AS timeout'
+      )) as [Array<{ timeout: number }>, unknown]
+      const original = Number(globalRows[0].timeout)
+
+      await new AccessPointShareRepositoryMysql().lockAccessPoint(apId, holderTrx)
+      const busy = await new EmployeeSyncRepositoryMysql()
+        .inDeviceTransaction(apId, async () => 'no debio entrar')
+        .catch((error: unknown) => error)
+      assert.instanceOf(busy, AdmsError)
+      assert.equal((busy as AdmsError).key, 'equipo-ocupado')
+      assert.equal((busy as AdmsError).httpStatus, 409)
+      await holderTrx.rollback()
+
+      // Una vuelta exitosa tambien restaura el valor.
+      await new EmployeeSyncRepositoryMysql().inDeviceTransaction(apId, async () => null)
+
+      // Se piden todas las conexiones libres del pool a la vez: ninguna trae el valor corto.
+      for (let i = 0; i < 9; i += 1) scanned.push(await db.transaction())
+      for (const trx of scanned) {
+        const [rows] = (await trx.rawQuery(
+          'SELECT @@SESSION.innodb_lock_wait_timeout AS timeout'
+        )) as [Array<{ timeout: number }>, unknown]
+        assert.equal(Number(rows[0].timeout), original)
+      }
+    } finally {
+      for (const trx of scanned) await trx.rollback()
+      if (!holderTrx.isCompleted) await holderTrx.rollback()
+      await own.cleanup()
+    }
+  }).timeout(90000)
+
+  /**
+   * Si no se puede restaurar el tiempo de espera de la sesion, la conexion no
+   * vuelve al pool con los 5 s: se destruye (knex la descarta al validarla) y
+   * la operacion falla en vez de confirmarse.
+   */
+  test('si no se restaura el tiempo de espera, la conexion se destruye y no vuelve al pool', async ({
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const scanned: TransactionClientContract[] = []
+    try {
+      class FailingRestore extends EmployeeSyncRepositoryMysql {
+        protected override async restoreLockWait(): Promise<void> {
+          throw new Error('restauracion forzada a fallar')
+        }
+      }
+      let raw: { _closing?: boolean; stream?: { destroyed?: boolean } } | null = null
+      const failure = await new FailingRestore()
+        .inDeviceTransaction(own.accessPoint.accessPointId, async (trx) => {
+          const knexTrx = trx.knexClient as unknown as {
+            client: { acquireConnection(): Promise<typeof raw> }
+          }
+          raw = await knexTrx.client.acquireConnection()
+          return 'hecho'
+        })
+        .catch((error: unknown) => error)
+
+      assert.instanceOf(failure, Error)
+      const connection = raw as { _closing?: boolean; stream?: { destroyed?: boolean } } | null
+      assert.isNotNull(connection)
+      assert.isTrue(Boolean(connection?._closing || connection?.stream?.destroyed))
+
+      const [globalRows] = (await db.rawQuery(
+        'SELECT @@GLOBAL.innodb_lock_wait_timeout AS timeout'
+      )) as [Array<{ timeout: number }>, unknown]
+      for (let i = 0; i < 9; i += 1) scanned.push(await db.transaction())
+      for (const trx of scanned) {
+        const [rows] = (await trx.rawQuery(
+          'SELECT @@SESSION.innodb_lock_wait_timeout AS timeout'
+        )) as [Array<{ timeout: number }>, unknown]
+        assert.equal(Number(rows[0].timeout), Number(globalRows[0].timeout))
+      }
+    } finally {
+      for (const trx of scanned) await trx.rollback()
+      await own.cleanup()
+    }
+  }).timeout(90000)
+
+  /** La revalidacion del reclamo pregunta en la transaccion del aparato, sin otra conexion. */
+  test('el reclamo de un PIN no mapeado revalida la participacion en la transaccion del aparato', async ({
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    try {
+      const pending = await seedUnmappedPin(own, '9141')
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+
+      const clients: unknown[] = []
+      const real = new AccessPointScopeRepositoryMysql()
+      const scope = Object.assign(Object.create(real) as AccessPointScopePort, {
+        isParticipant: (accessPointId: number, businessUnitId: number, client?: unknown) => {
+          clients.push(client)
+          return real.isParticipant(
+            accessPointId,
+            businessUnitId,
+            client as Parameters<AccessPointScopePort['isParticipant']>[2]
+          )
+        },
+      })
+      const lockTrx: TransactionClientContract[] = []
+      const repository = new EmployeeSyncRepositoryMysql()
+      const deviceLock = {
+        inDeviceTransaction: <T,>(
+          accessPointId: number,
+          fn: (trx: TransactionClientContract) => Promise<T>
+        ) =>
+          repository.inDeviceTransaction(accessPointId, (trx) => {
+            lockTrx.push(trx)
+            return fn(trx)
+          }),
+      }
+
+      // Como el controlador: la peticion corre con el alcance de la invitada.
+      await TenantContext.run([own.guestBu], () =>
+        new UnmappedPinsService(undefined, undefined, scope, deviceLock).link({
+          unmappedPinId: pending.admsUnmappedPinId,
+          employeeId: extra.employeeId,
+          businessUnitIds: [own.guestBu],
+          userId: null,
+        })
+      )
+
+      // La primera pregunta es la de la autorizacion (sin candado); la segunda, bajo el candado.
+      assert.lengthOf(lockTrx, 1)
+      assert.lengthOf(clients, 2)
+      assert.strictEqual(clients[1], lockTrx[0])
+    } finally {
+      await own.cleanup()
+    }
+  })
+
+  test('la invitada solo ve a su personal en el padron del checador', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get(`/api/v1/access-points/${fx.accessPoint.accessPointId}/employees`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const ids = (res.body().data.employees as Array<{ employeeId: number }>).map(
+      (row) => row.employeeId
+    )
+    assert.include(ids, fx.guestEmployee.employeeId)
+    assert.notInclude(ids, fx.ownerEmployee.employeeId)
+  })
+
+  test('la invitada lee el perfil del aparato', async ({ client }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get(`/api/v1/access-points/${fx.accessPoint.accessPointId}/profile`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+  })
+
+  test('la invitada recibe 403 al tocar la configuracion del aparato', async ({ client }) => {
+    const actor = await actorFor(fx.guestBu)
+    const clock = await client
+      .post(`/api/v1/access-points/${fx.accessPoint.accessPointId}/clock-sync`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    clock.assertStatus(403)
+    clock.assertBodyContains({ key: 'solo-lectura-checador-compartido' })
+
+    const reset = await client
+      .post(`/api/v1/access-points/${fx.accessPoint.accessPointId}/upload-progress/reset`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    reset.assertStatus(403)
+    reset.assertBodyContains({ key: 'solo-lectura-checador-compartido' })
+  })
+
+  test('la responsable si puede pedir la hora del aparato', async ({ client, assert }) => {
+    const actor = await actorFor(fx.ownerBu)
+    const res = await client
+      .post(`/api/v1/access-points/${fx.accessPoint.accessPointId}/clock-sync`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    assert.notEqual(res.status(), 403)
+    assert.isBelow(res.status(), 500)
+  })
+
+  test('una empresa ajena recibe 404', async ({ client }) => {
+    const actor = await actorFor(fx.outsiderBu)
+    const res = await client
+      .get(`/api/v1/access-points/${fx.accessPoint.accessPointId}/employees`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(404)
+  })
+
+  test('replicar a un checador donde la empresa del empleado no participa es 404 y el servicio lo salta', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now()
+    const foreignAp = await unscoped(async () => {
+      const ap = new AccessPoint()
+      ap.accessPointName = `Ajeno ${stamp}`
+      ap.businessUnitId = fx.outsiderBu
+      ap.accessPointActive = 1
+      ap.accessPointSerialNumber = `TEST-SHARE-X-${stamp}`
+      ap.accessPointStatus = 0
+      await ap.save()
+      return ap
+    })
+    try {
+      const actor = await actorFor(fx.guestBu)
+      const res = await client
+        .post(`/api/v1/employees/${fx.guestEmployee.employeeId}/device-biometrics/replicate`)
+        .json({
+          sourceAccessPointId: null,
+          targetAccessPointIds: [foreignAp.accessPointId],
+          modalities: ['fingerprint'],
+        })
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      res.assertStatus(404)
+
+      // La regla vive tambien en el servicio (el canal y el alta lo llaman sin pasar
+      // por el controlador): el destino ajeno se salta y el reparto sigue con los demas.
+      class GrantedConsent extends ConsentGate {
+        async assertGranted(): Promise<ConsentRecord> {
+          return {
+            userConsentId: 0,
+            legalDocumentId: 0,
+            channel: 'physical',
+            grantedAt: DateTime.utc(),
+          }
+        }
+      }
+      const service = new ReplicationService(
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        new GrantedConsent()
+      )
+      const result = await TenantContext.run([fx.ownerBu, fx.guestBu], () =>
+        service.replicate({
+          employeeId: fx.guestEmployee.employeeId,
+          businessUnitId: fx.guestBu,
+          sourceAccessPointId: null,
+          targetAccessPointIds: [foreignAp.accessPointId, fx.accessPoint.accessPointId],
+          modalities: ['fingerprint'],
+          actor: { userId: null, ip: '127.0.0.1', userAgent: null, requestId: null },
+          dryRun: true,
+        })
+      )
+      assert.lengthOf(result.targets, 2)
+      const [foreign, shared] = result.targets
+      assert.equal(foreign.accessPointId, foreignAp.accessPointId)
+      assert.equal(foreign.accessPointName, '')
+      assert.deepEqual(
+        foreign.items.map((item) => item.reason),
+        [REPLICATION_SKIP.NOT_PARTICIPANT]
+      )
+      assert.equal(shared.accessPointId, fx.accessPoint.accessPointId)
+      assert.notInclude(
+        shared.items.map((item) => item.reason),
+        REPLICATION_SKIP.NOT_PARTICIPANT
+      )
+    } finally {
+      await unscoped(() =>
+        AccessPoint.query().where('access_point_id', foreignAp.accessPointId).delete()
+      )
+    }
+  })
+
+  test('la responsable no puede cancelar un comando del personal de la invitada', async ({
+    client,
+  }) => {
+    const command = await pendingCommand(fx.guestBu, fx.guestEmployee.employeeId, fx.guestPin)
+    const actor = await actorFor(fx.ownerBu)
+    const res = await client
+      .post(
+        `/api/v1/access-points/${fx.accessPoint.accessPointId}/commands/${command.deviceCommandId}/cancel`
+      )
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(404)
+    res.assertBodyContains({ key: 'comando-no-encontrado' })
+  })
+
+  test('la responsable si cancela un comando de su personal', async ({ client }) => {
+    const command = await pendingCommand(fx.ownerBu, fx.ownerEmployee.employeeId, fx.ownerPin)
+    const actor = await actorFor(fx.ownerBu)
+    const res = await client
+      .post(
+        `/api/v1/access-points/${fx.accessPoint.accessPointId}/commands/${command.deviceCommandId}/cancel`
+      )
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+  })
+
+  test('la invitada solo lista sus comandos y no cancela los de la responsable', async ({
+    client,
+    assert,
+  }) => {
+    const own = await pendingCommand(fx.guestBu, fx.guestEmployee.employeeId, fx.guestPin)
+    const foreign = await pendingCommand(fx.ownerBu, fx.ownerEmployee.employeeId, fx.ownerPin)
+    const actor = await actorFor(fx.guestBu)
+
+    const list = await client
+      .get(`/api/v1/access-points/${fx.accessPoint.accessPointId}/commands`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    list.assertStatus(200)
+    const ids = (list.body().data.commands as Array<{ id: number }>).map((row) => row.id)
+    assert.include(ids, own.deviceCommandId)
+    assert.notInclude(ids, foreign.deviceCommandId)
+    const businessUnits = await unscoped(async () => {
+      const rows = await DeviceCommand.query().whereIn('device_command_id', ids)
+      return [...new Set(rows.map((row) => row.businessUnitId))]
+    })
+    assert.deepEqual(businessUnits, [fx.guestBu])
+
+    const cancel = await client
+      .post(
+        `/api/v1/access-points/${fx.accessPoint.accessPointId}/commands/${foreign.deviceCommandId}/cancel`
+      )
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    cancel.assertStatus(404)
+    cancel.assertBodyContains({ key: 'comando-no-encontrado' })
+  })
+
+  test('la responsable ve el padron completo del aparato', async ({ client, assert }) => {
+    const actor = await actorFor(fx.ownerBu)
+    const res = await client
+      .get(`/api/v1/access-points/${fx.accessPoint.accessPointId}/employees`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const ids = (res.body().data.employees as Array<{ employeeId: number }>).map(
+      (row) => row.employeeId
+    )
+    assert.include(ids, fx.ownerEmployee.employeeId)
+    assert.include(ids, fx.guestEmployee.employeeId)
+  })
+
+  test('la ficha del empleado de la invitada muestra el checador compartido', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get(`/api/v1/employees/${fx.guestEmployee.employeeId}/access-points`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const ids = (
+      res.body().data.employeeDevices.accessPoints as Array<{ accessPointId: number }>
+    ).map((row) => row.accessPointId)
+    assert.include(ids, fx.accessPoint.accessPointId)
+  })
+
+  test('retirar el rostro de un empleado de la invitada alcanza el checador compartido', async ({
+    client,
+    assert,
+  }) => {
+    const employee = await anotherLiveEmployee(fx.guestBu, [fx.guestEmployee.employeeId])
+    const setup = await unscoped(async () => {
+      let pivot = await AccessPointEmployee.query()
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .where('employee_id', employee.employeeId)
+        .first()
+      if (!pivot) {
+        pivot = new AccessPointEmployee()
+        pivot.accessPointId = fx.accessPoint.accessPointId
+        pivot.employeeId = employee.employeeId
+        pivot.businessUnitId = fx.guestBu
+        pivot.accessPointEmployeePin = '77'
+        pivot.accessPointEmployeeSyncStatus = 'confirmed'
+        await pivot.save()
+      }
+      const face = new EmployeeBiometricFaceId()
+      face.employeeId = employee.employeeId
+      face.businessUnitId = fx.guestBu
+      face.employeeBiometricFaceIdPhotoUrl = `test/share-bo-${Date.now()}.jpg`
+      face.employeeBiometricFaceIdDeviceUse = true
+      face.employeeBiometricFaceIdDerivativeVersion = 0
+      await face.save()
+      return { pivot, face }
+    })
+    try {
+      const actor = await actorFor(fx.guestBu)
+      const res = await client
+        .post(`/api/v1/employees/${employee.employeeId}/device-biometrics/face/disable`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      res.assertStatus(200)
+
+      const command = await unscoped(() =>
+        DeviceCommand.query()
+          .where('access_point_id', fx.accessPoint.accessPointId)
+          .where('employee_id', employee.employeeId)
+          .where('device_command_kind', DEVICE_COMMAND_KIND.BIOPHOTO_DELETE)
+          .first()
+      )
+      assert.isNotNull(command)
+      assert.equal(command?.businessUnitId, fx.guestBu)
+    } finally {
+      await unscoped(async () => {
+        await db
+          .from('biometric_photo_publications')
+          .where('employee_id', employee.employeeId)
+          .where('access_point_id', fx.accessPoint.accessPointId)
+          .delete()
+        await db
+          .from('employee_biometric_face_ids')
+          .where('employee_biometric_face_id_id', setup.face.employeeBiometricFaceIdId)
+          .delete()
+      })
+    }
+  })
+
+  test('la invitada ve el PIN no mapeado del aparato y lo reclama con su empleado', async ({
+    client,
+    assert,
+  }) => {
+    const pending = await seedUnmappedPin(fx, '9123')
+    const actor = await actorFor(fx.guestBu)
+    const list = await client
+      .get('/api/v1/access-points/unmapped-pins')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    list.assertStatus(200)
+    const ids = (list.body().data.unmappedPins as Array<{ unmappedPinId: number }>).map(
+      (row) => row.unmappedPinId
+    )
+    assert.include(ids, pending.admsUnmappedPinId)
+
+    const extra = await anotherLiveEmployee(fx.guestBu, [fx.guestEmployee.employeeId])
+    const link = await client
+      .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/link`)
+      .json({ employeeId: extra.employeeId })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    link.assertStatus(200)
+    const pivot = await unscoped(() =>
+      AccessPointEmployee.query()
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .where('employee_id', extra.employeeId)
+        .firstOrFail()
+    )
+    assert.equal(pivot.businessUnitId, fx.guestBu)
+    assert.equal(pivot.accessPointEmployeePin, '9123')
+  })
+
+  test('solo la responsable descarta el PIN no mapeado del aparato', async ({
+    client,
+    assert,
+  }) => {
+    const pending = await seedUnmappedPin(fx, '9127')
+    const guest = await actorFor(fx.guestBu)
+    const denied = await client
+      .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/dismiss`)
+      .json({ reason: 'no se de quien es' })
+      .loginAs(guest.user.user)
+      .header('X-Business-Unit-Id', guest.publicId)
+    denied.assertStatus(404)
+    denied.assertBodyContains({ key: 'pin-pendiente-no-encontrado' })
+
+    const owner = await actorFor(fx.ownerBu)
+    const done = await client
+      .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/dismiss`)
+      .json({ reason: 'no se de quien es' })
+      .loginAs(owner.user.user)
+      .header('X-Business-Unit-Id', owner.publicId)
+    done.assertStatus(200)
+    const row = await unscoped(() =>
+      db
+        .from('adms_unmapped_pins')
+        .where('adms_unmapped_pin_id', pending.admsUnmappedPinId)
+        .select('adms_unmapped_pin_status')
+        .first()
+    )
+    assert.equal(row?.adms_unmapped_pin_status, 'dismissed')
+  })
+
+  test('una empresa ajena no ve ni reclama el PIN no mapeado del aparato', async ({
+    client,
+    assert,
+  }) => {
+    const pending = await seedUnmappedPin(fx, '9124')
+    const actor = await actorFor(fx.outsiderBu)
+    const list = await client
+      .get('/api/v1/access-points/unmapped-pins')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    list.assertStatus(200)
+    const ids = (list.body().data.unmappedPins as Array<{ unmappedPinId: number }>).map(
+      (row) => row.unmappedPinId
+    )
+    assert.notInclude(ids, pending.admsUnmappedPinId)
+
+    const extra = await anotherLiveEmployee(fx.outsiderBu, [])
+    const link = await client
+      .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/link`)
+      .json({ employeeId: extra.employeeId })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    link.assertStatus(404)
+  })
+
+  const findAccessPoint = (
+    body: { data: { accessPoints: { data: Array<Record<string, unknown>> } } },
+    accessPointId: number
+  ) => body.data.accessPoints.data.find((row) => row.accessPointId === accessPointId)
+
+  test('la invitada ve el checador compartido con su rol en el catalogo', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get('/api/access-points')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+      .qs({ businessUnitId: fx.guestBu, limit: 500 })
+    res.assertStatus(200)
+    const row = findAccessPoint(res.body(), fx.accessPoint.accessPointId)
+    assert.isDefined(row)
+    assert.equal(row?.sharedRole, 'guest')
+    assert.isString(row?.sharedBy)
+    assert.deepEqual(row?.sharedWith, [])
+  })
+
+  test('la responsable ve a la invitada en sharedWith', async ({ client, assert }) => {
+    const actor = await actorFor(fx.ownerBu)
+    const res = await client
+      .get('/api/access-points')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+      .qs({ businessUnitId: fx.ownerBu, limit: 500 })
+    res.assertStatus(200)
+    const row = findAccessPoint(res.body(), fx.accessPoint.accessPointId)
+    assert.equal(row?.sharedRole, 'owner')
+    assert.lengthOf(row?.sharedWith as string[], 1)
+    assert.isNull(row?.sharedBy)
+  })
+
+  test('una empresa ajena no ve el checador compartido en el catalogo', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await actorFor(fx.outsiderBu)
+    const res = await client
+      .get('/api/access-points')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+      .qs({ businessUnitId: fx.outsiderBu, limit: 500 })
+    res.assertStatus(200)
+    assert.isUndefined(findAccessPoint(res.body(), fx.accessPoint.accessPointId))
+  })
+
+  test('pedir el catalogo de la responsable desde la invitada no da su vista', async ({
+    client,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get('/api/access-points')
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+      .qs({ businessUnitId: fx.ownerBu, limit: 500 })
+    // El alcance de la peticion es la empresa del encabezado: otra empresa es 404.
+    res.assertStatus(404)
+  })
+
+  test('la invitada consulta el checador compartido con su rol', async ({ client, assert }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const row = res.body().data.accessPoint
+    assert.equal(row.accessPointId, fx.accessPoint.accessPointId)
+    assert.equal(row.sharedRole, 'guest')
+    assert.isString(row.sharedBy)
+  })
+
+  test('la invitada no recibe la ficha de la responsable ni la red del aparato', async ({
+    client,
+    assert,
+  }) => {
+    await unscoped(() =>
+      db
+        .from('access_points')
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .update({ access_point_ip: '10.20.30.40', access_point_mac: 'AA:BB:CC:DD:EE:FF' })
+    )
+    const guest = await actorFor(fx.guestBu)
+    const owner = await actorFor(fx.ownerBu)
+    const as = (actor: Actor, url: string, qs: Record<string, number> = {}) =>
+      client
+        .get(url)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+        .qs(qs)
+
+    // Ficha: solo el nombre de la responsable, sin IP ni MAC.
+    const shown = await as(guest, `/api/access-points/${fx.accessPoint.accessPointId}`)
+    shown.assertStatus(200)
+    const guestRow = shown.body().data.accessPoint
+    assert.deepEqual(Object.keys(guestRow.businessUnit), ['businessUnitName'])
+    assert.equal(guestRow.businessUnit.businessUnitName, guestRow.sharedBy)
+    assert.isNull(guestRow.accessPointIp)
+    assert.isNull(guestRow.accessPointMac)
+
+    // Catalogo: igual.
+    const listed = await as(guest, '/api/access-points', { businessUnitId: fx.guestBu, limit: 500 })
+    listed.assertStatus(200)
+    const listedRow = findAccessPoint(listed.body(), fx.accessPoint.accessPointId) as
+      | Record<string, unknown>
+      | undefined
+    assert.isDefined(listedRow)
+    assert.deepEqual(Object.keys(listedRow?.businessUnit ?? {}), ['businessUnitName'])
+    assert.isNull(listedRow?.accessPointIp)
+    assert.isNull(listedRow?.accessPointMac)
+
+    // Salud individual y de la lista: el compartido aparece, sin IP ni MAC.
+    const health = await as(guest, `/api/v1/access-points/${fx.accessPoint.accessPointId}/health`)
+    health.assertStatus(200)
+    assert.isNull(health.body().data.accessPoint.ip)
+    assert.isNull(health.body().data.accessPoint.mac)
+    const healthList = await as(guest, '/api/v1/access-points/health')
+    healthList.assertStatus(200)
+    const sharedHealth = (
+      healthList.body().data.accessPoints as Array<{ accessPointId: number; ip: string | null }>
+    ).find((row) => row.accessPointId === fx.accessPoint.accessPointId)
+    assert.isDefined(sharedHealth)
+    assert.isNull(sharedHealth?.ip)
+
+    // La responsable si los ve.
+    const ownerShown = await as(owner, `/api/access-points/${fx.accessPoint.accessPointId}`)
+    ownerShown.assertStatus(200)
+    assert.equal(ownerShown.body().data.accessPoint.accessPointIp, '10.20.30.40')
+    const ownerHealth = await as(owner, `/api/v1/access-points/${fx.accessPoint.accessPointId}/health`)
+    assert.equal(ownerHealth.body().data.accessPoint.ip, '10.20.30.40')
+  })
+
+  test('la invitada no recibe la configuracion de red ni agregados del personal ajeno', async ({
+    client,
+    assert,
+  }) => {
+    const apId = fx.accessPoint.accessPointId
+    const guest = await actorFor(fx.guestBu)
+    const owner = await actorFor(fx.ownerBu)
+    const as = (actor: Actor, url: string, qs: Record<string, number> = {}) =>
+      client
+        .get(url)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+        .qs(qs)
+
+    // Red de la responsable: CIDR permitidos e IP desde la que reporta el aparato.
+    await unscoped(async () => {
+      await db
+        .from('access_points')
+        .where('access_point_id', apId)
+        .update({ access_point_allowed_cidrs: JSON.stringify(['10.20.30.0/24']) })
+      await db
+        .from('access_point_profiles')
+        .where('access_point_id', apId)
+        .update({
+          access_point_profile_last_ip_seen: '10.20.30.41',
+          access_point_profile_last_ip_seen_at: DateTime.utc().toSQL({ includeOffset: false }),
+        })
+    })
+    // Ultimo fallo de la cola con su texto de error.
+    const failed = await pendingCommand(fx.ownerBu, fx.ownerEmployee.employeeId, fx.ownerPin)
+    await unscoped(() =>
+      db
+        .from('device_commands')
+        .where('device_command_id', failed.deviceCommandId)
+        .update({
+          device_command_status: 'failed',
+          device_command_failed_at: DateTime.utc().toSQL({ includeOffset: false }),
+          device_command_last_error: 'error del personal de la responsable',
+        })
+    )
+
+    try {
+      // Catalogo, ficha y lista: sin CIDR ni id de la responsable.
+      const shown = await as(guest, `/api/access-points/${apId}`)
+      shown.assertStatus(200)
+      const guestRow = shown.body().data.accessPoint
+      assert.isNull(guestRow.accessPointAllowedCidrs)
+      assert.isNull(guestRow.businessUnitId)
+      const listed = await as(guest, '/api/access-points', { businessUnitId: fx.guestBu, limit: 500 })
+      listed.assertStatus(200)
+      const listedRow = findAccessPoint(listed.body(), apId)
+      assert.isDefined(listedRow)
+      assert.isNull(listedRow?.accessPointAllowedCidrs)
+      assert.isNull(listedRow?.businessUnitId)
+
+      // Salud individual y de la lista.
+      const checkGuestHealth = (row: Record<string, unknown> | undefined) => {
+        assert.isDefined(row)
+        const hardening = row?.hardening as Record<string, unknown>
+        assert.isNull(hardening.lastIpSeen)
+        assert.isNull(hardening.lastIpSeenAt)
+        assert.isNull(row?.enrollment)
+        assert.isNull(row?.openIncidents)
+        const queue = row?.queue as { lastFailure: Record<string, unknown> | null }
+        assert.isNotNull(queue.lastFailure)
+        assert.isNull(queue.lastFailure?.error)
+      }
+      const health = await as(guest, `/api/v1/access-points/${apId}/health`)
+      health.assertStatus(200)
+      checkGuestHealth(health.body().data.accessPoint)
+      const healthList = await as(guest, '/api/v1/access-points/health')
+      healthList.assertStatus(200)
+      checkGuestHealth(
+        (healthList.body().data.accessPoints as Array<Record<string, unknown>>).find(
+          (row) => row.accessPointId === apId
+        )
+      )
+
+      // Perfil del aparato.
+      const profile = await as(guest, `/api/v1/access-points/${apId}/profile`)
+      profile.assertStatus(200)
+      assert.isNull(profile.body().data.profile.lastIpSeen)
+      assert.isNull(profile.body().data.profile.lastIpSeenAt)
+
+      // La responsable si recibe todo. Los CIDR no los selecciona el catalogo
+      // para nadie (se configuran aparte); a la invitada se le anulan ademas
+      // por si una lectura completa del modelo llega a serializarse.
+      const ownerShown = await as(owner, `/api/access-points/${apId}`)
+      assert.equal(ownerShown.body().data.accessPoint.businessUnitId, fx.ownerBu)
+      const ownerListed = await as(owner, '/api/access-points', {
+        businessUnitId: fx.ownerBu,
+        limit: 500,
+      })
+      const ownerListedRow = findAccessPoint(ownerListed.body(), apId)
+      assert.equal(ownerListedRow?.businessUnitId, fx.ownerBu)
+      const ownerHealthRes = await as(owner, `/api/v1/access-points/${apId}/health`)
+      const ownerHealth = ownerHealthRes.body().data.accessPoint
+      assert.equal(ownerHealth.hardening.lastIpSeen, '10.20.30.41')
+      assert.isString(ownerHealth.hardening.lastIpSeenAt)
+      assert.isNotNull(ownerHealth.enrollment)
+      assert.isNotNull(ownerHealth.openIncidents)
+      assert.equal(ownerHealth.queue.lastFailure.error, 'error del personal de la responsable')
+      const ownerProfileRes = await as(owner, `/api/v1/access-points/${apId}/profile`)
+      const ownerProfile = ownerProfileRes.body().data.profile
+      assert.equal(ownerProfile.lastIpSeen, '10.20.30.41')
+      assert.isString(ownerProfile.lastIpSeenAt)
+    } finally {
+      await unscoped(async () => {
+        await db
+          .from('device_commands')
+          .where('device_command_id', failed.deviceCommandId)
+          .delete()
+        await db
+          .from('access_points')
+          .where('access_point_id', apId)
+          .update({ access_point_allowed_cidrs: null })
+        await db.from('access_point_profiles').where('access_point_id', apId).update({
+          access_point_profile_last_ip_seen: null,
+          access_point_profile_last_ip_seen_at: null,
+        })
+      })
+    }
+  })
+
+  test('la invitada recibe 403 al editar o eliminar el checador compartido', async ({
+    client,
+  }) => {
+    const actor = await actorFor(fx.guestBu)
+    const update = await client
+      .put(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .json({ accessPointName: 'Intento de la invitada', businessUnitId: fx.guestBu })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    update.assertStatus(403)
+    update.assertBodyContains({ key: 'solo-lectura-checador-compartido' })
+
+    const destroy = await client
+      .delete(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    destroy.assertStatus(403)
+    destroy.assertBodyContains({ key: 'solo-lectura-checador-compartido' })
+  })
+
+  test('la responsable no puede borrar el checador con invitaciones vivas', async ({
+    client,
+    assert,
+  }) => {
+    const owner = await actorFor(fx.ownerBu)
+    const res = await client
+      .delete(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .loginAs(owner.user.user)
+      .header('X-Business-Unit-Id', owner.publicId)
+    res.assertStatus(409)
+    res.assertBodyContains({ key: 'checador-con-invitaciones-vivas' })
+    const body = res.body() as { title?: string; detail?: string }
+    assert.isNotEmpty(body.title)
+    assert.isNotEmpty(body.detail)
+    const alive = await unscoped(() =>
+      AccessPoint.query()
+        .where('access_point_id', fx.accessPoint.accessPointId)
+        .whereNull('access_point_deleted_at')
+        .first()
+    )
+    assert.isNotNull(alive)
+  })
+
+  test('la responsable no puede borrar el checador con personal de una ex-invitada sin baja', async ({
+    client,
+    assert,
+  }) => {
+    const apId = fx.accessPoint.accessPointId
+    const owner = await actorFor(fx.ownerBu)
+    // Invitacion revocada; el vinculo de su colaborador sigue sin baja confirmada.
+    await unscoped(() =>
+      db
+        .from('access_point_shares')
+        .where('access_point_share_id', fx.share.accessPointShareId)
+        .update({ access_point_share_revoked_at: DateTime.utc().toSQL({ includeOffset: false }) })
+    )
+    try {
+      const res = await client
+        .delete(`/api/access-points/${apId}`)
+        .loginAs(owner.user.user)
+        .header('X-Business-Unit-Id', owner.publicId)
+      res.assertStatus(409)
+      res.assertBodyContains({ key: 'checador-con-invitaciones-vivas' })
+      const alive = await unscoped(() =>
+        AccessPoint.query()
+          .where('access_point_id', apId)
+          .whereNull('access_point_deleted_at')
+          .first()
+      )
+      assert.isNotNull(alive)
+    } finally {
+      await unscoped(async () => {
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', fx.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: null })
+        await db
+          .from('access_points')
+          .where('access_point_id', apId)
+          .update({ access_point_deleted_at: null })
+      })
+    }
+  })
+
+  /**
+   * A2-15: el 409 se decidia leyendo el alcance del canal sin candado y despues
+   * se borraba. Una invitacion otorgada entre la lectura y el borrado quedaba
+   * viva sobre un checador borrado. Ahora el borrado bloquea primero la fila
+   * del aparato: lo que este escribiendo sobre el (aqui, una transaccion que lo
+   * tiene bloqueado e inserta una invitacion) termina antes de decidir.
+   */
+  test('una invitacion que confirma mientras se borra el checador lo deja vivo con 409', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    const grantTrx = await db.transaction()
+    let deleting: Promise<{ status: number; body: unknown }> | null = null
+    try {
+      // Compartido alguna vez, ya sin nadie mas en el canal: hoy se podria borrar.
+      await unscoped(async () => {
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', own.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: new Date() })
+        await db
+          .from('access_point_employees')
+          .where('access_point_id', apId)
+          .where('employee_id', own.guestEmployee.employeeId)
+          .update({ access_point_employee_sync_status: 'revoked' })
+      })
+      const owner = await actorFor(own.ownerBu)
+      const holder = await lockHolderOf(grantTrx)
+      const shares = new AccessPointShareRepositoryMysql()
+      await shares.lockAccessPoint(apId, grantTrx)
+      await shares.insert(
+        {
+          accessPointId: apId,
+          businessUnitId: own.guestBu,
+          platformTenantGroupId: own.groupId,
+          grantedAt: DateTime.utc(),
+          grantedBy: null,
+        },
+        grantTrx
+      )
+
+      deleting = client
+        .delete(`/api/access-points/${apId}`)
+        .loginAs(owner.user.user)
+        .header('X-Business-Unit-Id', owner.publicId)
+        .then(
+          (res) => ({ status: res.status(), body: res.body() as unknown }),
+          (error: unknown) => ({ status: 500, body: { error: String(error) } as unknown })
+        )
+      await waitForLockWaitOn(holder, 'access_points', deleting)
+      await grantTrx.commit()
+
+      const res = await deleting
+      assert.equal(res.status, 409, JSON.stringify(res.body))
+      assert.containsSubset(res.body, { key: 'checador-con-invitaciones-vivas' })
+      const alive = await unscoped(() =>
+        AccessPoint.query()
+          .where('access_point_id', apId)
+          .whereNull('access_point_deleted_at')
+          .first()
+      )
+      assert.isNotNull(alive)
+    } finally {
+      if (!grantTrx.isCompleted) await grantTrx.rollback()
+      if (deleting) await deleting
+      await own.cleanup()
+    }
+  })
+
+  /**
+   * El 409 protege el personal de invitadas y ex-invitadas. Un aparato que
+   * nunca se compartio pero carga el vinculo de otra empresa (heredado de
+   * antes de la HU) no tiene invitada que proteger: se borra como siempre.
+   */
+  test('la responsable borra un checador nunca compartido aunque tenga un vinculo de otra empresa', async ({
+    client,
+    assert,
+  }) => {
+    const owner = await actorFor(fx.ownerBu)
+    const serial = `TEST-NEVERSHARED-${Date.now()}`
+    const accessPoint = await unscoped(async () => {
+      const created = new AccessPoint()
+      created.accessPointName = `Checador nunca compartido ${serial}`
+      created.businessUnitId = fx.ownerBu
+      created.accessPointActive = 1
+      created.accessPointSerialNumber = serial
+      created.accessPointStatus = 0
+      await created.save()
+      const pivot = new AccessPointEmployee()
+      pivot.accessPointId = created.accessPointId
+      pivot.employeeId = fx.guestEmployee.employeeId
+      pivot.businessUnitId = fx.guestBu
+      pivot.accessPointEmployeePin = '7'
+      pivot.accessPointEmployeeSyncStatus = 'confirmed'
+      await pivot.save()
+      return created
+    })
+    const apId = accessPoint.accessPointId
+    try {
+      const res = await client
+        .delete(`/api/access-points/${apId}`)
+        .loginAs(owner.user.user)
+        .header('X-Business-Unit-Id', owner.publicId)
+      res.assertStatus(201)
+      const alive = await unscoped(() =>
+        AccessPoint.query()
+          .where('access_point_id', apId)
+          .whereNull('access_point_deleted_at')
+          .first()
+      )
+      assert.isNull(alive)
+    } finally {
+      await unscoped(async () => {
+        await db.from('device_commands').where('access_point_id', apId).delete()
+        await db
+          .from('access_point_employee_events')
+          .whereIn(
+            'access_point_employee_id',
+            db
+              .from('access_point_employees')
+              .where('access_point_id', apId)
+              .select('access_point_employee_id')
+          )
+          .delete()
+        await db.from('access_point_employees').where('access_point_id', apId).delete()
+        await db.from('access_point_profiles').where('access_point_id', apId).delete()
+        await db.from('access_points').where('access_point_id', apId).delete()
+      })
+    }
+  })
+
+  test('una empresa ajena sigue recibiendo 404 al consultar o editar el checador', async ({
+    client,
+  }) => {
+    const actor = await actorFor(fx.outsiderBu)
+    const show = await client
+      .get(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    show.assertStatus(404)
+    const update = await client
+      .put(`/api/access-points/${fx.accessPoint.accessPointId}`)
+      .json({ accessPointName: 'Intento ajeno', businessUnitId: fx.outsiderBu })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    update.assertStatus(404)
+  })
+
+  test('el padron muestra al empleado ajeno solo con datos de identificacion', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await actorFor(fx.ownerBu)
+    // Foto privada (llave del bucket) en el empleado de la invitada, restaurada al final.
+    const photoRow = await unscoped(() =>
+      db
+        .from('employees')
+        .where('employee_id', fx.guestEmployee.employeeId)
+        .select('employee_photo')
+        .first()
+    )
+    const originalPhoto = (photoRow?.employee_photo as string | null) ?? null
+    const setPhoto = (value: string | null) =>
+      unscoped(() =>
+        db
+          .from('employees')
+          .where('employee_id', fx.guestEmployee.employeeId)
+          .update({ employee_photo: value })
+      )
+    await setPhoto('employees/photos/test-share-private.jpg')
+    const res = await (async () => {
+      try {
+        return await client
+          .get(`/api/v1/access-points/${fx.accessPoint.accessPointId}/employees`)
+          .loginAs(actor.user.user)
+          .header('X-Business-Unit-Id', actor.publicId)
+      } finally {
+        await setPhoto(originalPhoto)
+      }
+    })()
+    res.assertStatus(200)
+    const rows = res.body().data.employees as Array<Record<string, unknown>>
+    const foreign = rows.find((row) => row.employeeId === fx.guestEmployee.employeeId)
+    assert.isDefined(foreign)
+    assert.isTrue(foreign?.foreign)
+    assert.sameMembers(Object.keys(foreign ?? {}), [
+      'foreign',
+      'employeeId',
+      'fullName',
+      'photoUrl',
+      'businessUnitName',
+      'syncStatus',
+    ])
+    // El PIN es credencial de marcaje: no viaja para el personal ajeno.
+    assert.notProperty(foreign ?? {}, 'pin')
+    assert.isString(foreign?.fullName)
+    // Nunca la llave cruda del bucket: una foto privada sale null.
+    assert.isNull(foreign?.photoUrl)
+    assert.isString(foreign?.businessUnitName)
+
+    const own = rows.find((row) => row.employeeId === fx.ownerEmployee.employeeId)
+    assert.isFalse(own?.foreign)
+    assert.property(own ?? {}, 'accessPointEmployeeId')
+    assert.isString(own?.businessUnitName)
+  })
+
+  test('la ficha ofrece a la invitada el checador compartido con sharedBy', async ({
+    client,
+    assert,
+  }) => {
+    // Alguien que todavia no este en el aparato (otras pruebas del grupo lo dan de alta).
+    const inDevice = await unscoped(async () => {
+      const rows = await AccessPointEmployee.query().where(
+        'access_point_id',
+        fx.accessPoint.accessPointId
+      )
+      return rows.map((row) => row.employeeId)
+    })
+    const extra = await anotherLiveEmployee(fx.guestBu, inDevice)
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get(`/api/v1/employees/${extra.employeeId}/access-points`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const available = res.body().data.employeeDevices.available as Array<{
+      accessPointId: number
+      sharedBy: string | null
+    }>
+    const offered = available.find((row) => row.accessPointId === fx.accessPoint.accessPointId)
+    assert.isDefined(offered)
+    assert.isString(offered?.sharedBy)
+  })
+
+  test('la invitada recibe 403 al pedir sincronizacion al aparato', async ({ client }) => {
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .post(`/api/v1/access-points/${fx.accessPoint.accessPointId}/sync`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(403)
+    res.assertBodyContains({ key: 'solo-lectura-checador-compartido' })
+  })
+
+  test('los candidatos por nombre de la invitada no incluyen a la responsable', async ({
+    client,
+    assert,
+  }) => {
+    const pending = await seedUnmappedPin(fx, '9125')
+    const owner = await unscoped(() =>
+      Employee.query().where('employee_id', fx.ownerEmployee.employeeId).firstOrFail()
+    )
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .get(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/candidates`)
+      .qs({ search: owner.employeeFirstName })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(200)
+    const ids = (res.body().data.candidates as Array<{ employeeId: number }>).map(
+      (row) => row.employeeId
+    )
+    assert.notInclude(ids, fx.ownerEmployee.employeeId)
+  })
+
+  test('la invitada no puede vincular un PIN no mapeado a un empleado de la responsable', async ({
+    client,
+  }) => {
+    const pending = await seedUnmappedPin(fx, '9126')
+    const actor = await actorFor(fx.guestBu)
+    const res = await client
+      .post(`/api/v1/access-points/unmapped-pins/${pending.admsUnmappedPinId}/link`)
+      .json({ employeeId: fx.ownerEmployee.employeeId })
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(404)
+  })
+
+  test('una empresa ajena recibe 404 en una ruta de configuracion', async ({ client }) => {
+    const actor = await actorFor(fx.outsiderBu)
+    const res = await client
+      .post(`/api/v1/access-points/${fx.accessPoint.accessPointId}/clock-sync`)
+      .loginAs(actor.user.user)
+      .header('X-Business-Unit-Id', actor.publicId)
+    res.assertStatus(404)
+    res.assertBodyContains({ key: 'punto-acceso-no-encontrado' })
+  })
+
+  test('la ex-invitada ve y cierra a mano los vinculos que el aparato no confirmo', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    try {
+      // Invitacion revocada con la baja de su empleado todavia sin confirmar.
+      await unscoped(async () => {
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', own.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: new Date() })
+        await AccessPointEmployee.query()
+          .where('access_point_id', own.accessPoint.accessPointId)
+          .where('employee_id', own.guestEmployee.employeeId)
+          .update({ access_point_employee_sync_status: 'revoking' })
+      })
+      const actor = await actorFor(own.guestBu)
+
+      const list = await client
+        .get(`/api/v1/employees/${own.guestEmployee.employeeId}/access-points`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      list.assertStatus(200)
+      const ids = (
+        list.body().data.employeeDevices.accessPoints as Array<{ accessPointId: number }>
+      ).map((row) => row.accessPointId)
+      assert.include(ids, own.accessPoint.accessPointId)
+
+      // Operar el aparato ya no: dar de alta a otro empleado es 404.
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+      const send = await client
+        .post(`/api/access-points/${own.accessPoint.accessPointId}/employee/${extra.employeeId}`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      send.assertStatus(404)
+
+      const forced = await client
+        .post(
+          `/api/access-points/${own.accessPoint.accessPointId}/employee/${own.guestEmployee.employeeId}/revoke/force`
+        )
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+        .json({ reason: 'el equipo no responde' })
+      forced.assertStatus(200)
+      const pivot = await unscoped(() =>
+        AccessPointEmployee.query()
+          .where('access_point_id', own.accessPoint.accessPointId)
+          .where('employee_id', own.guestEmployee.employeeId)
+          .firstOrFail()
+      )
+      assert.equal(pivot.accessPointEmployeeSyncStatus, 'revoked')
+    } finally {
+      await own.cleanup()
+    }
+  })
+
+  /**
+   * Un `pending_pin` de una ex-invitada (la carrera de A2-14 anterior a la
+   * correccion, o cualquier vinculo sin numero que quedo al revocar) nunca
+   * llego al aparato. Cerrarlo a mano lo desprende con su evento, sin encolar
+   * nada, y deja de bloquear el borrado del checador.
+   */
+  test('la ex-invitada cierra a mano un vinculo sin PIN y el checador ya se puede borrar', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const apId = own.accessPoint.accessPointId
+    try {
+      const extra = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+      await seedPendingPinPivot(own, extra, own.guestBu)
+      // Invitacion revocada y la baja de su otro colaborador ya confirmada: solo queda el huerfano.
+      await unscoped(async () => {
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', own.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: new Date() })
+        await db
+          .from('access_point_employees')
+          .where('access_point_id', apId)
+          .where('employee_id', own.guestEmployee.employeeId)
+          .update({ access_point_employee_sync_status: 'revoked' })
+      })
+      const guest = await actorFor(own.guestBu)
+
+      const forced = await client
+        .post(`/api/access-points/${apId}/employee/${extra.employeeId}/revoke/force`)
+        .loginAs(guest.user.user)
+        .header('X-Business-Unit-Id', guest.publicId)
+        .json({ reason: 'la invitacion se revoco' })
+      forced.assertStatus(200)
+      // La respuesta refleja el vinculo ya desprendido.
+      forced.assertBodyContains({ data: { accessPointEmployee: { detached: true } } })
+
+      const pivot = await unscoped(() =>
+        AccessPointEmployee.query()
+          .withTrashed()
+          .where('access_point_id', apId)
+          .where('employee_id', extra.employeeId)
+          .firstOrFail()
+      )
+      assert.isNotNull(pivot.deletedAt)
+      const commands = await unscoped(() =>
+        DeviceCommand.query().where('access_point_id', apId).where('employee_id', extra.employeeId)
+      )
+      assert.lengthOf(commands, 0)
+
+      const owner = await actorFor(own.ownerBu)
+      const destroy = await client
+        .delete(`/api/access-points/${apId}`)
+        .loginAs(owner.user.user)
+        .header('X-Business-Unit-Id', owner.publicId)
+      destroy.assertStatus(201)
+    } finally {
+      await own.cleanup()
+    }
+  })
+
+  test('apagar el rostro de la ex-invitada salta el ex-compartido y llega a su checador propio', async ({
+    client,
+    assert,
+  }) => {
+    const own = await createSharedAccessPointFixture()
+    const stamp = Date.now()
+    let ownAp: AccessPoint | null = null
+    let faceIdId: number | null = null
+    const employee = await anotherLiveEmployee(own.guestBu, [own.guestEmployee.employeeId])
+    try {
+      await unscoped(async () => {
+        // Checador propio de la invitada; sin perfil, se le puede mandar la foto.
+        const ap = new AccessPoint()
+        ap.accessPointName = `Propio ${stamp}`
+        ap.businessUnitId = own.guestBu
+        ap.accessPointActive = 1
+        ap.accessPointSerialNumber = `TEST-SHARE-OWN-${stamp}`
+        ap.accessPointStatus = 0
+        await ap.save()
+        ownAp = ap
+        const pivotOn = async (accessPointId: number, pin: string, status: 'confirmed' | 'revoking') => {
+          const pivot = new AccessPointEmployee()
+          pivot.accessPointId = accessPointId
+          pivot.employeeId = employee.employeeId
+          pivot.businessUnitId = own.guestBu
+          pivot.accessPointEmployeePin = pin
+          pivot.accessPointEmployeeSyncStatus = status
+          await pivot.save()
+        }
+        await pivotOn(ap.accessPointId, '1', 'confirmed')
+        // Invitacion revocada con la baja de la persona sin confirmar en el ex-compartido.
+        await pivotOn(own.accessPoint.accessPointId, '78', 'revoking')
+        await db
+          .from('access_point_shares')
+          .where('access_point_share_id', own.share.accessPointShareId)
+          .update({ access_point_share_revoked_at: new Date() })
+        const face = new EmployeeBiometricFaceId()
+        face.employeeId = employee.employeeId
+        face.businessUnitId = own.guestBu
+        face.employeeBiometricFaceIdPhotoUrl = `test/share-bo-${stamp}.jpg`
+        face.employeeBiometricFaceIdDeviceUse = true
+        face.employeeBiometricFaceIdDerivativeVersion = 0
+        await face.save()
+        faceIdId = face.employeeBiometricFaceIdId
+      })
+      const actor = await actorFor(own.guestBu)
+      const res = await client
+        .post(`/api/v1/employees/${employee.employeeId}/device-biometrics/face/disable`)
+        .loginAs(actor.user.user)
+        .header('X-Business-Unit-Id', actor.publicId)
+      res.assertStatus(200)
+
+      const ownApId = (ownAp as AccessPoint | null)?.accessPointId
+      // Solo los dos checadores de la prueba: otras suites pueden dejar comandos del mismo empleado.
+      const deletes = await unscoped(() =>
+        DeviceCommand.query()
+          .where('employee_id', employee.employeeId)
+          .where('device_command_kind', DEVICE_COMMAND_KIND.BIOPHOTO_DELETE)
+          .whereIn('access_point_id', [ownApId as number, own.accessPoint.accessPointId])
+          .exec()
+      )
+      assert.sameMembers(
+        deletes.map((command) => command.accessPointId),
+        [ownApId as number]
+      )
+      const face = await unscoped(() =>
+        EmployeeBiometricFaceId.query()
+          .where('employee_biometric_face_id_id', faceIdId as number)
+          .firstOrFail()
+      )
+      assert.isFalse(Boolean(face.employeeBiometricFaceIdDeviceUse))
+    } finally {
+      await unscoped(async () => {
+        const created = ownAp as AccessPoint | null
+        if (created) {
+          const apId = created.accessPointId
+          await db.from('device_commands').where('access_point_id', apId).delete()
+          await db.from('biometric_photo_publications').where('access_point_id', apId).delete()
+          await db.from('access_point_employees').where('access_point_id', apId).delete()
+          await db.from('access_points').where('access_point_id', apId).delete()
+        }
+        if (faceIdId !== null) {
+          await db
+            .from('employee_biometric_face_ids')
+            .where('employee_biometric_face_id_id', faceIdId)
+            .delete()
+        }
+      })
+      await own.cleanup()
+    }
+  })
+})

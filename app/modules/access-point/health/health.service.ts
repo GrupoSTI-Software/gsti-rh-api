@@ -3,6 +3,8 @@ import db from '@adonisjs/lucid/services/db'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import AccessPoint from '#models/access_point'
 import { TenantContext } from '#utils/tenant_context'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import { getBusinessTimeZone } from '#utils/business_date'
 import AccessPointProfile from '#models/access_point_profile'
 import AccessPointEmployee, {
@@ -37,6 +39,30 @@ import type {
   OccupancySlot,
   QueueHealth,
 } from './health.dto.js'
+
+/**
+ * La salud del checador compartido vista por la invitada (VLRH-P0065, 6).
+ *
+ * Sin IP, MAC ni la ultima IP desde la que reporto el aparato: son datos de
+ * red del aparato y de quien lo administra. Tampoco agregados del personal de
+ * la responsable: el padron (`enrollment`) y los avisos abiertos se calculan
+ * sobre todo el aparato y salen `null`; del ultimo fallo de la cola se quita
+ * el texto de error, que puede ser de un colaborador ajeno.
+ */
+export function forGuest(row: AccessPointHealthDto): AccessPointHealthDto {
+  return {
+    ...row,
+    ip: null,
+    mac: null,
+    enrollment: null,
+    openIncidents: null,
+    queue: {
+      ...row.queue,
+      lastFailure: row.queue.lastFailure ? { ...row.queue.lastFailure, error: null } : null,
+    },
+    hardening: { ...row.hardening, lastIpSeen: null, lastIpSeenAt: null },
+  }
+}
 
 /** Estados del pivote en los que el equipo todavia no confirmo el movimiento. */
 const UNCONFIRMED_SYNC_STATUSES = [
@@ -76,19 +102,43 @@ export interface ModelCapacity {
 export default class HealthService {
   constructor(
     private readonly progress: UploadProgressRepository = new UploadProgressRepositoryMysql(),
-    private readonly commands: DeviceCommandRepository = new DeviceCommandRepositoryMysql()
+    private readonly commands: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
   ) {}
 
-  /** Salud de todos los equipos del alcance. */
+  /**
+   * Salud de todos los equipos del alcance: los propios y los compartidos con
+   * alguna empresa de el (VLRH-P0065, 6). Cada equipo se arma en su propio
+   * scope, igual que la ficha individual: sus agregados son del aparato. Al
+   * compartido le salen sin IP ni MAC (`forGuest`).
+   */
   async listFor(businessUnitIds: number[], now: DateTime): Promise<AccessPointHealthDto[]> {
     if (businessUnitIds.length === 0) return []
-    const accessPoints = await AccessPoint.query()
-      .whereIn('business_unit_id', businessUnitIds)
-      .orderBy('access_point_name', 'asc')
+    const shared = await Promise.all(businessUnitIds.map((id) => this.scope.sharedWith(id)))
+    const sharedIds = [...new Set(shared.flat())]
+    // La responsable del compartido no esta en el alcance: se lee sin scope y se
+    // cierra la consulta dentro del bypass (M12).
+    const accessPoints = await TenantContext.runUnscoped(
+      () =>
+        AccessPoint.query()
+          .where((visible) => {
+            visible.whereIn('business_unit_id', businessUnitIds)
+            if (sharedIds.length > 0) visible.orWhereIn('access_point_id', sharedIds)
+          })
+          .whereNull('access_point_deleted_at')
+          .orderBy('access_point_name', 'asc')
+          .exec(),
+      TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
+    )
 
     const rows: AccessPointHealthDto[] = []
     for (const accessPoint of accessPoints) {
-      rows.push(await this.buildFor(accessPoint, now))
+      const deviceScope = await this.scope.participants(
+        accessPoint.accessPointId,
+        accessPoint.businessUnitId
+      )
+      const row = await TenantContext.run(deviceScope, () => this.buildFor(accessPoint, now))
+      rows.push(businessUnitIds.includes(accessPoint.businessUnitId) ? row : forGuest(row))
     }
     return rows
   }

@@ -28,6 +28,12 @@ import {
   rethrowCatalogErrorForPublicSurface,
 } from '../helpers/billing_tenant_error.js'
 import { BILLING_PROVIDER_KEYS } from '#modules/billing-provider/billing_provider.port'
+import type { PaymentFailureMessage } from '#helpers/billing_payment_failure_message'
+import { resolvePaymentFailureMessage } from '#helpers/billing_payment_failure_message'
+import {
+  findLatestStripePaidAt,
+  isPaymentFailureActive,
+} from '#services/billing_recurring_billing_service'
 import { TenantContext } from '../utils/tenant_context.js'
 import {
   daysBetweenBusinessDates,
@@ -193,6 +199,11 @@ export interface MySubscriptionResult {
    * ajuste de cantidad (orden 8) lo consume.
    */
   minimumContractedEmployees: number | null
+  /**
+   * Motivo legible del último cobro fallido (solo dueño vía controlador).
+   * No nulo solo con stripe, `past_due`, fallo vigente y códigos guardados.
+   */
+  paymentFailureMessage: PaymentFailureMessage | null
 }
 
 /** Respuesta 201 de `POST /api/billing/subscription` (lista blanca). */
@@ -533,6 +544,33 @@ export default class BillingTenantService {
       subscription !== null &&
       subscription.billingSubscriptionProvider === BILLING_PROVIDER_KEYS.STRIPE
 
+    let paymentFailureMessage: PaymentFailureMessage | null = null
+    if (
+      subscription !== null &&
+      subscription.billingSubscriptionProvider === BILLING_PROVIDER_KEYS.STRIPE &&
+      subscription.billingSubscriptionStatus === 'past_due' &&
+      subscription.billingSubscriptionLastPaymentFailedAt !== null
+    ) {
+      const latestStripePaidAt = await findLatestStripePaidAt(subscription.billingSubscriptionId)
+      const failureActive = isPaymentFailureActive(
+        subscription.billingSubscriptionLastPaymentFailedAt,
+        latestStripePaidAt
+      )
+      if (failureActive) {
+        const resolved = resolvePaymentFailureMessage({
+          code: subscription.billingSubscriptionLastPaymentFailureCode,
+          declineCode: subscription.billingSubscriptionLastPaymentFailureDeclineCode,
+        })
+        if (resolved !== null) {
+          paymentFailureMessage = {
+            title: resolved.title,
+            detail: resolved.detail,
+            action: resolved.action,
+          }
+        }
+      }
+    }
+
     return {
       businessUnitOrigin: businessUnit.businessUnitOrigin,
       subscription: subscription
@@ -543,6 +581,7 @@ export default class BillingTenantService {
         subscription?.billingSubscriptionStatus ?? renewal?.status ?? null,
       minimumContractedEmployees,
       automaticBilling,
+      paymentFailureMessage,
     }
   }
 

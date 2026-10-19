@@ -3,6 +3,9 @@ import type { I18n } from '@adonisjs/i18n'
 import { ADMS_ERROR_CODES, type AdmsErrorCode } from '#constants/adms_error_codes'
 import type { DeviceCommandErrorCode } from '#constants/device_command_error_codes'
 import { AdmsError } from '#exceptions/adms_error'
+import { EmployeeOutOfScopeError } from '#modules/access-point/employee_business_unit'
+import { AccessPointOutOfScopeError } from '#modules/access-point/access_point_out_of_scope_error'
+import { DeviceBusyError } from '#modules/access-point/device_busy_error'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { BiometricVaultError } from '#exceptions/biometric_vault_error'
 import type { BiometricVaultErrorCode } from '#constants/biometric_vault_error_codes'
@@ -51,6 +54,43 @@ export function resolveAdmsApiError(error: unknown, i18n: I18n): ResolvedAdmsApi
       detail: error.detail ?? error.message,
       key: error.key ?? error.errorCode,
       code: error.errorCode,
+    }
+  }
+
+  /**
+   * Colaborador fuera del alcance: el mismo 404 venga de donde venga (no
+   * existe, es de otra empresa o no tiene empresa), con texto i18n y sin datos
+   * del colaborador.
+   */
+  if (error instanceof EmployeeOutOfScopeError) {
+    return {
+      status: 404,
+      title: i18n.formatMessage('access_point_employee_employee_not_found_title'),
+      detail: i18n.formatMessage('access_point_employee_employee_not_found_message'),
+      key: 'colaborador-no-encontrado',
+      code: ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+    }
+  }
+
+  /** Otra operacion retiene el checador mas alla del tiempo de espera del candado. */
+  if (error instanceof DeviceBusyError) {
+    return {
+      status: 409,
+      title: i18n.formatMessage('access_point_device_busy_title'),
+      detail: i18n.formatMessage('access_point_device_busy_message'),
+      key: 'equipo-ocupado',
+      code: ADMS_ERROR_CODES.SYS_INTERNAL,
+    }
+  }
+
+  /** Checador fuera del alcance: el mismo 404 lo lance la autorizacion o la revalidacion. */
+  if (error instanceof AccessPointOutOfScopeError) {
+    return {
+      status: 404,
+      title: i18n.formatMessage('adms_not_found_title'),
+      detail: i18n.formatMessage('adms_not_found_message'),
+      key: 'punto-acceso-no-encontrado',
+      code: ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
     }
   }
 

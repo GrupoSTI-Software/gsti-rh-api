@@ -24,6 +24,8 @@ const DEVICE: ResolvedAdmsDevice = {
   timezone: null,
   receivedAt: NOW,
   configuredAt: null,
+  participantBusinessUnitIds: [1],
+  shared: false,
 }
 
 const V5L =

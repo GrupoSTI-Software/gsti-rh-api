@@ -29,3 +29,4 @@ router
   })
   .prefix('/api/competency-descriptors')
   .use(middleware.auth())
+  .use(middleware.businessScope())

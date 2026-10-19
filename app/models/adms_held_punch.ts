@@ -10,6 +10,7 @@ export const ADMS_HELD_PUNCH_REASON = {
   AMBIGUOUS_CODE: 'ambiguous_code',
   PIN_QUARANTINED: 'pin_quarantined',
   INGESTION_REJECTED: 'ingestion_rejected',
+  SHARED_DEVICE_NO_PIVOT: 'shared_device_no_pivot',
 } as const
 
 export type AdmsHeldPunchReason =

@@ -3,6 +3,8 @@ import db from '@adonisjs/lucid/services/db'
 import limiter from '@adonisjs/limiter/services/main'
 import encryption from '@adonisjs/core/services/encryption'
 import { ADMS_RATE } from '#modules/adms/adms.constants'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 
 export interface AccessPointLookupRow {
   accessPointId: number
@@ -26,6 +28,13 @@ export interface AccessPointLookupRow {
    * aparato, y por eso sirve para saber si un cambio de identidad fue legitimo.
    */
   configuredAt: DateTime | null
+  /**
+   * Scope del canal: responsable primero, luego invitadas vivas y empresas que
+   * aun tienen personal o comandos vivos en el aparato (VLRH-P0065, 3.3).
+   */
+  participantBusinessUnitIds: number[]
+  /** El aparato tiene o tuvo invitadas (cualquier fila de invitacion). */
+  everShared: boolean
 }
 
 /**
@@ -87,6 +96,10 @@ function decryptSecret(value: string | null): string | null {
 }
 
 export class AccessPointLookupMysql implements AccessPointLookupPort {
+  constructor(
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+  ) {}
+
   async findBySerial(serial: string): Promise<AccessPointLookupRow | null> {
     const row = await db
       .from('access_points')
@@ -106,6 +119,11 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
       .first()
     if (!row) return null
     const typed = row as AccessPointRawRow
+    // Scope del canal y `everShared` en una sola consulta: corre en cada peticion del aparato.
+    const { participantBusinessUnitIds, everShared } = await this.scope.channelScope(
+      typed.access_point_id,
+      typed.business_unit_id
+    )
     return {
       accessPointId: typed.access_point_id,
       businessUnitId: typed.business_unit_id,
@@ -122,6 +140,8 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
         typed.access_point_channel_secret_set_at === null
           ? null
           : DateTime.fromJSDate(new Date(typed.access_point_channel_secret_set_at)),
+      participantBusinessUnitIds,
+      everShared,
     }
   }
 

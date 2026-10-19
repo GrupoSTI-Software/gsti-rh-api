@@ -1,4 +1,5 @@
 import type { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type AccessPointEmployee from '#models/access_point_employee'
 import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
 import type { AccessPointEmployeeEventKind } from '#models/access_point_employee_event'
@@ -19,18 +20,37 @@ export interface SyncEventInput {
 /** Puerto del pivote y su historial. */
 export interface EmployeeSyncRepository {
   /**
-   * Corre `fn` con la fila del punto de acceso bloqueada. La unicidad del PIN
-   * se comprueba dentro: dos altas simultaneas no pueden quedarse con el mismo.
+   * Corre `fn` en una transaccion que primero bloquea la fila del punto de
+   * acceso (`FOR UPDATE`). Todo lo que lea y escriba `fn` tiene que ir por
+   * `trx`: una escritura desde otra conexion que referencie al punto de acceso
+   * se quedaria esperando este mismo candado, y cualquier consulta fuera de
+   * `trx` pide otra conexion del pool mientras esta retiene la suya. Es el
+   * candado de todo lo que escribe PIN o vinculos del aparato (alta, PIN,
+   * reclamo, encolado, revocacion, borrado): el orden es siempre el aparato
+   * primero (VLRH-P0065, 3.2.4). La unicidad del PIN se comprueba dentro.
    */
-  withDeviceLock<T>(accessPointId: number, fn: () => Promise<T>): Promise<T>
-  findPivot(accessPointId: number, employeeId: number): Promise<AccessPointEmployee | null>
+  inDeviceTransaction<T>(
+    accessPointId: number,
+    fn: (trx: TransactionClientContract) => Promise<T>
+  ): Promise<T>
+  /** Con `trx`, el pivote leido se guarda dentro de esa misma transaccion. */
+  findPivot(
+    accessPointId: number,
+    employeeId: number,
+    trx?: TransactionClientContract
+  ): Promise<AccessPointEmployee | null>
   /** Incluye filas revocadas: una reasignacion revive la que ya existia. */
   findPivotWithTrashed(
     accessPointId: number,
-    employeeId: number
+    employeeId: number,
+    trx?: TransactionClientContract
   ): Promise<AccessPointEmployee | null>
   /** Filas vivas del dispositivo que ocupan ese PIN, incluidas las de cuarentena. */
-  findByPin(accessPointId: number, pin: string): Promise<AccessPointEmployee[]>
+  findByPin(
+    accessPointId: number,
+    pin: string,
+    trx?: TransactionClientContract
+  ): Promise<AccessPointEmployee[]>
   /**
    * PINs que ese equipo ya no puede volver a dar.
    *
@@ -44,7 +64,11 @@ export interface EmployeeSyncRepository {
    * al que se le esta proponiendo numero. Sin eso nadie podria recuperar el
    * suyo al volver al equipo: su vinculo anterior figura como ocupante.
    */
-  listTakenPins(accessPointId: number, exceptPivotId?: number): Promise<string[]>
+  listTakenPins(
+    accessPointId: number,
+    exceptPivotId?: number,
+    trx?: TransactionClientContract
+  ): Promise<string[]>
   listLiveByEmployee(employeeId: number): Promise<AccessPointEmployee[]>
   /**
    * Cuantos deberian estar DENTRO del aparato a una hora dada.
@@ -54,8 +78,11 @@ export interface EmployeeSyncRepository {
    * podia estar contada.
    */
   countConfirmedBefore(accessPointId: number, at: DateTime): Promise<number>
-  save(pivot: AccessPointEmployee): Promise<void>
-  recordEvent(input: SyncEventInput): Promise<void>
+  /** Con `trx`, el pivote se escribe en esa transaccion (p. ej. la del aparato bloqueado). */
+  save(pivot: AccessPointEmployee, trx?: TransactionClientContract): Promise<void>
+  recordEvent(input: SyncEventInput, trx?: TransactionClientContract): Promise<void>
+  /** Baja logica del vinculo (conserva su historial). Con `trx`, en esa transaccion. */
+  detach(pivot: AccessPointEmployee, trx?: TransactionClientContract): Promise<void>
   findByCommandTarget(accessPointEmployeeId: number): Promise<AccessPointEmployee | null>
   updateStatus(
     accessPointEmployeeId: number,

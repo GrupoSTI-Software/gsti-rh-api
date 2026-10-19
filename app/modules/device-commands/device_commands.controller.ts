@@ -1,12 +1,14 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
+import { TenantContext } from '#utils/tenant_context'
 import vine from '@vinejs/vine'
 import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
 import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import {
   ensureAccessPointPermission,
-  resolveScopedAccessPoint,
+  readScopeOf,
+  resolveParticipantAccessPoint,
 } from '#modules/access-point/access_point_authorization'
 import { accessPointParamValidator } from '#modules/access-point/upload-progress/validators/access_point_param.validator'
 import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
@@ -62,15 +64,20 @@ export default class DeviceCommandsController {
       const { params } = await request.validateUsing(accessPointParamValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      const participant = await resolveParticipantAccessPoint(ctx, params.accessPointId)
+      const { accessPoint } = participant
 
       const requested = request.input('status')
       const status = STATUSES.includes(requested as DeviceCommandStatus)
         ? (requested as DeviceCommandStatus)
         : undefined
 
+      // La responsable ve la cola completa del aparato; la invitada, solo los
+      // comandos de su personal.
       const service = new DeviceCommandService()
-      const commands = await service.listByDevice(accessPoint.accessPointId, status)
+      const commands = await TenantContext.run(readScopeOf(ctx, participant), () =>
+        service.listByDevice(accessPoint.accessPointId, status)
+      )
       const now = DateTime.utc()
       return StandardResponseFormatter.success(
         response,
@@ -130,7 +137,8 @@ export default class DeviceCommandsController {
       const { params } = await request.validateUsing(commandParamValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      const participant = await resolveParticipantAccessPoint(ctx, params.accessPointId)
+      const { accessPoint } = participant
 
       const service = new DeviceCommandService()
       /**
@@ -145,7 +153,17 @@ export default class DeviceCommandsController {
        * descifraba sus payloads --posibles templates biometricos-- para tirar
        * 199.
        */
-      const target = await service.findForDevice(params.commandId, accessPoint.accessPointId)
+      /**
+       * Cancelar o reintentar es actuar sobre el comando: con cualquier rol,
+       * solo los de la empresa de la peticion. Los de usuario y biometria
+       * llevan la empresa del colaborador (VLRH-P0065, 3.3) y la responsable no
+       * opera al personal ajeno (D6); los del aparato llevan la suya.
+       */
+      const requestScope = ctx.businessUnitScope ?? []
+      const scope = participant.deviceScope.filter((id) => requestScope.includes(id))
+      const target = await TenantContext.run(scope, () =>
+        service.findForDevice(params.commandId, accessPoint.accessPointId)
+      )
       if (!target) {
         throw new DeviceCommandError(
           i18n.formatMessage('device_command_not_found_title'),
@@ -156,10 +174,11 @@ export default class DeviceCommandsController {
         )
       }
 
-      const updated =
+      const updated = await TenantContext.run(scope, () =>
         action === 'cancel'
-          ? await service.cancel(target.deviceCommandId, auth.user?.userId ?? null)
-          : await service.retry(target.deviceCommandId, auth.user?.userId ?? null)
+          ? service.cancel(target.deviceCommandId, auth.user?.userId ?? null)
+          : service.retry(target.deviceCommandId, auth.user?.userId ?? null)
+      )
 
       return StandardResponseFormatter.success(
         response,

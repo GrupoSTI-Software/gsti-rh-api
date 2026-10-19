@@ -11,6 +11,11 @@ test.group('restrictMySubscription — automaticBilling USRH1790708507781 CA-2',
       accountStatus: 'active',
       automaticBilling: true,
       minimumContractedEmployees: 10,
+      paymentFailureMessage: {
+        title: 'La tarjeta no tiene fondos suficientes',
+        detail: 'Detalle',
+        action: 'tenant',
+      },
     }
 
     const restricted = restrictMySubscription(full)
@@ -18,5 +23,6 @@ test.group('restrictMySubscription — automaticBilling USRH1790708507781 CA-2',
     assert.equal(restricted.automaticBilling, true)
     assert.isNull(restricted.subscription)
     assert.equal(restricted.accountStatus, 'active')
+    assert.isNull(restricted.paymentFailureMessage)
   })
 })

@@ -154,8 +154,10 @@ export interface AccessPointHealthDto {
   }
   clock: ClockHealth
   occupancy: OccupancySlot[]
-  enrollment: EnrollmentHealth
+  /** `null` para la invitada de un checador compartido: cuenta personal ajeno. */
+  enrollment: EnrollmentHealth | null
   queue: QueueHealth
-  openIncidents: IncidentsHealth
+  /** `null` para la invitada de un checador compartido. */
+  openIncidents: IncidentsHealth | null
   hardening: HardeningHealth
 }

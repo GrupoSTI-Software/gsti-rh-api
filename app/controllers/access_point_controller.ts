@@ -5,6 +5,13 @@ import Ws from '#services/ws'
 import { createAccessPointValidator, updateAccessPointValidator } from '#validators/access_point'
 import { DateTime } from 'luxon'
 import EmployeeService from '#services/employee_service'
+import { AdmsError } from '#exceptions/adms_error'
+import { respondAdmsApiError } from '#helpers/adms_api_error'
+import { rejectSharedGuest } from '#modules/access-point/access_point_authorization'
+import {
+  redactForViewer,
+  sharingViewOf,
+} from '#modules/access-point/sharing/access_point_sharing_view'
 
 export default class AccessPointController {
   /**
@@ -45,17 +52,24 @@ export default class AccessPointController {
    *           type: integer
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: >
+   *           Propios mas los compartidos con la empresa (VLRH-P0065, 6). Cada fila
+   *           trae `sharedRole` (`owner`, `guest` o `null` si no se comparte),
+   *           `sharedWith` (nombres de las invitadas vivas, solo para la
+   *           responsable) y `sharedBy` (nombre de la responsable, solo para la
+   *           invitada). A la invitada le llegan en null la IP, la MAC, los CIDR
+   *           y el id de la responsable; de su ficha solo el nombre.
    *       default:
    *         description: Unexpected error
    */
-  async index({ request, response, i18n }: HttpContext) {
+  async index({ request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const search = request.input('search')
       const rawPage = Number(request.input('page', 1))
       const rawLimit = Number(request.input('limit', 100))
-      const businessUnitId = request.input('businessUnitId') as number
+      // Llega como texto en el query string: se compara contra el alcance como numero.
+      const businessUnitId = Number(request.input('businessUnitId'))
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
       const limit = Number.isNaN(rawLimit) || rawLimit <= 0 ? 100 : rawLimit
       const accessPointService = new AccessPointService(i18n)
@@ -64,6 +78,7 @@ export default class AccessPointController {
         page,
         limit,
         businessUnitId,
+        allowedBusinessUnitIds: businessUnitScope ?? [],
       })
 
       const CONNECTION_TIMEOUT_MS = 15000
@@ -90,7 +105,10 @@ export default class AccessPointController {
         title: t('access_points'),
         message: t('resources_were_found_successfully'),
         data: {
-          accessPoints,
+          accessPoints: await accessPointService.serializeWithSharing(
+            accessPoints,
+            businessUnitScope ?? []
+          ),
         },
       }
     } catch (error) {
@@ -257,10 +275,17 @@ export default class AccessPointController {
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '403':
+   *         description: >
+   *           La empresa es invitada de un checador compartido: lo ve pero no lo
+   *           edita (key solo-lectura-checador-compartido).
+   *       '404':
+   *         description: El checador no existe o no es de la empresa
    *       default:
    *         description: Unexpected error
    */
-  async update({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const accessPointId = Number(request.param('accessPointId'))
@@ -273,6 +298,8 @@ export default class AccessPointController {
           data: {},
         }
       }
+      // La invitada de un checador compartido lo ve pero no lo edita: 403.
+      await rejectSharedGuest(ctx, accessPointId)
       // `AccessPoint` ya compone `withBusinessUnitScope()` (USRH1784259058567):
       // el `whereIn('business_unit_id', businessUnitScope)` manual era
       // redundante bajo contexto activo (mismo filtro que ya aplica el
@@ -362,6 +389,7 @@ export default class AccessPointController {
         data: { accessPoint: updateAccessPoint },
       }
     } catch (error) {
+      if (error instanceof AdmsError) return respondAdmsApiError(response, i18n, error)
       if (error.key === 'empresa-no-permitida') {
         response.status(400)
         return { title: error.title, detail: error.detail, key: error.key }
@@ -397,10 +425,22 @@ export default class AccessPointController {
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '403':
+   *         description: >
+   *           La empresa es invitada de un checador compartido (key
+   *           solo-lectura-checador-compartido).
+   *       '404':
+   *         description: El checador no existe o no es de la empresa
+   *       '409':
+   *         description: >
+   *           El checador se compartio y tiene invitadas vivas, o personal de una
+   *           ex-invitada sin baja confirmada: primero se revocan desde el
+   *           landlord (key checador-con-invitaciones-vivas).
    *       default:
    *         description: Unexpected error
    */
-  async delete({ auth, request, response, i18n }: HttpContext) {
+  async delete(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const accessPointId = Number(request.param('accessPointId'))
@@ -413,6 +453,8 @@ export default class AccessPointController {
           data: { accessPointId },
         }
       }
+      // La invitada de un checador compartido lo ve pero no lo edita: 403.
+      await rejectSharedGuest(ctx, accessPointId)
       // `AccessPoint` ya compone `withBusinessUnitScope()` (USRH1784259058567):
       // el `whereIn('business_unit_id', businessUnitScope)` manual era
       // redundante bajo contexto activo (mismo filtro que ya aplica el
@@ -430,6 +472,7 @@ export default class AccessPointController {
           data: { accessPointId },
         }
       }
+      // El 409 de checador compartido lo decide el servicio (`AccessPointService.delete`).
       const accessPointService = new AccessPointService(i18n)
       const deletedAccessPoint = await accessPointService.delete(currentAccessPoint)
       const userId = auth.user?.userId
@@ -454,6 +497,7 @@ export default class AccessPointController {
         data: { accessPoint: deletedAccessPoint },
       }
     } catch (error) {
+      if (error instanceof AdmsError) return respondAdmsApiError(response, i18n, error)
       response.status(500)
       return {
         type: 'error',
@@ -482,7 +526,11 @@ export default class AccessPointController {
    *         required: true
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: >
+   *           El propio o el compartido con la empresa, con `sharedRole`,
+   *           `sharedWith` y `sharedBy` igual que en el listado.
+   *       '404':
+   *         description: El checador no existe, es ajeno o no se comparte con la empresa
    *       default:
    *         description: Unexpected error
    */
@@ -529,12 +577,14 @@ export default class AccessPointController {
         }
       }
 
+      const sharingViews = await sharingViewOf([accessPoint], businessUnitScope ?? [])
+      const sharing = sharingViews.get(accessPoint.accessPointId)
       response.status(200)
       return {
         type: 'success',
         title: t('access_point'),
         message: t('resource_was_found_successfully'),
-        data: { accessPoint },
+        data: { accessPoint: { ...redactForViewer(accessPoint.serialize(), sharing), ...sharing } },
       }
     } catch (error) {
       response.status(500)

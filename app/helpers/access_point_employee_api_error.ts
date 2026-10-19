@@ -4,6 +4,8 @@ import {
   type AccessPointEmployeeErrorCode,
 } from '#constants/access_point_employee_error_codes'
 import AccessPointEmployeeServiceError from '#exceptions/access_point_employee_service_error'
+import { AdmsError } from '#exceptions/adms_error'
+import { resolveAdmsApiError, type ResolvedAdmsApiError } from '#helpers/adms_api_error'
 
 /**
  * Forma única del error hacia el cliente: el BO ramifica por `key` y nunca por
@@ -14,7 +16,8 @@ export type ResolvedAccessPointEmployeeApiError = {
   title: string
   detail: string
   key: string
-  code: AccessPointEmployeeErrorCode
+  /** Del catalogo de la asignacion, o del canal ADMS cuando el error viene de la sincronizacion. */
+  code: AccessPointEmployeeErrorCode | ResolvedAdmsApiError['code']
 }
 
 /**
@@ -56,6 +59,22 @@ export function resolveAccessPointEmployeeApiError(
       detail: error.message,
       key: error.key,
       code: error.errorCode,
+    }
+  }
+
+  /**
+   * El alta delega en el modulo de sincronizacion (PIN, candado del aparato,
+   * participacion), que lanza `AdmsError` con su propio triplete: se responde
+   * tal cual, con el mismo resolutor del canal, en vez de un 500.
+   */
+  if (error instanceof AdmsError) {
+    const resolved = resolveAdmsApiError(error, i18n)
+    return {
+      status: resolved.status,
+      title: resolved.title,
+      detail: resolved.detail,
+      key: resolved.key,
+      code: resolved.code,
     }
   }
 

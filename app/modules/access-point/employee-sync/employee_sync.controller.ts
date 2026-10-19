@@ -8,21 +8,31 @@ import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import {
   ensureAccessPointPermission,
-  resolveScopedAccessPoint,
+  readScopeOf,
+  resolveParticipantAccessPoint,
+  resolveParticipantPair,
   resolveScopedEmployee,
 } from '#modules/access-point/access_point_authorization'
+import { requireEmployeeBusinessUnitId } from '#modules/access-point/employee_business_unit'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import Employee from '#models/employee'
 import AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import EmployeeSyncService from './employee_sync.service.js'
-import { toEmployeeSyncDto } from './dto/employee_sync.dto.js'
+import EmployeeRosterService from './employee_roster.service.js'
+import ResyncPendingService from './resync_pending.service.js'
+import { toEmployeeSyncDto, toRosterEntryDto } from './dto/employee_sync.dto.js'
 import {
   toEmployeeAccessPointDto,
+  toResyncPendingsCountDto,
+  toResyncPendingsFullDto,
   type EmployeeAccessPointDto,
   type EmployeeAvailableAccessPointDto,
   type EmployeeBiometricSummaryDto,
   type EmployeeDevicesDto,
 } from './dto/employee_access_point.dto.js'
+import PermissionGateService from '#services/permission_gate_service'
 import { statusOf } from '#modules/access-point/health/health.service'
 import { TenantContext } from '#utils/tenant_context'
 import db from '@adonisjs/lucid/services/db'
@@ -66,6 +76,12 @@ const pinValidator = vine.compile(
  * persona, no sobre el catalogo de equipos.
  */
 export default class EmployeeSyncController {
+  /** Scope del checador: puerto con su adaptador por defecto, reemplazable en pruebas. */
+  private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
+
+  /** Nombres de empresa e identidad del personal ajeno en el padron. */
+  private readonly roster = new EmployeeRosterService()
+
   /**
    * @swagger
    * /api/access-points/{accessPointId}/employee/{employeeId}/pin:
@@ -90,17 +106,24 @@ export default class EmployeeSyncController {
       const payload = await request.validateUsing(pinValidator, {
         data: { params: request.params(), pin: request.input('pin') },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, payload.params.accessPointId)
-      await resolveScopedEmployee(ctx, payload.params.employeeId)
+      const pair = await resolveParticipantPair(
+        ctx,
+        payload.params.accessPointId,
+        payload.params.employeeId
+      )
 
+      // Dentro del scope del aparato: el PIN se compara contra los de todos
+      // los participantes, no solo contra los de la empresa que pide.
       const service = new EmployeeSyncService()
-      const pivot = await service.setPin({
-        accessPointId: accessPoint.accessPointId,
-        businessUnitId: accessPoint.businessUnitId,
-        employeeId: payload.params.employeeId,
-        pin: payload.pin,
-        actor: { userId: auth.user?.userId ?? null },
-      })
+      const pivot = await TenantContext.run(pair.deviceScope, () =>
+        service.setPin({
+          accessPointId: pair.accessPoint.accessPointId,
+          businessUnitId: pair.employeeBusinessUnitId,
+          employeeId: pair.employee.employeeId,
+          pin: payload.pin,
+          actor: { userId: auth.user?.userId ?? null },
+        })
+      )
 
       return StandardResponseFormatter.success(
         response,
@@ -136,21 +159,34 @@ export default class EmployeeSyncController {
       const { params } = await request.validateUsing(accessPointValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      const participant = await resolveParticipantAccessPoint(ctx, params.accessPointId)
 
+      /**
+       * La responsable ve el padron completo del aparato; la invitada, solo a
+       * su personal (VLRH-P0065, 6). La consulta se cierra dentro del scope.
+       */
       const status = request.input('status')
-      const query = AccessPointEmployee.query().where(
-        'access_point_id',
-        accessPoint.accessPointId
-      )
-      if (typeof status === 'string' && status.length > 0) {
-        query.where('access_point_employee_sync_status', status)
-      }
-      const pivots = await query.orderBy('access_point_employee_pin', 'asc').limit(500)
+      const pivots = await TenantContext.run(readScopeOf(ctx, participant), () => {
+        const query = AccessPointEmployee.query().where(
+          'access_point_id',
+          participant.accessPoint.accessPointId
+        )
+        if (typeof status === 'string' && status.length > 0) {
+          query.where('access_point_employee_sync_status', status)
+        }
+        return query.orderBy('access_point_employee_pin', 'asc').limit(500).exec()
+      })
+
+      // Los ajenos (personal de las invitadas, visto por la responsable) salen
+      // con la proyeccion de identificacion; el resto, completo.
+      const viewerScope = ctx.businessUnitScope ?? []
+      const { businessUnitNames, identities } = await this.roster.identitiesFor(pivots, viewerScope)
 
       return StandardResponseFormatter.success(
         response,
-        pivots.map(toEmployeeSyncDto),
+        pivots.map((pivot) =>
+          toRosterEntryDto(pivot, viewerScope, businessUnitNames, identities)
+        ),
         i18n.formatMessage('access_point_employee_title'),
         i18n.formatMessage('access_point_employee_list_message'),
         200,
@@ -196,109 +232,127 @@ export default class EmployeeSyncController {
         data: { params: request.params() },
       })
       const employee = await resolveScopedEmployee(ctx, params.employeeId)
+      const employeeScope = await this.scope.forEmployee(requireEmployeeBusinessUnitId(employee))
 
       /**
-       * Se omiten los revocados: el aparato ya confirmo que esa persona no esta
-       * ahi, y listarla junto a las altas vivas invita a operar sobre un
-       * vinculo que no existe. El rastro queda en los eventos del pivote.
+       * Los checadores compartidos con la empresa del colaborador son de otra
+       * responsable: sin su scope, el aparato donde ya esta dado de alta no
+       * apareceria en su ficha.
        */
-      const pivots = await AccessPointEmployee.query()
-        .where('employee_id', employee.employeeId)
-        .whereNot(
-          'access_point_employee_sync_status',
-          ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
-        )
-
-      const accessPointIds = pivots.map((pivot) => pivot.accessPointId)
-      const accessPoints =
-        accessPointIds.length > 0
-          ? await AccessPoint.query().whereIn('access_point_id', accessPointIds)
-          : []
-      const byId = new Map(accessPoints.map((row) => [row.accessPointId, row]))
-
-      const now = DateTime.utc()
-      const summaries = new EmployeeBiometricSummaryService()
-      const rows: EmployeeAccessPointDto[] = []
-      for (const pivot of pivots) {
-        const accessPoint = byId.get(pivot.accessPointId)
-        /** Un equipo dado de baja deja el pivote huerfano: no hay que pintarlo. */
-        if (!accessPoint) continue
-        /**
-         * Se resuelve equipo por equipo a proposito: lo que la persona puede
-         * usar en un aparato no se deduce de su expediente. Son pocas consultas
-         * porque una persona esta en un puñado de checadores; si esa flota
-         * crece, aqui es donde hay que agrupar.
-         */
-        const scoped = await summaries.of(employee.employeeId, accessPoint.accessPointId)
-        /**
-         * Dentro del aparato y en camino se cuentan por separado.
-         *
-         * Un acuse dice que el equipo recibio la copia, no que la guardo: hay
-         * plataformas que responden que si y descartan el dato en silencio. Con
-         * las dos cuentas juntas, un checador con cero huellas se anunciaba con
-         * la etiqueta de huella y nadie podia notar la perdida.
-         */
-        const isHere = (state: string) => state === BIOMETRIC_SLOT_STATE.HERE
-        const isOnTheWay = (state: string) => state === BIOMETRIC_SLOT_STATE.SENT
-        /**
-         * Guardado y sin poder llegar: la version del equipo no lo admite. No
-         * es una espera, es un callejon, y la pantalla necesita distinguirlos.
-         */
-        const isIncompatible = (state: string) => state === BIOMETRIC_SLOT_STATE.INCOMPATIBLE
-        /** Lo que un humano puede llevar desde la ficha. */
-        const isCopyable = (state: string) => state === BIOMETRIC_SLOT_STATE.COPYABLE
-        const faceState = scoped.face.state
-        rows.push(
-          toEmployeeAccessPointDto(
-            pivot,
-            accessPoint,
-            now,
-            {
-              fingerprints: scoped.fingers.filter((finger) => isHere(finger.state)).length,
-              faces: faceState !== null && isHere(faceState) ? 1 : 0,
-              onTheWay: {
-                fingerprints: scoped.fingers.filter((finger) => isOnTheWay(finger.state)).length,
-                faces: faceState !== null && isOnTheWay(faceState) ? 1 : 0,
-              },
-              incompatible: {
-                fingerprints: scoped.fingers.filter((finger) => isIncompatible(finger.state))
-                  .length,
-                faces: faceState !== null && isIncompatible(faceState) ? 1 : 0,
-              },
-              copyable: {
-                fingerprints: scoped.fingers.filter((finger) => isCopyable(finger.state)).length,
-                faces: faceState !== null && isCopyable(faceState) ? 1 : 0,
-              },
-            },
-            scoped.withheldBy,
-            scoped.facePhoto
-          )
-        )
-      }
-      rows.sort((a, b) => a.name.localeCompare(b.name))
-
-      const payload: EmployeeDevicesDto = {
-        employeeId: employee.employeeId,
-        accessPoints: rows,
-        available: await availableFor(
-          ctx.businessUnitScope ?? [],
-          new Set(rows.map((row) => row.accessPointId)),
-          now
-        ),
-        biometrics: await countBiometrics(employee.employeeId),
-      }
-
-      return StandardResponseFormatter.success(
-        response,
-        payload,
-        i18n.formatMessage('access_point_employee_title'),
-        i18n.formatMessage('access_point_employee_list_message'),
-        200,
-        'employeeDevices'
+      return await TenantContext.run(employeeScope, () =>
+        this.renderEmployeeDevices(ctx, employee)
       )
     } catch (error) {
       return respondAdmsApiError(response, i18n, error)
     }
+  }
+
+  /** El cuerpo de `listByEmployee`, ya dentro del scope del colaborador. */
+  private async renderEmployeeDevices(ctx: HttpContext, employee: Employee) {
+    const { response, i18n } = ctx
+
+    /**
+     * Se omiten los revocados: el aparato ya confirmo que esa persona no esta
+     * ahi, y listarla junto a las altas vivas invita a operar sobre un
+     * vinculo que no existe. El rastro queda en los eventos del pivote.
+     */
+    const pivots = await AccessPointEmployee.query()
+      .where('employee_id', employee.employeeId)
+      .whereNot(
+        'access_point_employee_sync_status',
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
+      )
+
+    const accessPointIds = pivots.map((pivot) => pivot.accessPointId)
+    const accessPoints =
+      accessPointIds.length > 0
+        ? await AccessPoint.query().whereIn('access_point_id', accessPointIds)
+        : []
+    const byId = new Map(accessPoints.map((row) => [row.accessPointId, row]))
+
+    const now = DateTime.utc()
+    const summaries = new EmployeeBiometricSummaryService()
+    const rows: EmployeeAccessPointDto[] = []
+    for (const pivot of pivots) {
+      const accessPoint = byId.get(pivot.accessPointId)
+      /** Un equipo dado de baja deja el pivote huerfano: no hay que pintarlo. */
+      if (!accessPoint) continue
+      /**
+       * Se resuelve equipo por equipo a proposito: lo que la persona puede
+       * usar en un aparato no se deduce de su expediente. Son pocas consultas
+       * porque una persona esta en un puñado de checadores; si esa flota
+       * crece, aqui es donde hay que agrupar.
+       */
+      const scoped = await summaries.of(employee.employeeId, accessPoint.accessPointId)
+      /**
+       * Dentro del aparato y en camino se cuentan por separado.
+       *
+       * Un acuse dice que el equipo recibio la copia, no que la guardo: hay
+       * plataformas que responden que si y descartan el dato en silencio. Con
+       * las dos cuentas juntas, un checador con cero huellas se anunciaba con
+       * la etiqueta de huella y nadie podia notar la perdida.
+       */
+      const isHere = (state: string) => state === BIOMETRIC_SLOT_STATE.HERE
+      const isOnTheWay = (state: string) => state === BIOMETRIC_SLOT_STATE.SENT
+      /**
+       * Guardado y sin poder llegar: la version del equipo no lo admite. No
+       * es una espera, es un callejon, y la pantalla necesita distinguirlos.
+       */
+      const isIncompatible = (state: string) => state === BIOMETRIC_SLOT_STATE.INCOMPATIBLE
+      /** Lo que un humano puede llevar desde la ficha. */
+      const isCopyable = (state: string) => state === BIOMETRIC_SLOT_STATE.COPYABLE
+      const faceState = scoped.face.state
+      rows.push(
+        toEmployeeAccessPointDto(
+          pivot,
+          accessPoint,
+          now,
+          {
+            fingerprints: scoped.fingers.filter((finger) => isHere(finger.state)).length,
+            faces: faceState !== null && isHere(faceState) ? 1 : 0,
+            onTheWay: {
+              fingerprints: scoped.fingers.filter((finger) => isOnTheWay(finger.state)).length,
+              faces: faceState !== null && isOnTheWay(faceState) ? 1 : 0,
+            },
+            incompatible: {
+              fingerprints: scoped.fingers.filter((finger) => isIncompatible(finger.state))
+                .length,
+              faces: faceState !== null && isIncompatible(faceState) ? 1 : 0,
+            },
+            copyable: {
+              fingerprints: scoped.fingers.filter((finger) => isCopyable(finger.state)).length,
+              faces: faceState !== null && isCopyable(faceState) ? 1 : 0,
+            },
+          },
+          scoped.withheldBy,
+          scoped.facePhoto
+        )
+      )
+    }
+    rows.sort((a, b) => a.name.localeCompare(b.name))
+
+    const payload: EmployeeDevicesDto = {
+      employeeId: employee.employeeId,
+      accessPoints: rows,
+      available: await availableFor(
+        this.scope,
+        this.roster,
+        ctx.businessUnitScope ?? [],
+        requireEmployeeBusinessUnitId(employee),
+        new Set(rows.map((row) => row.accessPointId)),
+        now
+      ),
+      biometrics: await countBiometrics(employee.employeeId),
+    }
+
+    return StandardResponseFormatter.success(
+      response,
+      payload,
+      i18n.formatMessage('access_point_employee_title'),
+      i18n.formatMessage('access_point_employee_list_message'),
+      200,
+      'employeeDevices'
+    )
   }
 
   /**
@@ -325,17 +379,18 @@ export default class EmployeeSyncController {
       const { params } = await request.validateUsing(pairValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
-      const employee = await resolveScopedEmployee(ctx, params.employeeId)
+      const pair = await resolveParticipantPair(ctx, params.accessPointId, params.employeeId)
 
       const service = new EmployeeSyncService()
-      const pivot = await service.send({
-        accessPointId: accessPoint.accessPointId,
-        businessUnitId: accessPoint.businessUnitId,
-        employeeId: employee.employeeId,
-        employeeName: nameOf(employee),
-        actor: { userId: auth.user?.userId ?? null },
-      })
+      const pivot = await TenantContext.run(pair.deviceScope, () =>
+        service.send({
+          accessPointId: pair.accessPoint.accessPointId,
+          businessUnitId: pair.employeeBusinessUnitId,
+          employeeId: pair.employee.employeeId,
+          employeeName: nameOf(pair.employee),
+          actor: { userId: auth.user?.userId ?? null },
+        })
+      )
 
       return StandardResponseFormatter.success(
         response,
@@ -375,16 +430,17 @@ export default class EmployeeSyncController {
       const { params } = await request.validateUsing(pairValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
-      await resolveScopedEmployee(ctx, params.employeeId)
+      const pair = await resolveParticipantPair(ctx, params.accessPointId, params.employeeId)
 
       const service = new EmployeeSyncService()
-      const pivot = await service.revoke({
-        accessPointId: accessPoint.accessPointId,
-        businessUnitId: accessPoint.businessUnitId,
-        employeeId: params.employeeId,
-        actor: { userId: auth.user?.userId ?? null },
-      })
+      const pivot = await TenantContext.run(pair.deviceScope, () =>
+        service.revoke({
+          accessPointId: pair.accessPoint.accessPointId,
+          businessUnitId: pair.employeeBusinessUnitId,
+          employeeId: pair.employee.employeeId,
+          actor: { userId: auth.user?.userId ?? null },
+        })
+      )
 
       return StandardResponseFormatter.success(
         response,
@@ -419,19 +475,26 @@ export default class EmployeeSyncController {
       const { params } = await request.validateUsing(pairValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
-      await resolveScopedEmployee(ctx, params.employeeId)
+      /**
+       * La ex-invitada puede cerrar a mano los vinculos que el aparato no
+       * confirmo: sin esto quedarian en baja para siempre si el equipo murio.
+       */
+      const pair = await resolveParticipantPair(ctx, params.accessPointId, params.employeeId, {
+        includeLingering: true,
+      })
 
       const reason = String(request.input('reason') ?? '').trim()
 
       const service = new EmployeeSyncService()
-      const pivot = await service.forceRevoke({
-        accessPointId: accessPoint.accessPointId,
-        businessUnitId: accessPoint.businessUnitId,
-        employeeId: params.employeeId,
-        reason: reason.length > 0 ? reason.slice(0, 200) : 'el equipo no responde',
-        actor: { userId: auth.user?.userId ?? null },
-      })
+      const pivot = await TenantContext.run(pair.deviceScope, () =>
+        service.forceRevoke({
+          accessPointId: pair.accessPoint.accessPointId,
+          businessUnitId: pair.employeeBusinessUnitId,
+          employeeId: pair.employee.employeeId,
+          reason: reason.length > 0 ? reason.slice(0, 200) : 'el equipo no responde',
+          actor: { userId: auth.user?.userId ?? null },
+        })
+      )
 
       return StandardResponseFormatter.success(
         response,
@@ -447,6 +510,77 @@ export default class EmployeeSyncController {
   }
 
   /** Un colaborador de otra empresa se comporta como inexistente. */
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/access-point-resync-pendings:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Puntos de acceso]
+   *     summary: Checadores pendientes de volver a sincronizar tras deshacer la baja
+   *     description: >
+   *       Marcas abiertas que dejó la reactivación (VLRH-H1790812613831): los
+   *       checadores de los que la baja sacó a la persona y donde aún no volvió a
+   *       quedar asignada. Dos niveles decididos en el servidor: con el permiso
+   *       de ver la ficha viaja solo el conteo (`detail: count`); con el de ver
+   *       los biométricos viaja además `resyncPending` con el nombre de cada
+   *       checador, su estado actual y la acción requerida (`assign` o
+   *       `force-revoke-then-assign`), ordenado por nombre.
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       200:
+   *         description: >
+   *           data.employeeResyncPendings = { employeeId, detail: 'count', count }
+   *           o { employeeId, detail: 'full', count, resyncPending[] }
+   *       403:
+   *         description: Sin permiso de ver la ficha (key sin-permiso, code ADMS.AUTHZ.002)
+   *       404:
+   *         description: >
+   *           Colaborador inexistente, de otra empresa o dado de baja (key
+   *           colaborador-no-encontrado, code ADMS.AUTHZ.001)
+   */
+  async listResyncPendingsByEmployee(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(ctx, EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployee)
+      const { params } = await request.validateUsing(employeeValidator, {
+        data: { params: request.params() },
+      })
+      // Solo activos dentro del alcance: el dado de baja responde el 404 uniforme (regla 7)
+      const employee = await resolveScopedEmployee(ctx, params.employeeId)
+      const rows = await new ResyncPendingService().listOpenByEmployee(
+        employee.employeeId,
+        employee.businessUnitId
+      )
+
+      // El nivel lo decide el servidor con `evaluateEnforced` (regla 6), nunca el cliente
+      const gate = ctx.permissionGate ?? new PermissionGateService()
+      const decision = await gate.evaluateEnforced(
+        ctx.auth.user,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics
+      )
+      const payload =
+        decision.reason === 'granted' || decision.reason === 'bypass'
+          ? toResyncPendingsFullDto(employee.employeeId, rows)
+          : toResyncPendingsCountDto(employee.employeeId, rows.length)
+
+      return StandardResponseFormatter.success(
+        response,
+        payload,
+        i18n.formatMessage('access_point_resync_pending_title'),
+        i18n.formatMessage('access_point_resync_pending_list_message'),
+        200,
+        'employeeResyncPendings'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
 }
 
 /** Nombre para la pantalla del equipo. El formateador lo recorta a 24. */
@@ -486,14 +620,26 @@ async function countBiometrics(employeeId: number): Promise<EmployeeBiometricSum
  * pestaña de biometricos, no el del catalogo de equipos.
  */
 async function availableFor(
+  sharing: AccessPointScopePort,
+  roster: EmployeeRosterService,
   businessUnitIds: number[],
+  employeeBusinessUnitId: number,
   taken: Set<number>,
   now: DateTime
 ): Promise<EmployeeAvailableAccessPointDto[]> {
   if (businessUnitIds.length === 0) return []
 
+  /**
+   * Tambien los checadores que otra empresa del grupo comparte con la del
+   * colaborador (VLRH-P0065, 6): son de otra responsable, asi que se piden por
+   * id y llevan `sharedBy`. Corre dentro del scope del colaborador, que ya
+   * incluye a sus responsables.
+   */
+  const sharedIds = await sharing.sharedWith(employeeBusinessUnitId)
   const accessPoints = await AccessPoint.query()
-    .whereIn('business_unit_id', businessUnitIds)
+    .where((scope) => {
+      scope.whereIn('business_unit_id', businessUnitIds).orWhereIn('access_point_id', sharedIds)
+    })
     .where('access_point_active', 1)
     .orderBy('access_point_name', 'asc')
 
@@ -501,6 +647,11 @@ async function availableFor(
   if (candidates.length === 0) return []
 
   const models = await modelsOf(candidates)
+  const owners = await roster.businessUnitNames(
+    candidates
+      .filter((row) => !businessUnitIds.includes(row.businessUnitId as number))
+      .map((row) => row.businessUnitId as number)
+  )
 
   return candidates.map((accessPoint) => ({
     accessPointId: accessPoint.accessPointId,
@@ -509,6 +660,7 @@ async function availableFor(
     serialNumber: accessPoint.accessPointSerialNumber,
     connection: statusOf(accessPoint.accessPointLastConnection, now),
     model: models.get(accessPoint.accessPointId) ?? null,
+    sharedBy: owners.get(accessPoint.businessUnitId as number) ?? null,
   }))
 }
 

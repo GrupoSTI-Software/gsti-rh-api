@@ -23,6 +23,8 @@ export default class BillingRecurringBillingController {
    *     description: |
    *       Devuelve fallo vigente e historial reciente desde Valanserh.
    *       Solo el dueño de la cuenta; con cobro manual responde `automatic: false`.
+   *       Cuando hay códigos de fallo guardados, `lastFailure` incluye `title`, `detail`
+   *       y `action` (`tenant` | `valanserh`) del catálogo; sin códigos esos campos son null.
    *     security:
    *       - bearerAuth: []
    *     parameters:

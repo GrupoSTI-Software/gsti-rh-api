@@ -102,6 +102,8 @@ const ROW: AccessPointLookupRow = {
   lastConnectionAt: null,
   channelSecret: null,
   configuredAt: null,
+  participantBusinessUnitIds: [1],
+  everShared: false,
 }
 
 /** La misma fila con el secreto que cada prueba necesite. */

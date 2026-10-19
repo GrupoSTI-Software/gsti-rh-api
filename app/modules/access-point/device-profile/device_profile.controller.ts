@@ -4,8 +4,9 @@ import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import {
   ensureAccessPointPermission,
-  resolveScopedAccessPoint,
+  resolveParticipantAccessPoint,
 } from '#modules/access-point/access_point_authorization'
+import { TenantContext } from '#utils/tenant_context'
 import { accessPointParamValidator } from '#modules/access-point/upload-progress/validators/access_point_param.validator'
 import DeviceProfileRepositoryMysql from './device_profile.repository.mysql.js'
 import { toDeviceProfileDto } from './dto/device_profile.dto.js'
@@ -40,12 +41,21 @@ export default class DeviceProfileController {
       const { params } = await request.validateUsing(accessPointParamValidator, {
         data: { params: request.params() },
       })
-      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      // Lectura para cualquier participante; el perfil es del aparato y se lee
+      // en su scope.
+      const { accessPoint, deviceScope, role } = await resolveParticipantAccessPoint(
+        ctx,
+        params.accessPointId
+      )
       const repository = new DeviceProfileRepositoryMysql()
-      const profile = await repository.findByAccessPoint(accessPoint.accessPointId)
+      const profile = await TenantContext.run(deviceScope, () =>
+        repository.findByAccessPoint(accessPoint.accessPointId)
+      )
+      const dto = toDeviceProfileDto(accessPoint.accessPointId, profile)
       return StandardResponseFormatter.success(
         response,
-        toDeviceProfileDto(accessPoint.accessPointId, profile),
+        // La IP desde la que reporta el aparato es de la red de la responsable.
+        role === 'guest' ? { ...dto, lastIpSeen: null, lastIpSeenAt: null } : dto,
         i18n.formatMessage('access_point_profile_title'),
         i18n.formatMessage('access_point_profile_message'),
         200,

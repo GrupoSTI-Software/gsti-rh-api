@@ -28,6 +28,8 @@ const DEVICE: ResolvedAdmsDevice = {
   timezone: 'America/Mexico_City',
   receivedAt: NOW,
   configuredAt: null,
+  participantBusinessUnitIds: [7],
+  shared: false,
 }
 
 /** Lo que la pasarela dejo en la respuesta. */
@@ -266,7 +268,7 @@ test.group('Pasarela ADMS: despacho', () => {
     // `hotSession` lo decide `touch`, no la pasarela.
     assert.isTrue(call.request.hotSession)
     // El handler corrio con la empresa del equipo abierta.
-    assert.deepEqual(call.scope, [DEVICE.businessUnitId])
+    assert.deepEqual(call.scope, DEVICE.participantBusinessUnitIds)
   })
 
   test('sin query, rawQuery es nulo', async ({ assert }) => {

@@ -228,7 +228,7 @@ export default class AdmsChannelGateway {
       const handler: HandlerName = route === 'unknown_post' ? 'unknownPost' : route.handler
 
       const reply = await TenantContext.run(
-        [device.businessUnitId],
+        device.participantBusinessUnitIds,
         async (): Promise<ChannelReply> => {
           const { hotSession } = await this.resolver.touch(device)
           return this.controller[handler]({ ...request, hotSession })

@@ -22,7 +22,7 @@ export interface ListDeviceDiscrepanciesInput {
  * (`platform_devices`) y los puntos de acceso de cada tenant
  * (`access_points`) — USRH1787195527841 · §10 del spec.
  *
- * **No persiste nada.** Cuatro consultas con constructor crudo (nunca
+ * **No persiste nada.** Consultas con constructor crudo (nunca
  * modelos Lucid, para no arrastrar el mixin `withBusinessUnitScope` ni
  * `SoftDeletes`), cada una filtrando a mano su `*_deleted_at` — el
  * constructor crudo NO aplica soft-deletes automáticamente (precedente:
@@ -54,7 +54,75 @@ export default class PlatformDeviceDiscrepancyService {
       results.push(...(await this.findSerieSinInventario(input.tenantPublicId, wantedTypes)))
     }
 
+    if (!wantedTypes || wantedTypes.includes('INVITACION_FUERA_DEL_GRUPO')) {
+      results.push(...(await this.findInvitacionFueraDelGrupo(input.tenantPublicId)))
+    }
+
     return results
+  }
+
+  /**
+   * `INVITACION_FUERA_DEL_GRUPO` (VLRH-P0065, D5): invitacion viva a un
+   * checador cuya invitada ya no comparte grupo vivo con la responsable.
+   * Sacar a una empresa del grupo no revoca sus invitaciones; queda aqui hasta
+   * que el landlord decida. La fila sale a nombre de la invitada; el filtro por
+   * empresa alcanza a la invitada y a la responsable.
+   */
+  private async findInvitacionFueraDelGrupo(
+    tenantPublicId?: string
+  ): Promise<DeviceDiscrepancyItem[]> {
+    const query = db
+      .from('access_point_shares as s')
+      .join('access_points as ap', (join) => {
+        join.on('ap.access_point_id', 's.access_point_id').andOnNull('ap.access_point_deleted_at')
+      })
+      .join('business_units as guest', (join) => {
+        join
+          .on('guest.business_unit_id', 's.business_unit_id')
+          .andOnNull('guest.business_unit_deleted_at')
+      })
+      .join('business_units as owner', 'owner.business_unit_id', 'ap.business_unit_id')
+      .whereNull('s.access_point_share_revoked_at')
+      .whereNotExists((sub) => {
+        sub
+          .from('platform_tenant_group_members as mo')
+          .join('platform_tenant_group_members as mg', (join) => {
+            join.on('mg.platform_tenant_group_id', 'mo.platform_tenant_group_id')
+          })
+          .join('platform_tenant_groups as g', (join) => {
+            join
+              .on('g.platform_tenant_group_id', 'mo.platform_tenant_group_id')
+              .andOnNull('g.platform_tenant_group_deleted_at')
+          })
+          .whereColumn('mo.business_unit_id', 'ap.business_unit_id')
+          .whereColumn('mg.business_unit_id', 's.business_unit_id')
+      })
+      .select(
+        'ap.platform_device_id as deviceId',
+        'ap.access_point_serial_number as serialNumber',
+        'guest.business_unit_public_id as tenantPublicId',
+        'guest.business_unit_name as tenantName',
+        'ap.access_point_id as accessPointId'
+      )
+
+    if (tenantPublicId) {
+      query.where((q) => {
+        q.where('guest.business_unit_public_id', tenantPublicId).orWhere(
+          'owner.business_unit_public_id',
+          tenantPublicId
+        )
+      })
+    }
+
+    const rows = await query
+    return rows.map((r) => ({
+      type: 'INVITACION_FUERA_DEL_GRUPO' as const,
+      deviceId: r.deviceId ?? null,
+      serialNumber: r.serialNumber ?? '',
+      tenantPublicId: r.tenantPublicId,
+      tenantName: r.tenantName,
+      accessPointId: r.accessPointId,
+    }))
   }
 
   /**

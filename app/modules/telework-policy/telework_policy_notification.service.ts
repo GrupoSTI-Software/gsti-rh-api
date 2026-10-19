@@ -1,6 +1,8 @@
 import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
+import db from '@adonisjs/lucid/services/db'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import SystemSetting from '#models/system_setting'
 import TeleworkPolicyNotificationLog from '#models/telework_policy_notification_log'
 import type TeleworkPolicy from '#models/telework_policy'
@@ -21,9 +23,6 @@ import type { TeleworkPolicyNotificationType } from '#constants/telework_policy_
  * corrige aquí).
  */
 const DEVELOPMENT_EMAIL_LIST = ['jsoto@siler-mx.com', 'wramirez@siler-mx.com', 'wilvardo@gmail.com']
-
-const DEFAULT_MAIL_LOGO =
-  'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
 
 /**
  * Difusión por correo de la Política de Teletrabajo (publicación automática
@@ -55,10 +54,10 @@ export default class TeleworkPolicyNotificationService {
       return summary
     }
 
-    const branding = await this.resolveBrandingForBusinessUnit(policy.businessUnitId)
+    const companyName = await this.resolveCompanyName(policy.businessUnitId)
     const from = resolveMailSender()
     const isDevelopment = env.get('NODE_ENV') !== 'production'
-    const subject = this.buildSubject(type, policy.teleworkPolicyVersion, branding.tradeName)
+    const subject = this.buildSubject(type, policy.teleworkPolicyVersion, companyName)
 
     for (const recipient of recipients) {
       const email = recipient.email.trim()
@@ -99,13 +98,14 @@ export default class TeleworkPolicyNotificationService {
         await mail.send((message) => {
           message
             .to(email)
-            .from(from, branding.tradeName)
+            .from(from, MAIL_BRAND_TRADE_NAME)
             .subject(subject)
             .htmlView('emails/telework_policy_mail', {
               fullName: recipient.fullName,
               version: policy.teleworkPolicyVersion,
-              tradeName: branding.tradeName,
-              backgroundImageLogo: branding.backgroundImageLogo,
+              tradeName: MAIL_BRAND_TRADE_NAME,
+              backgroundImageLogo: MAIL_BRAND_LOGO_URL,
+              companyName,
               isReminder: type === 'reminder',
             })
         })
@@ -138,11 +138,11 @@ export default class TeleworkPolicyNotificationService {
   private buildSubject(
     type: TeleworkPolicyNotificationType,
     version: number,
-    tradeName: string
+    companyName: string
   ): string {
     return type === 'reminder'
-      ? `Recordatorio: acusa la Política de Teletrabajo v${version} — ${tradeName}`
-      : `Política de Teletrabajo v${version} — ${tradeName}`
+      ? `Recordatorio: acusa la Política de Teletrabajo v${version} — ${companyName}`
+      : `Política de Teletrabajo v${version} — ${companyName}`
   }
 
   private async appendLog(input: {
@@ -166,47 +166,26 @@ export default class TeleworkPolicyNotificationService {
   }
 
   /**
-   * Branding por empresa (tradeName + logo) para el correo. Espejo
-   * módulo-local de `complaint_notification_service.resolveBrandingForBusinessUnit`
-   * (esa es `private`; no se refactoriza complaint aquí).
+   * Nombre de la empresa como dato de contenido, no como marca del correo.
    *
-   * `BusinessUnit` ya compone `withBusinessUnitScope()` sobre su propia
-   * columna `business_unit_id` (su PK). El `where('business_unit_id', ...)`
-   * manual aquí era redundante bajo contexto activo — `TenantContext` en
-   * este flujo siempre resuelve a exactamente esa misma unidad
-   * (`business_unit_scope_middleware.ts`: `TenantContext.run([requestedId], ...)`),
-   * así que el mixin ya acota a la unidad correcta; se retiró
-   * (USRH1784259058567).
+   * Sale del nombre comercial de su propia configuración. Si no lo tiene, del
+   * nombre con el que está dada de alta. Nunca de otra empresa ni de una
+   * configuración sin dueño.
    */
-  private async resolveBrandingForBusinessUnit(
-    businessUnitId: number
-  ): Promise<{ tradeName: string; backgroundImageLogo: string }> {
-    // El parámetro se usa: antes se ignoraba (`_businessUnitId`) y la marca
-    // salía de la PRIMERA empresa de la base, con lo que un tenant podía recibir
-    // el correo con el nombre y el logo de otro. La configuración de una empresa
-    // se pide por su llave.
+  private async resolveCompanyName(businessUnitId: number): Promise<string> {
     const setting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_active', 1)
       .where('business_unit_id', businessUnitId)
       .first()
+    const tradeName = setting?.systemSettingTradeName?.trim()
+    if (tradeName) return tradeName
 
-    if (setting) {
-      return {
-        tradeName: setting.systemSettingTradeName || 'Valanserh',
-        backgroundImageLogo: setting.systemSettingLogo || DEFAULT_MAIL_LOGO,
-      }
-    }
-
-    const fallback = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
-      .whereNull('business_unit_id')
+    const row = await db
+      .from('business_units')
+      .where('business_unit_id', businessUnitId)
+      .select('business_unit_name')
       .first()
-
-    return {
-      tradeName: fallback?.systemSettingTradeName || 'Valanserh',
-      backgroundImageLogo: fallback?.systemSettingLogo || DEFAULT_MAIL_LOGO,
-    }
+    return String(row?.business_unit_name ?? '').trim()
   }
 }

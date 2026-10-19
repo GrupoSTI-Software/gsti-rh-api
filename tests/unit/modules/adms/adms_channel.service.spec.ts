@@ -33,6 +33,8 @@ const DEVICE: ResolvedAdmsDevice = {
   timezone: null,
   receivedAt: NOW,
   configuredAt: null,
+  participantBusinessUnitIds: [1],
+  shared: false,
 }
 
 function uploadOf(overrides: Partial<UploadInput> = {}): UploadInput {

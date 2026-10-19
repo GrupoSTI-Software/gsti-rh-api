@@ -9,6 +9,8 @@ import type {
 interface Options {
   pivot?: PivotMatch | null
   employees?: EmployeeMatch[]
+  /** El indice unico rechaza el alta inferida. */
+  duplicate?: boolean
 }
 
 function makeService(options: Options = {}) {
@@ -22,12 +24,13 @@ function makeService(options: Options = {}) {
     },
     async createInferredPivot(input) {
       created.push({ employeeId: input.employeeId, pin: input.pin })
+      return options.duplicate ? 'duplicate' : 'created'
     },
   }
   return { service: new PinResolverService(repository), created }
 }
 
-const INPUT = { accessPointId: 12, businessUnitId: 1, pin: '9999' }
+const INPUT = { accessPointId: 12, businessUnitId: 1, pin: '9999', shared: false }
 
 test.group('ADMS pin resolver', () => {
   test('el pivote manda: resuelve sin tocar el codigo del colaborador', async ({ assert }) => {
@@ -36,6 +39,7 @@ test.group('ADMS pin resolver', () => {
         accessPointEmployeeId: 5,
         employeeId: 77,
         employeeCode: 'EMP-77',
+        businessUnitId: 3,
         syncStatus: 'confirmed',
       },
       employees: [{ employeeId: 99, employeeCode: '9999', terminated: false }],
@@ -45,6 +49,7 @@ test.group('ADMS pin resolver', () => {
       kind: 'employee',
       employeeId: 77,
       employeeCode: 'EMP-77',
+      businessUnitId: 3,
       pinInferred: false,
     })
     assert.lengthOf(created, 0)
@@ -56,6 +61,7 @@ test.group('ADMS pin resolver', () => {
         accessPointEmployeeId: 5,
         employeeId: 77,
         employeeCode: 'EMP-77',
+        businessUnitId: 3,
         syncStatus: 'revoke_acked',
       },
     })
@@ -74,9 +80,21 @@ test.group('ADMS pin resolver', () => {
       kind: 'employee',
       employeeId: 99,
       employeeCode: '9999',
+      businessUnitId: 1,
       pinInferred: true,
     })
     assert.deepEqual(created, [{ employeeId: 99, pin: '9999' }])
+  })
+
+  test('si el numero ya tiene dueno en el aparato, retiene y no acredita al candidato', async ({
+    assert,
+  }) => {
+    const { service } = makeService({
+      employees: [{ employeeId: 99, employeeCode: '9999', terminated: false }],
+      duplicate: true,
+    })
+    const result = await service.resolve(INPUT)
+    assert.deepEqual(result, { kind: 'held', reason: 'unknown_pin' })
   })
 
   test('un colaborador dado de baja se retiene: nunca entra a assists', async ({ assert }) => {
@@ -104,5 +122,28 @@ test.group('ADMS pin resolver', () => {
     const { service } = makeService()
     const result = await service.resolve(INPUT)
     assert.deepEqual(result, { kind: 'held', reason: 'unknown_pin' })
+  })
+
+  test('en checador compartido, sin pivote no infiere por codigo: retiene', async ({ assert }) => {
+    const { service, created } = makeService({
+      employees: [{ employeeId: 99, employeeCode: '9999', terminated: false }],
+    })
+    const result = await service.resolve({ ...INPUT, shared: true })
+    assert.deepEqual(result, { kind: 'held', reason: 'shared_device_no_pivot' })
+    assert.lengthOf(created, 0)
+  })
+
+  test('en checador compartido, el pivote sigue resolviendo', async ({ assert }) => {
+    const { service } = makeService({
+      pivot: {
+        accessPointEmployeeId: 5,
+        employeeId: 77,
+        employeeCode: 'EMP-77',
+        businessUnitId: 3,
+        syncStatus: 'confirmed',
+      },
+    })
+    const result = await service.resolve({ ...INPUT, shared: true })
+    assert.equal(result.kind, 'employee')
   })
 })

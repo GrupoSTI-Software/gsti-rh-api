@@ -16,6 +16,8 @@ import type AccessPointEmployee from '#models/access_point_employee'
 import IncidentService from '#modules/adms/raw/incident.service'
 import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import TemplateService from '../template/template.service.js'
 import type { TemplateSlot } from '../template/template.repository.js'
 import ConsentGate from '../consent/consent_gate.js'
@@ -93,11 +95,26 @@ export default class ReplicationService {
     private readonly publications: PhotoPublicationService = new PhotoPublicationService(),
     private readonly consent: ConsentGate = new ConsentGate(),
     private readonly incidents: IncidentService = new IncidentService(),
-    private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql()
+    private readonly copies: ExecutedCopyLookup = new DeviceCommandRepositoryMysql(),
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql()
   ) {}
 
   async replicate(input: ReplicationInput): Promise<ReplicationResult> {
     const now = input.now ?? DateTime.utc()
+
+    /**
+     * Cada destino tiene que atender a la empresa del colaborador: propio o
+     * compartido con ella (VLRH-P0065, 4). Vive aqui y no solo en el
+     * controlador porque el alta y el canal llaman sin pasar por el. Un
+     * destino ajeno se salta sin tumbar el reparto a los demas: la invitacion
+     * pudo revocarse entre la lectura de los vinculos y la copia.
+     */
+    const outOfScope = new Set<number>()
+    for (const target of input.targetAccessPointIds) {
+      if (!(await this.scope.isParticipant(target, input.businessUnitId))) {
+        outOfScope.add(target)
+      }
+    }
 
     /**
      * Tambien en la vista previa: mostrar que biometricos tiene una persona y
@@ -126,6 +143,17 @@ export default class ReplicationService {
 
     const targets: ReplicationTargetResult[] = []
     for (const accessPointId of input.targetAccessPointIds) {
+      if (outOfScope.has(accessPointId)) {
+        /** Sin nombre ni versiones: el aparato es de otra empresa. */
+        targets.push({
+          accessPointId,
+          accessPointName: '',
+          fpVersion: null,
+          faceVersion: null,
+          items: [skip(REPLICATION_MODALITY.FINGERPRINT, 0, REPLICATION_SKIP.NOT_PARTICIPANT)],
+        })
+        continue
+      }
       targets.push(
         await this.replicateInto({
           input,

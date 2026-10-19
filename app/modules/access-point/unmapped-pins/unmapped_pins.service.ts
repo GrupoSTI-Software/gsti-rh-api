@@ -1,5 +1,11 @@
 import { DateTime } from 'luxon'
+import {
+  EmployeeOutOfScopeError,
+  requireEmployeeBusinessUnitId,
+  requireStoredEmployeeBusinessUnitId,
+} from '#modules/access-point/employee_business_unit'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import logger from '@adonisjs/core/services/logger'
 import AccessPointEmployee from '#models/access_point_employee'
 import AdmsHeldBiometric from '#models/adms_held_biometric'
@@ -11,6 +17,12 @@ import { AdmsError } from '#exceptions/adms_error'
 import { ASSIST_ORIGIN } from '#constants/assist_origin'
 import AssistIngestionService from '#modules/assist-ingestion/assist_ingestion.service'
 import TemplateService from '#modules/biometric-vault/template/template.service'
+import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
+import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import { TenantContext } from '#utils/tenant_context'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 
 export interface UnmappedPinRow {
   unmappedPinId: number
@@ -64,17 +76,42 @@ export interface LinkResult {
 export default class UnmappedPinsService {
   constructor(
     private readonly assists: AssistIngestionService = new AssistIngestionService(),
-    private readonly templates: TemplateService = new TemplateService()
+    private readonly templates: TemplateService = new TemplateService(),
+    private readonly scope: AccessPointScopePort = new AccessPointScopeRepositoryMysql(),
+    /** Candado de la fila del aparato: el mismo que toman el alta, el PIN y la revocacion. */
+    private readonly deviceLock: Pick<EmployeeSyncRepository, 'inDeviceTransaction'> =
+      new EmployeeSyncRepositoryMysql()
   ) {}
 
   async list(businessUnitIds: number[], status?: string): Promise<UnmappedPinRow[]> {
     if (businessUnitIds.length === 0) return []
 
+    const sharedIds = await this.sharedAccessPointIds(businessUnitIds)
+    /**
+     * Las filas viven con la empresa del aparato: la invitada las ve por el
+     * `access_point_id` compartido, no por su `business_unit_id`, asi que la
+     * consulta (y los conteos de lo retenido, que tambien son de la
+     * responsable) corre sin el filtro del mixin con la visibilidad explicita.
+     */
+    return TenantContext.runUnscoped(
+      () => this.listRows(businessUnitIds, sharedIds, status),
+      TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
+    )
+  }
+
+  private async listRows(
+    businessUnitIds: number[],
+    sharedIds: number[],
+    status?: string
+  ): Promise<UnmappedPinRow[]> {
     const rows = await AdmsUnmappedPin.query()
-      .whereIn('business_unit_id', businessUnitIds)
-      .if(status !== undefined, (query) => query.where('adms_unmapped_pin_status', status as string))
+      .where((visible) => visibleTo(visible, businessUnitIds, sharedIds))
+      .if(status !== undefined, (query) =>
+        query.where('adms_unmapped_pin_status', status as string)
+      )
       .orderBy('adms_unmapped_pin_last_seen_at', 'desc')
       .limit(300)
+      .exec()
 
     const result: UnmappedPinRow[] = []
     for (const row of rows) {
@@ -119,8 +156,16 @@ export default class UnmappedPinsService {
   ): Promise<CandidateRow[]> {
     const row = await this.requireRow(unmappedPinId, businessUnitIds)
 
+    /**
+     * Se busca en el alcance de quien pregunta (no en la empresa de la fila) y
+     * solo entre quienes participan del aparato: un empleado de la invitada se
+     * propone para el PIN del checador de la responsable.
+     */
+    const participants = await this.scope.participants(row.accessPointId, row.businessUnitId)
+    const reachable = businessUnitIds.filter((id) => participants.includes(id))
+
     const byCode = await Employee.query()
-      .where('business_unit_id', row.businessUnitId)
+      .whereIn('business_unit_id', reachable)
       .where('employee_code', row.admsUnmappedPinPin)
       .whereNull('employee_deleted_at')
       .limit(5)
@@ -128,7 +173,7 @@ export default class UnmappedPinsService {
     const byName =
       search && search.trim().length >= 3
         ? await Employee.query()
-            .where('business_unit_id', row.businessUnitId)
+            .whereIn('business_unit_id', reachable)
             .whereNull('employee_deleted_at')
             .where((group) => {
               group
@@ -171,21 +216,80 @@ export default class UnmappedPinsService {
 
     const employee = await Employee.query()
       .where('employee_id', input.employeeId)
-      .where('business_unit_id', row.businessUnitId)
+      .whereIn('business_unit_id', input.businessUnitIds)
       .whereNull('employee_deleted_at')
       .first()
-    if (!employee) {
-      throw new AdmsError(
-        'El colaborador no existe en esa empresa',
-        ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
-        404,
-        'colaborador-no-encontrado',
-        'No se encontro el colaborador.'
-      )
+    if (
+      !employee ||
+      !(await this.scope.isParticipant(row.accessPointId, requireEmployeeBusinessUnitId(employee)))
+    ) {
+      throw new EmployeeOutOfScopeError()
+    }
+
+    /**
+     * Desde aqui todo corre con el scope del aparato completo: la validacion
+     * del PIN debe ver tambien a los empleados de las demas participantes, y
+     * lo retenido es de la responsable.
+     */
+    const deviceScope = await this.scope.participants(row.accessPointId, row.businessUnitId)
+    return TenantContext.run(deviceScope, () => this.claim(row, employee, input.userId, now))
+  }
+
+  /** El reclamo en si, ya dentro del scope del aparato. */
+  private async claim(
+    row: AdmsUnmappedPin,
+    employee: Employee,
+    userId: number | null,
+    now: DateTime
+  ): Promise<LinkResult> {
+    await this.deviceLock.inDeviceTransaction(row.accessPointId, (trx) =>
+      this.claimPivot(row, employee, now, trx)
+    )
+
+    const attributedPunches = await this.attributeHeldPunches(row, employee, now)
+    const movedBiometrics = await this.moveHeldBiometrics(row, employee, now)
+
+    row.admsUnmappedPinStatus = 'linked'
+    /** A quien se vinculo queda en la fila: sin esto habia que deducirlo por el pivote. */
+    row.linkedEmployeeId = employee.employeeId
+    /** El nombre que dijo el aparato deja de hacer falta y no se conserva. */
+    row.admsUnmappedPinName = null
+    row.admsUnmappedPinResolvedByUserId = userId
+    row.admsUnmappedPinResolvedAt = now
+    await row.save()
+
+    return {
+      unmappedPinId: row.admsUnmappedPinId,
+      employeeId: employee.employeeId,
+      attributedPunches,
+      movedBiometrics,
+    }
+  }
+
+  /**
+   * El vinculo del reclamo, con el aparato bloqueado en `trx`.
+   *
+   * La participacion de la empresa del colaborador se valido en `link` sin
+   * candado. Aqui se vuelve a preguntar con la fila del aparato tomada (el
+   * candado que la revocacion toma primero) y el pivote se escribe en esa
+   * misma transaccion: una revocacion que confirmo mientras tanto no deja a
+   * la ex-invitada con un numero confirmado en el aparato (A2-14).
+   *
+   * @throws EmployeeOutOfScopeError 404 si la empresa ya no participa.
+   */
+  private async claimPivot(
+    row: AdmsUnmappedPin,
+    employee: Employee,
+    now: DateTime,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const businessUnitId = requireStoredEmployeeBusinessUnitId(employee)
+    if (!(await this.scope.isParticipant(row.accessPointId, businessUnitId, trx))) {
+      throw new EmployeeOutOfScopeError()
     }
 
     /** El PIN no puede quedarse con dos dueños en el mismo equipo. */
-    const taken = await AccessPointEmployee.query()
+    const taken = await AccessPointEmployee.query({ client: trx })
       .where('access_point_id', row.accessPointId)
       .where('access_point_employee_pin', row.admsUnmappedPinPin)
       .whereNot('employee_id', employee.employeeId)
@@ -201,38 +305,21 @@ export default class UnmappedPinsService {
     }
 
     const pivot =
-      (await AccessPointEmployee.query()
+      (await AccessPointEmployee.query({ client: trx })
         .where('access_point_id', row.accessPointId)
         .where('employee_id', employee.employeeId)
         .first()) ?? new AccessPointEmployee()
 
+    pivot.useTransaction(trx)
     pivot.accessPointId = row.accessPointId
-    pivot.businessUnitId = row.businessUnitId
+    /** El pivote es de la empresa del empleado, no de la responsable del aparato. */
+    pivot.businessUnitId = businessUnitId
     pivot.employeeId = employee.employeeId
     pivot.accessPointEmployeePin = row.admsUnmappedPinPin
     pivot.accessPointEmployeePinSource = 'device'
     pivot.accessPointEmployeeSyncStatus = 'confirmed'
     pivot.accessPointEmployeeSyncConfirmedAt = now
     await pivot.save()
-
-    const attributedPunches = await this.attributeHeldPunches(row, employee, now)
-    const movedBiometrics = await this.moveHeldBiometrics(row, employee, now)
-
-    row.admsUnmappedPinStatus = 'linked'
-    /** A quien se vinculo queda en la fila: sin esto habia que deducirlo por el pivote. */
-    row.linkedEmployeeId = employee.employeeId
-    /** El nombre que dijo el aparato deja de hacer falta y no se conserva. */
-    row.admsUnmappedPinName = null
-    row.admsUnmappedPinResolvedByUserId = input.userId
-    row.admsUnmappedPinResolvedAt = now
-    await row.save()
-
-    return {
-      unmappedPinId: row.admsUnmappedPinId,
-      employeeId: employee.employeeId,
-      attributedPunches,
-      movedBiometrics,
-    }
   }
 
   /**
@@ -247,12 +334,20 @@ export default class UnmappedPinsService {
     now?: DateTime
   }): Promise<AdmsUnmappedPin> {
     const row = await this.requirePendingRow(input.unmappedPinId, input.businessUnitIds)
+    /**
+     * Descartar es decidir sobre el numero del aparato, y la fila es de la
+     * responsable (VLRH-P0065, 3.3). La invitada puede reclamarlo con su
+     * personal, no descartarlo: para ella se comporta como inexistente.
+     */
+    if (!input.businessUnitIds.includes(row.businessUnitId as number)) throw pendingNotFound()
     row.admsUnmappedPinStatus = 'dismissed'
     row.admsUnmappedPinDismissReason = input.reason.slice(0, 200)
     row.admsUnmappedPinName = null
     row.admsUnmappedPinResolvedByUserId = input.userId
     row.admsUnmappedPinResolvedAt = input.now ?? DateTime.utc()
-    await row.save()
+    /** La fila es de la responsable: una invitada la resuelve con el scope del aparato. */
+    const deviceScope = await this.scope.participants(row.accessPointId, row.businessUnitId)
+    await TenantContext.run(deviceScope, () => row.save())
     return row
   }
 
@@ -339,7 +434,7 @@ export default class UnmappedPinsService {
       }
       const result = await this.templates.store({
         employeeId: employee.employeeId,
-        businessUnitId: row.businessUnitId,
+        businessUnitId: requireStoredEmployeeBusinessUnitId(employee),
         bioType: biometric.admsHeldBiometricBioType,
         bioNo: biometric.admsHeldBiometricBioNo,
         bioIndex: 0,
@@ -383,33 +478,63 @@ export default class UnmappedPinsService {
     unmappedPinId: number,
     businessUnitIds: number[]
   ): Promise<AdmsUnmappedPin> {
+    const sharedIds =
+      businessUnitIds.length === 0 ? [] : await this.sharedAccessPointIds(businessUnitIds)
     const row =
       businessUnitIds.length === 0
         ? null
-        : await AdmsUnmappedPin.query()
-            .where('adms_unmapped_pin_id', unmappedPinId)
-            .whereIn('business_unit_id', businessUnitIds)
-            .first()
+        : await TenantContext.runUnscoped(
+            () =>
+              AdmsUnmappedPin.query()
+                .where('adms_unmapped_pin_id', unmappedPinId)
+                .where((visible) => visibleTo(visible, businessUnitIds, sharedIds))
+                .first(),
+            TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
+          )
     if (row) return row
-    throw new AdmsError(
-      'No se encontro ese numero pendiente',
-      ADMS_ERROR_CODES.PIN_PENDING_NOT_FOUND,
-      404,
-      'pin-pendiente-no-encontrado',
-      'El numero pendiente no existe o no esta en tu alcance.'
-    )
+    throw pendingNotFound()
   }
+
+  /** Aparatos que las empresas dadas usan como invitadas. */
+  private async sharedAccessPointIds(businessUnitIds: number[]): Promise<number[]> {
+    const lists = await Promise.all(businessUnitIds.map((id) => this.scope.sharedWith(id)))
+    return [...new Set(lists.flat())]
+  }
+}
+
+function pendingNotFound(): AdmsError {
+  return new AdmsError(
+    'No se encontro ese numero pendiente',
+    ADMS_ERROR_CODES.PIN_PENDING_NOT_FOUND,
+    404,
+    'pin-pendiente-no-encontrado',
+    'El numero pendiente no existe o no esta en tu alcance.'
+  )
 }
 
 function toCandidate(employee: Employee, matchedBy: 'code' | 'name'): CandidateRow {
   return {
     employeeId: employee.employeeId,
-    employeeCode: employee.employeeCode !== null && employee.employeeCode !== undefined
-      ? String(employee.employeeCode)
-      : null,
+    employeeCode:
+      employee.employeeCode !== null && employee.employeeCode !== undefined
+        ? String(employee.employeeCode)
+        : null,
     fullName: [employee.employeeFirstName, employee.employeeLastName]
       .filter((part) => typeof part === 'string' && part.length > 0)
       .join(' '),
     matchedBy,
   }
+}
+
+/** Las filas de las empresas dadas y las de los aparatos que comparten con ellas. */
+function visibleTo(
+  query: {
+    whereIn: (column: string, values: number[]) => unknown
+    orWhereIn: (column: string, values: number[]) => unknown
+  },
+  businessUnitIds: number[],
+  sharedIds: number[]
+): void {
+  query.whereIn('business_unit_id', businessUnitIds)
+  if (sharedIds.length > 0) query.orWhereIn('access_point_id', sharedIds)
 }
