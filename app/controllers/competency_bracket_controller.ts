@@ -2,6 +2,9 @@ import { HttpContext } from '@adonisjs/core/http'
 import CompetencyBracket from '#models/competency_bracket'
 import CompetencyBracketService from '#services/competency_bracket_service'
 import { createCompetencyBracketValidator, updateCompetencyBracketValidator } from '#validators/competency_bracket'
+import CompetencyDescriptor from '#models/competency_descriptor'
+import { competencyNotFoundResponse } from '#helpers/competency_api_error'
+import { COMPETENCY_ERROR_CODES } from '#constants/competency_error_codes'
 
 export default class CompetencyBracketController {
   /**
@@ -298,13 +301,7 @@ export default class CompetencyBracketController {
         .where('competency_bracket_id', competencyBracketId)
         .first()
       if (!currentCompetencyBracket) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity: t('competency_bracket') }),
-          message: t('entity_was_not_found_with_entered_id', { entity: t('competency_bracket') }),
-          data: { competencyBracketId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.BRACKET_NOT_FOUND)
       }
       const competencyBracketService = new CompetencyBracketService(i18n)
       const data = await request.validateUsing(updateCompetencyBracketValidator)
@@ -452,14 +449,7 @@ export default class CompetencyBracketController {
         .where('competency_bracket_id', competencyBracketId)
         .first()
       if (!currentCompetencyBracket) {
-        const entity = t('competency_bracket')
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { competencyBracketId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.BRACKET_NOT_FOUND)
       }
       const competencyBracketService = new CompetencyBracketService(i18n)
       const deleteCompetencyBracket = await competencyBracketService.delete(currentCompetencyBracket)
@@ -599,14 +589,7 @@ export default class CompetencyBracketController {
       const competencyBracketService = new CompetencyBracketService(i18n)
       const showCompetencyBracket = await competencyBracketService.show(competencyBracketId)
       if (!showCompetencyBracket) {
-        const entity = t('competency_bracket')
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { competencyBracketId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.BRACKET_NOT_FOUND)
       } else {
         response.status(200)
         return {
@@ -739,17 +722,21 @@ export default class CompetencyBracketController {
           data: { competencyDescriptorId },
         }
       }
+      // VLRH-H1792032453526 (regla 3 propia): el padre debe ser de la empresa
+      // en contexto. `CompetencyDescriptor.query()` está escopeado
+      // (withBusinessUnitScope, VLRH-H1792026427127): si no vuelve fila, es
+      // ajeno, plantilla o inexistente.
+      const parentDescriptor = await CompetencyDescriptor.query()
+        .whereNull('competency_descriptor_deleted_at')
+        .where('competencyDescriptorId', Number(competencyDescriptorId))
+        .first()
+      if (!parentDescriptor) {
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.DESCRIPTOR_NOT_FOUND)
+      }
       const competencyBracketService = new CompetencyBracketService(i18n)
       const competencyBrackets = await competencyBracketService.getByCompetencyDescriptorId(competencyDescriptorId)
       if (!competencyBrackets) {
-        const entity = t('competency_bracket')
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { competencyDescriptorId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.BRACKET_NOT_FOUND)
       } else {
         response.status(200)
         return {

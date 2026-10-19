@@ -4,6 +4,8 @@ import {
   createCompetencyValidator,
   updateCompetencyValidator,
 } from '#validators/competency'
+import { competencyNotFoundResponse } from '#helpers/competency_api_error'
+import { COMPETENCY_ERROR_CODES } from '#constants/competency_error_codes'
 
 export default class CompetencyController {
   /**
@@ -199,13 +201,7 @@ export default class CompetencyController {
       const service = new CompetencyService()
       const current = await service.show(competencyId)
       if (!current) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity: t('competency') }),
-          message: t('entity_was_not_found_with_entered_id', { entity: t('competency') }),
-          data: { competencyId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.COMPETENCY_NOT_FOUND)
       }
       const payload = await request.validateUsing(updateCompetencyValidator)
       const updated = await service.update(current, {
@@ -270,13 +266,7 @@ export default class CompetencyController {
       const service = new CompetencyService()
       const current = await service.show(competencyId)
       if (!current) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity: t('competency') }),
-          message: t('entity_was_not_found_with_entered_id', { entity: t('competency') }),
-          data: { competencyId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.COMPETENCY_NOT_FOUND)
       }
       const deleted = await service.delete(current)
       response.status(201)
@@ -335,13 +325,7 @@ export default class CompetencyController {
       const service = new CompetencyService()
       const competency = await service.show(competencyId)
       if (!competency) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity: t('competency') }),
-          message: t('entity_was_not_found_with_entered_id', { entity: t('competency') }),
-          data: { competencyId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.COMPETENCY_NOT_FOUND)
       }
       response.status(200)
       return {
