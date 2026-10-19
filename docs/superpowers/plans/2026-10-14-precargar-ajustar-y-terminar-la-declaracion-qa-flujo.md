@@ -384,27 +384,27 @@ Objetivo: comprobar que el bloque de la matriz, la declaración vigente, su hist
 
 **Checklist de los escenarios automatizados** (una casilla por escenario: se marca si su prueba pasó):
 
-- [ ] 5.1 El ajuste con fecha igual o anterior al inicio se rechaza y no nace una versión
-- [ ] 5.2 El ajuste sin cambios se rechaza y no nace una versión
-- [ ] 5.3 Dos ajustes simultáneos dejan una sola versión vigente
-- [ ] 5.4 **Ajuste de cuota** no es un motivo de término seleccionable y su envío se rechaza
-- [ ] 5.5 La declaración de otra empresa, la inexistente y la dada de baja responden el mismo «no encontrado»
-- [ ] 5.6 Sin el permiso de administrar los suministros del colaborador el servidor rechaza el alta, el ajuste y el término, y los superusuarios pasan
-- [ ] 5.7 Los textos en inglés del bloque, del histórico y del cajón están completos y no falta ninguna clave
+- [x] 5.1 El ajuste con fecha igual o anterior al inicio se rechaza y no nace una versión
+- [x] 5.2 El ajuste sin cambios se rechaza y no nace una versión
+- [x] 5.3 Dos ajustes simultáneos dejan una sola versión vigente
+- [x] 5.4 **Ajuste de cuota** no es un motivo de término seleccionable y su envío se rechaza
+- [x] 5.5 La declaración de otra empresa, la inexistente y la dada de baja responden el mismo «no encontrado»
+- [x] 5.6 Sin el permiso de administrar los suministros del colaborador el servidor rechaza el alta, el ajuste y el término, y los superusuarios pasan
+- [x] 5.7 Los textos en inglés del bloque, del histórico y del cajón están completos y no falta ninguna clave
 
 ## 6. Checklist del recorrido manual
 
 Cada casilla se marca **contra el objetivo de su escenario**, no contra «se hicieron los pasos»:
 
-- [ ] 4.1 En la ficha de `QA-TEL-02`, declarar la silla sin tocar la cuota la deja en **Equipo propio declarado** con **$350.00 al mes** y el chip **Cuota estándar**, el histórico **Declaraciones anteriores (1)** sigue, y el resumen pasa de **2 sin cubrir** a **1 sin cubrir**
-- [ ] 4.2 Declarar el cómputo con cuota `500` se guarda como **$500.00 al mes** con el chip **Cuota ajustada**, y el resumen queda en **Completo**
-- [ ] 4.3 Ajustar la silla a `420` con fecha de vigencia deja la nueva versión vigente (**Desde el 01/12/2026**) y la anterior en **Declaraciones anteriores (2)** con periodo **01/11/2026 a 30/11/2026** y motivo **Ajuste de cuota**
-- [ ] 4.4 Ajustar solo la descripción abre una versión nueva y manda la anterior al histórico (**Declaraciones anteriores (3)**) sin duplicar la vigente
-- [ ] 4.5 Terminar la silla con fecha y motivo **Dejó el teletrabajo** la cierra, la categoría vuelve a **Sin cubrir**, el resumen pasa a **1 sin cubrir** y el histórico queda en **Declaraciones anteriores (4)**
-- [ ] 4.6 Al asignar la silla `QA-TEL-ACT-SILLA-05` a quien tenía silla propia, la categoría queda **Entregado** y aparece el aviso **Esta categoría ya la cubre un activo de la empresa: termina la declaración.** con su botón **Terminar declaración** (sin **Ajustar cuota**), y al devolver el activo la categoría vuelve a **Sin cubrir**
-- [ ] 4.7 Con el Usuario B se ven las declaraciones y el histórico de `QA-TEL-02`, y ninguna acción de escritura (**Declarar equipo propio**, **Ajustar cuota**, **Terminar declaración**) aparece
-- [ ] 4.8 Con `QA-TEL-09` el bloque trae solo la nota **Sin teletrabajo: solo se muestran las declaraciones vigentes para terminarlas.** y su declaración vigente con **Terminar declaración**, sin chips, categorías ni acción de declarar
-- [ ] 4.9 A 360 px no hay desplazamiento horizontal, el histórico va en una columna y el cajón a todo lo ancho con los botones apilados; a unos 850 px los renglones siguen en una columna; desde unos 1024 px el renglón se abre con el chip de estado al extremo derecho y la declaración y su histórico debajo a todo lo ancho
+- [x] 4.1 En la ficha de `QA-TEL-02`, declarar la silla sin tocar la cuota la deja en **Equipo propio declarado** con **$350.00 al mes** y el chip **Cuota estándar**, el histórico **Declaraciones anteriores (1)** sigue, y el resumen pasa de **2 sin cubrir** a **1 sin cubrir**
+- [x] 4.2 Declarar el cómputo con cuota `500` se guarda como **$500.00 al mes** con el chip **Cuota ajustada**, y el resumen queda en **Completo**
+- [x] 4.3 Ajustar la silla a `420` con fecha de vigencia deja la nueva versión vigente (**Desde el 01/12/2026**) y la anterior en **Declaraciones anteriores (2)** con periodo **01/11/2026 a 30/11/2026** y motivo **Ajuste de cuota**
+- [x] 4.4 Ajustar solo la descripción abre una versión nueva y manda la anterior al histórico (**Declaraciones anteriores (3)**) sin duplicar la vigente
+- [x] 4.5 Terminar la silla con fecha y motivo **Dejó el teletrabajo** la cierra, la categoría vuelve a **Sin cubrir**, el resumen pasa a **1 sin cubrir** y el histórico queda en **Declaraciones anteriores (4)**
+- [x] 4.6 Al asignar la silla `QA-TEL-ACT-SILLA-05` a quien tenía silla propia, la categoría queda **Entregado** y aparece el aviso **Esta categoría ya la cubre un activo de la empresa: termina la declaración.** con su botón **Terminar declaración** (sin **Ajustar cuota**), y al devolver el activo la categoría vuelve a **Sin cubrir**
+- [x] 4.7 Con el Usuario B se ven las declaraciones y el histórico de `QA-TEL-02`, y ninguna acción de escritura (**Declarar equipo propio**, **Ajustar cuota**, **Terminar declaración**) aparece
+- [x] 4.8 Con `QA-TEL-09` el bloque trae solo la nota **Sin teletrabajo: solo se muestran las declaraciones vigentes para terminarlas.** y su declaración vigente con **Terminar declaración**, sin chips, categorías ni acción de declarar
+- [x] 4.9 A 360 px no hay desplazamiento horizontal, el histórico va en una columna y el cajón a todo lo ancho con los botones apilados; a unos 850 px los renglones siguen en una columna; desde unos 1024 px el renglón se abre con el chip de estado al extremo derecho y la declaración y su histórico debajo a todo lo ancho
 
 ## Hallazgos de otras historias
 
