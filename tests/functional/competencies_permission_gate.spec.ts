@@ -118,7 +118,7 @@ const requests = {
     label: 'edición de competencia',
     method: 'put',
     url: `/api/competencies/${competency.competencyId}`,
-    body: { competencyName: nextName('edicion'), competencyType: 'transversal' },
+    body: { competencyName: nextName('edicion'), competencyType: 'functional' },
   }),
   deleteCompetency: (competency: Competency): GateRequest => ({
     label: 'baja de competencia',

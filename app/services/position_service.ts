@@ -1178,8 +1178,8 @@ export default class PositionService {
       if (position.positionBusinessUnitCompetencyLevels?.length) {
         ensureSpace(90)
         drawSectionHeader(t('profile_position.competencies'))
-        const transversalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
-          (c) => c.competency?.competencyType === 'transversal'
+        const functionalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
+          (c) => c.competency?.competencyType === 'functional'
         )
         const technicalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
           (c) => c.competency?.competencyType === 'technical'
@@ -1198,12 +1198,12 @@ export default class PositionService {
           .text(t('profile_position.technical'), 40 + halfW, competencySubHeaderY + 3, { width: halfW, align: 'center', lineBreak: false })
         doc.y = competencySubHeaderY + 14
 
-        const numRows = Math.max(Math.ceil(transversalCompetencies.length / 2), Math.ceil(technicalCompetencies.length / 2), 1)
+        const numRows = Math.max(Math.ceil(functionalCompetencies.length / 2), Math.ceil(technicalCompetencies.length / 2), 1)
 
         for (let r = 0; r < numRows; r++) {
           const items = [
-            transversalCompetencies[r * 2]?.competency?.competencyName,
-            transversalCompetencies[r * 2 + 1]?.competency?.competencyName,
+            functionalCompetencies[r * 2]?.competency?.competencyName,
+            functionalCompetencies[r * 2 + 1]?.competency?.competencyName,
             technicalCompetencies[r * 2]?.competency?.competencyName,
             technicalCompetencies[r * 2 + 1]?.competency?.competencyName,
           ]
@@ -1773,12 +1773,12 @@ export default class PositionService {
       }
     }
 
-    // ── Competencias (A:F transversales, G:L técnicas) ───────────────────────
+    // ── Competencias (A:F funcionales, G:L técnicas) ─────────────────────────
     if (position.positionBusinessUnitCompetencyLevels?.length) {
       addSectionHeader(t('profile_position.competencies'))
 
-      const transversalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
-        (c) => c.competency?.competencyType === 'transversal'
+      const functionalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
+        (c) => c.competency?.competencyType === 'functional'
       )
       const technicalCompetencies = position.positionBusinessUnitCompetencyLevels.filter(
         (c) => c.competency?.competencyType === 'technical'
@@ -1791,9 +1791,9 @@ export default class PositionService {
       styleCell(competencyHeaderRow.getCell('G'), { bold: true, bg: GRAY, align: 'center' })
       competencyHeaderRow.height = 18
 
-      const numRows = Math.max(transversalCompetencies.length, technicalCompetencies.length, 1)
+      const numRows = Math.max(functionalCompetencies.length, technicalCompetencies.length, 1)
       for (let r = 0; r < numRows; r++) {
-        const fName = transversalCompetencies[r]?.competency?.competencyName ?? ''
+        const fName = functionalCompetencies[r]?.competency?.competencyName ?? ''
         const tName = technicalCompetencies[r]?.competency?.competencyName ?? ''
         const compRow = sheet.addRow([fName, '', '', '', '', '', tName])
         sheet.mergeCells(`A${compRow.number}:F${compRow.number}`)
