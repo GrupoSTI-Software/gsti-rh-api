@@ -4,6 +4,8 @@ import {
   createPositionBusinessUnitCompetencyLevelValidator,
   updatePositionBusinessUnitCompetencyLevelValidator,
 } from '#validators/position_business_unit_competency_level'
+import { competencyNotFoundResponse } from '#helpers/competency_api_error'
+import { COMPETENCY_ERROR_CODES } from '#constants/competency_error_codes'
 
 export default class PositionBusinessUnitCompetencyLevelController {
   /**
@@ -44,6 +46,16 @@ export default class PositionBusinessUnitCompetencyLevelController {
     try {
       const payload = await request.validateUsing(createPositionBusinessUnitCompetencyLevelValidator)
       const service = new PositionBusinessUnitCompetencyLevelService()
+      // VLRH-H1792032453526: la pertenencia va antes del duplicado — un 409
+      // confirmaría que el par puesto+competencia existe en otra empresa.
+      const outOfScopeCode = await service.findOutOfScopeReference({
+        positionId: payload.positionId,
+        competencyId: payload.competencyId,
+        businessUnitCompetencyLevelId: payload.businessUnitCompetencyLevelId,
+      })
+      if (outOfScopeCode) {
+        return competencyNotFoundResponse(response, outOfScopeCode)
+      }
       const existing = await service.findByPositionAndCompetency(
         payload.positionId,
         payload.competencyId
@@ -128,17 +140,15 @@ export default class PositionBusinessUnitCompetencyLevelController {
       const service = new PositionBusinessUnitCompetencyLevelService()
       const current = await service.show(positionBusinessUnitCompetencyLevelId)
       if (!current) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity: t('position_competency_level') }),
-          message: t('entity_was_not_found_with_entered_id', {
-            entity: t('position_competency_level'),
-          }),
-          data: { positionBusinessUnitCompetencyLevelId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.POSITION_LEVEL_NOT_FOUND)
       }
       const payload = await request.validateUsing(updatePositionBusinessUnitCompetencyLevelValidator)
+      const outOfScopeCode = await service.findOutOfScopeReference({
+        businessUnitCompetencyLevelId: payload.businessUnitCompetencyLevelId,
+      })
+      if (outOfScopeCode) {
+        return competencyNotFoundResponse(response, outOfScopeCode)
+      }
       const updated = await service.update(current, {
         businessUnitCompetencyLevelId: payload.businessUnitCompetencyLevelId,
       })
@@ -199,15 +209,7 @@ export default class PositionBusinessUnitCompetencyLevelController {
       const service = new PositionBusinessUnitCompetencyLevelService()
       const current = await service.show(positionBusinessUnitCompetencyLevelId)
       if (!current) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity: t('position_competency_level') }),
-          message: t('entity_was_not_found_with_entered_id', {
-            entity: t('position_competency_level'),
-          }),
-          data: { positionBusinessUnitCompetencyLevelId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.POSITION_LEVEL_NOT_FOUND)
       }
       const deleted = await service.delete(current)
       response.status(201)
