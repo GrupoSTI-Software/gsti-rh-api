@@ -124,5 +124,12 @@ export default defineConfig({
       pattern: 'database/seeders/assets/**/*',
       reloadServer: false,
     },
+    // Contenido de plantillas de puesto (VLRH-H1792026425571): lo revisa
+    // `position-templates:validate` y lo carga el importador. Solo `.json`: los
+    // fixtures de `tests/` nunca van al build.
+    {
+      pattern: 'database/data/position_templates/**/*.json',
+      reloadServer: false,
+    },
   ],
 })
