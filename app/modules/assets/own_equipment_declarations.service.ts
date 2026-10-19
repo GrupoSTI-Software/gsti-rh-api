@@ -1,12 +1,15 @@
 import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
+import { cuid } from '@adonisjs/core/helpers'
+import logger from '@adonisjs/core/services/logger'
 import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
 import { MAX_ALLOWANCE } from '#constants/telework_compliance_setting'
+import type { IncomingFile } from '#services/file_intake_service'
 import TeleworkComplianceSettingService from '#services/telework_compliance_setting_service'
 import UploadService from '#services/upload_service'
 import { CIVIL_DATE_ANCHOR_ZONE, toBusinessDateString } from '#utils/business_date'
 import { TenantContext } from '#utils/tenant_context'
-import { ASSET_ERROR_KEYS, ASSET_FILE_NAME_PREFIX, OWN_EQUIPMENT_ADJUSTED_CLOSE_REASON, type OwnEquipmentClosedReason } from './assets.constants.js'
+import { ASSET_ERROR_KEYS, ASSET_FILE_NAME_PREFIX, OWN_EQUIPMENT_ADJUSTED_CLOSE_REASON, OWN_EQUIPMENT_EVIDENCE_S3_FOLDER, type OwnEquipmentClosedReason } from './assets.constants.js'
 import { AssetError } from './assets.error.js'
 import { streamAssetFile, type AssetFile } from './assets.service.js'
 import type { OwnEquipmentDeclarationDto } from './dto/own_equipment_declarations.dto.js'
@@ -116,15 +119,27 @@ export default class OwnEquipmentDeclarationsService {
   /**
    * Da de alta la declaración del colaborador y devuelve su DTO.
    *
+   * Orden obligatorio (§7): validar Vine (ya hecho por el controlador) →
+   * colaborador en alcance y vivo → teletrabajo > 0 → cuota → `hasOpenCoverage`
+   * → `hasOpenDeclaration` → **subir la evidencia si viene** → transacción
+   * (candado, re-chequeo, `insert` con la key) → 201. La subida va ANTES de la
+   * transacción para que un id ajeno, una categoría cubierta o una vigente
+   * existente no dejen objeto en el bucket (CA-6).
+   *
+   * @param file Archivo opcional de la evidencia tal como lo entrega
+   *   `request.file('file')`. NUNCA se llama a `fileUpload` con nulo (§14).
+   *
    * @throws AssetError 404 `colaborador-no-encontrado` | 422
    *   `colaborador-sin-teletrabajo` / `entrada-invalida` /
    *   `cuota-de-equipo-propio-invalida` | 409 `categoria-cubierta-por-activo` /
-   *   `declaracion-de-equipo-propio-vigente-existente`.
+   *   `declaracion-de-equipo-propio-vigente-existente` | `FileIntakeError` del
+   *   intake (rechazo del archivo) o de la subida al almacenamiento.
    */
   async create(
     employeeId: number,
     input: OwnEquipmentDeclarationInput,
     rawMonthlyFee: unknown,
+    file: IncomingFile | null,
     userId: number
   ): Promise<OwnEquipmentDeclarationDto> {
     const scope = TenantContext.getScope()
@@ -173,6 +188,18 @@ export default class OwnEquipmentDeclarationsService {
       throw AssetError.ownEquipmentDeclarationOpenExists()
     }
 
+    // La evidencia se sube DESPUÉS de las validaciones baratas y ANTES de la
+    // transacción (§7). La key es `own-equipment-declarations/<empresa>/<cuid>`
+    // —la empresa sale de la fila del colaborador leída en alcance, nunca del
+    // body— y el nombre que mandó el cliente NO se concatena: solo aporta su
+    // extensión, que `fileUpload` ajusta al MIME REAL de salida (§14).
+    let storedKey: string | null = null
+    if (file) {
+      storedKey = await this.storage.fileUpload(file, 'evidence-document', '', {
+        fileName: `${OWN_EQUIPMENT_EVIDENCE_S3_FOLDER}/${employee.businessUnitId}/${cuid()}`,
+      })
+    }
+
     let declarationId: number
     try {
       declarationId = await db.transaction(async (trx) => {
@@ -202,6 +229,9 @@ export default class OwnEquipmentDeclarationsService {
           startDate,
           monthlyFee,
           feeSource,
+          // La key subida fuera de la transacción (§7): si la transacción truena
+          // el objeto queda huérfano y se registra (regla 8: nada se borra).
+          file: storedKey,
           createdByUserId: userId,
         })
       })
@@ -209,6 +239,12 @@ export default class OwnEquipmentDeclarationsService {
       // Único re-mapeo: el UNIQUE condicionado que ganó la carrera del re-chequeo.
       if ((error as { code?: string }).code === 'ER_DUP_ENTRY') {
         throw AssetError.ownEquipmentDeclarationOpenExists()
+      }
+      // La transacción tronó DESPUÉS de subir: el objeto quedó huérfano (residual
+      // aceptado, regla 8: nada se borra). Se registra la key —que no lleva PII—
+      // y se relanza el error original.
+      if (storedKey !== null) {
+        logger.warn({ storedKey }, 'Equipo propio: evidencia sin declaración')
       }
       throw error
     }
