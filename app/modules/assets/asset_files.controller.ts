@@ -3,17 +3,23 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { contentDisposition } from '#helpers/download_file_name'
 import { respondAssetsModuleError } from './assets.error.js'
 import AssetsService, { type AssetFile } from './assets.service.js'
+import OwnEquipmentDeclarationsService from './own_equipment_declarations.service.js'
 import { fileIdParamsValidator, photoIdParamsValidator } from './validators/assets.validator.js'
+import { declarationIdParamsValidator } from './validators/own_equipment_declarations.validator.js'
 
 /**
- * Descargas de la ficha del activo: responsiva y fotos de un resguardo. Se
- * transmiten desde el almacenamiento privado (`UploadService.streamStoredFile`)
- * sin exponer su ubicación, igual que los contratos de empleado y la Matriz.
+ * Descargas de la ficha del activo: responsiva, fotos de un resguardo y la
+ * evidencia de la declaración de equipo propio. Se transmiten desde el
+ * almacenamiento privado (`UploadService.streamStoredFile`) sin exponer su
+ * ubicación, igual que los contratos de empleado y la Matriz.
  * Un registro inexistente, de otra empresa o sin archivo responde el mismo 404.
  */
 @inject()
 export default class AssetFilesController {
-  constructor(private readonly service: AssetsService) {}
+  constructor(
+    private readonly service: AssetsService,
+    private readonly ownEquipmentService: OwnEquipmentDeclarationsService
+  ) {}
 
   /**
    * @swagger
@@ -69,10 +75,46 @@ export default class AssetFilesController {
     }
   }
 
-  private send({ response }: HttpContext, { object, fileName }: AssetFile) {
+  /**
+   * @swagger
+   * /api/own-equipment-declarations/{declarationId}/file:
+   *   get:
+   *     summary: Evidencia de la declaración de equipo propio
+   *     tags: [Assets]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - { in: header, name: X-Business-Unit-Id, required: true, schema: { type: string } }
+   *       - { in: path, name: declarationId, required: true, schema: { type: integer } }
+   *     responses:
+   *       '200': { description: "Stream binario (`Content-Disposition: attachment`)." }
+   *       '403': { description: "Sin `supplies:read` (gate)." }
+   *       '404':
+   *         description: "`key: archivo-no-encontrado` (inexistente, de otra empresa o sin archivo)."
+   *         content: { application/json: { schema: { $ref: '#/components/schemas/AssetError' } } }
+   */
+  async ownEquipmentEvidence(ctx: HttpContext) {
+    try {
+      const { declarationId } = await declarationIdParamsValidator.validate(ctx.params)
+      return this.send(
+        ctx,
+        await this.ownEquipmentService.evidenceFile(declarationId),
+        'attachment'
+      )
+    } catch (error) {
+      return respondAssetsModuleError(ctx, error)
+    }
+  }
+
+  private send(
+    { response }: HttpContext,
+    { object, fileName }: AssetFile,
+    disposition: 'inline' | 'attachment' = 'inline'
+  ) {
     response.header('Content-Type', object.contentType || 'application/octet-stream')
-    response.header('Content-Disposition', contentDisposition(fileName, 'inline'))
+    response.header('Content-Disposition', contentDisposition(fileName, disposition))
     response.header('Cache-Control', 'private, no-store')
+    response.header('X-Content-Type-Options', 'nosniff')
     if (object.contentLength !== undefined) {
       response.header('Content-Length', String(object.contentLength))
     }

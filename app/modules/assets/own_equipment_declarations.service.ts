@@ -3,10 +3,12 @@ import { DateTime } from 'luxon'
 import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
 import { MAX_ALLOWANCE } from '#constants/telework_compliance_setting'
 import TeleworkComplianceSettingService from '#services/telework_compliance_setting_service'
+import UploadService from '#services/upload_service'
 import { CIVIL_DATE_ANCHOR_ZONE, toBusinessDateString } from '#utils/business_date'
 import { TenantContext } from '#utils/tenant_context'
-import { ASSET_ERROR_KEYS, OWN_EQUIPMENT_ADJUSTED_CLOSE_REASON, type OwnEquipmentClosedReason } from './assets.constants.js'
+import { ASSET_ERROR_KEYS, ASSET_FILE_NAME_PREFIX, OWN_EQUIPMENT_ADJUSTED_CLOSE_REASON, type OwnEquipmentClosedReason } from './assets.constants.js'
 import { AssetError } from './assets.error.js'
+import { streamAssetFile, type AssetFile } from './assets.service.js'
 import type { OwnEquipmentDeclarationDto } from './dto/own_equipment_declarations.dto.js'
 import type { OwnEquipmentDeclarationsRepository } from './own_equipment_declarations.repository.js'
 import OwnEquipmentDeclarationsRepositoryMysql from './own_equipment_declarations.repository.mysql.js'
@@ -97,9 +99,17 @@ export interface OwnEquipmentCloseInput {
   closedReason: OwnEquipmentClosedReason
 }
 
+/**
+ * Lo que la declaración necesita del almacenamiento: subir la evidencia del
+ * alta y entregarla en la descarga. Inyectable por constructor para poder
+ * doblarlo en las pruebas.
+ */
+export type OwnEquipmentEvidenceStorage = Pick<UploadService, 'fileUpload' | 'streamStoredFile'>
+
 export default class OwnEquipmentDeclarationsService {
   constructor(
     private readonly repository: OwnEquipmentDeclarationsRepository = new OwnEquipmentDeclarationsRepositoryMysql(),
+    private readonly storage: OwnEquipmentEvidenceStorage = new UploadService(),
     private readonly settings: Pick<TeleworkComplianceSettingService, 'getEffective'> = new TeleworkComplianceSettingService()
   ) {}
 
@@ -427,6 +437,26 @@ export default class OwnEquipmentDeclarationsService {
       throw new Error('La declaración de equipo propio terminada no se pudo leer.')
     }
     return declaration
+  }
+
+  /**
+   * Evidencia adjunta de la declaración, lista para escribirse en la respuesta
+   * (VLRH-H1791493046616, CA-7). El alcance de empresas viaja DENTRO de la
+   * consulta del puerto, así que la declaración ajena, la inexistente y la que
+   * no tiene archivo responden el MISMO 404 (CA-8); el nombre de la descarga es
+   * genérico (`equipo-propio-<declarationId>`), nunca el del archivo original.
+   *
+   * @throws AssetError 404 `archivo-no-encontrado`.
+   */
+  async evidenceFile(declarationId: number): Promise<AssetFile> {
+    const record = await this.repository.findEvidencePath(TenantContext.getScope(), declarationId)
+    if (record === null) throw AssetError.fileNotFound()
+    // La ruta viaja TAL CUAL: una cadena vacía (escritura fuera de banda) la
+    // trata `streamAssetFile` como «sin archivo», igual que `null`.
+    return streamAssetFile(this.storage, record.storedPath, [
+      ASSET_FILE_NAME_PREFIX.ownEquipmentEvidence,
+      declarationId,
+    ])
   }
 
   /**
