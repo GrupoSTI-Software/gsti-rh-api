@@ -28,7 +28,6 @@ Prerrequisito: esta rama del API y la del backoffice están levantadas, y la bas
 Ejecuta una vez el sembrador de QA compartido:
 
 ```bash
-cd gsti-rh-api
 node ace db:seed --files=database/seeders/_tmp_do_not_commit_qa_seeder.ts
 ```
 
@@ -228,7 +227,7 @@ Objetivo: comprobar que terminar una declaración vigente la cierra con su fecha
 Objetivo: comprobar que si la empresa entrega un activo en una categoría que ya tenía equipo propio declarado, el sistema avisa que la categoría ya la cubre un activo y ofrece el botón para terminar esa declaración.
 
 1. Con el Usuario A, abre la ficha de **Vera Quintero Lira** (`QA-TEL-03`, Híbrido 40%) y entra a **Activos**. La leyenda dice **Obligatorio: este colaborador está en el listado de teletrabajadores (NOM-037 5.7, LFT 330-E)** y el resumen es **2 sin cubrir**.
-2. En el renglón **Silla ergonómica** pulsa **Declarar equipo propio**; llena **Descripción del equipo** con `Silla propia`, **Fecha de inicio** 1 de septiembre de 2026 y guarda sin tocar la cuota (llega con la estándar). El renglón queda en **Equipo propio declarado** con el chip **Cuota estándar**.
+2. En el renglón **Silla ergonómica** pulsa **Declarar equipo propio**; llena **Descripción del equipo** con `Silla propia`, **Fecha de inicio** el 1 de septiembre de 2026 y guarda sin tocar la cuota (llega con la estándar). El renglón queda en **Equipo propio declarado** con el chip **Cuota estándar**.
 3. En **otra pestaña** del mismo navegador, con la misma sesión: menú lateral, grupo **Empresa** → **Activos e insumos**. En **Buscar activo** escribe el folio `QA-TEL-ACT-SILLA-05` y en **Estado** deja **Disponibles**.
 4. En la tarjeta de esa silla (chip **Disponible**, «En almacén, listo para asignar») pulsa **Asignar**. Se abre su ficha en la pestaña **Resguardo** con el formulario **Asignar este activo**.
 5. En **Empleado responsable** escribe `Vera Quintero` y elige a **Vera Quintero Lira**; deja la **Fecha de asignación** en el día de hoy.
@@ -238,7 +237,7 @@ Objetivo: comprobar que si la empresa entrega un activo en una categoría que ya
 **Qué debe verse:**
 
 - El renglón **Silla ergonómica** ahora muestra el chip **Entregado**, con la silla `QA-TEL-ACT-SILLA-05` y sus chips, y el resumen pasó a **1 sin cubrir**.
-- **Debajo del activo**, la declaración sigue vigente (con su descripción **Silla propia**, **Desde el 01/11/2026** y su cuota) y encima de ella aparece el aviso **Esta categoría ya la cubre un activo de la empresa: termina la declaración.**
+- **Debajo del activo**, la declaración sigue vigente (con su descripción **Silla propia**, **Desde el 01/09/2026** y su cuota) y encima de ella aparece el aviso **Esta categoría ya la cubre un activo de la empresa: termina la declaración.**
 - Junto al aviso está el botón **Terminar declaración**, que abre el cajón **Terminar declaración: Silla ergonómica**.
 - **Negativo a comprobar a propósito:** en este renglón **ya no está** el botón **Ajustar cuota** (el aviso solo ofrece terminar); el aviso y su botón no aparecen en las categorías sin activo.
 
@@ -288,7 +287,7 @@ Objetivo: comprobar que un colaborador que ya no teletrabaja conserva el bloque 
 - Arriba se ve la nota **Sin teletrabajo: solo se muestran las declaraciones vigentes para terminarlas.**
 - Debajo, una lista con un renglón rotulado **Silla ergonómica** que trae la declaración vigente **Silla propia de casa**, **Desde el 01/09/2026**, **$350.00 al mes** y el chip **Cuota estándar**.
 - El renglón ofrece la acción **Terminar declaración**.
-- **Negativo a comprobar a propósito:** no hay botón **Declarar equipo propio** (la persona no teletrabaja, así que no se declara equipo propio) y no hay chips de resumen ni renglones de categoría.
+- **Negativo a comprobar a propósito:** no hay botón **Declarar equipo propio** (la persona no teletrabaja, así que no se declara equipo propio), **Ajustar cuota** tampoco aparece (el ajuste exige teletrabajo mayor a cero, así que aquí solo se ofrece terminar) y no hay chips de resumen ni renglones de categoría.
 
 Termina la declaración: pulsa **Terminar declaración**, elige en **Motivo de término** la opción **Dejó el teletrabajo**, deja **Fecha de término** en el día de hoy y pulsa **Guardar**.
 
@@ -407,6 +406,6 @@ Cada casilla se marca **contra el objetivo de su escenario**, no contra «se hic
 - [ ] 4.8 Con `QA-TEL-09` el bloque trae solo la nota **Sin teletrabajo: solo se muestran las declaraciones vigentes para terminarlas.** y su declaración vigente con **Terminar declaración**, sin chips, categorías ni acción de declarar
 - [ ] 4.9 A 360 px no hay desplazamiento horizontal, el histórico va en una columna y el cajón a todo lo ancho con los botones apilados; a unos 850 px los renglones siguen en una columna; desde unos 1024 px el renglón se abre con el chip de estado al extremo derecho y la declaración y su histórico debajo a todo lo ancho
 
-## 7. Hallazgos de otras historias
+## Hallazgos de otras historias
 
 Ninguno.
