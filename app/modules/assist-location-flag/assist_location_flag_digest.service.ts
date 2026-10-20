@@ -4,6 +4,7 @@ import mail from '@adonisjs/mail/services/main'
 import adonisLogger from '@adonisjs/core/services/logger'
 import env from '#start/env'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { MAIL_BRAND_HEADER_COLOR, MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import { DEVELOPMENT_EMAIL_LIST } from '#constants/employee_celebration_email'
 import {
   ASSIST_LOCATION_FLAG_DIGEST_SUBJECT,
@@ -62,17 +63,14 @@ interface EmployeeRow {
 
 interface SettingRow {
   system_setting_trade_name: string | null
-  system_setting_sidebar_color: string | null
 }
-
-const DEFAULT_SIDEBAR_COLOR = '#333333'
 
 /** Envío real: el remitente institucional en `to` y todos los destinatarios en copia oculta. */
 const sendWithAdonisMail: AssistLocationFlagDigestMailer = async ({ recipients, data }) => {
   const sender = resolveMailSender()
   await mail.send((message) => {
     message
-      .from(sender)
+      .from(sender, MAIL_BRAND_TRADE_NAME)
       .to(sender)
       .bcc([...recipients])
       .subject(ASSIST_LOCATION_FLAG_DIGEST_SUBJECT)
@@ -94,12 +92,6 @@ function employeeFullName(row: EmployeeRow): string {
     .map((part) => part?.trim() ?? '')
     .filter((part) => part !== '')
     .join(' ')
-}
-
-function sidebarColor(value: string | null): string {
-  const color = value?.trim()
-  if (!color) return DEFAULT_SIDEBAR_COLOR
-  return color.startsWith('#') ? color : `#${color}`
 }
 
 /**
@@ -365,12 +357,14 @@ export default class AssistLocationFlagDigestService {
       .where('business_unit_id', businessUnitId)
       .whereNull('system_setting_deleted_at')
       .orderBy('system_setting_id', 'asc')
-      .select('system_setting_trade_name', 'system_setting_sidebar_color')
+      .select('system_setting_trade_name')
       .first()) as SettingRow | null
 
     return {
-      tradeName: setting?.system_setting_trade_name?.trim() ?? '',
-      sidebarColor: sidebarColor(setting?.system_setting_sidebar_color ?? null),
+      tradeName: MAIL_BRAND_TRADE_NAME,
+      headerColor: MAIL_BRAND_HEADER_COLOR,
+      backgroundImageLogo: MAIL_BRAND_LOGO_URL,
+      companyName: setting?.system_setting_trade_name?.trim() ?? '',
       lines: lines.map(({ sortDay: _sortDay, ...line }) => line),
     }
   }

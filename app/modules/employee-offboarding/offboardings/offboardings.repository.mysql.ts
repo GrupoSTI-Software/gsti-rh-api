@@ -118,6 +118,8 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
       employee_id: data.employeeId,
       business_unit_id: data.businessUnitId,
       employee_offboarding_planned_date: data.employeeOffboardingPlannedDate,
+      employee_offboarding_planned_modality: data.employeeOffboardingPlannedModality ?? null,
+      employee_offboarding_planned_type: data.employeeOffboardingPlannedType ?? null,
       employee_offboarding_status: EMPLOYEE_OFFBOARDING_STATUS.OPEN,
       employee_offboarding_origin: data.employeeOffboardingOrigin,
       employee_offboarding_notes: data.employeeOffboardingNotes,

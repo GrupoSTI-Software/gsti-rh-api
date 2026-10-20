@@ -1,6 +1,6 @@
 export interface CompetencyFilterSearchInterface {
   search?: string
-  competencyType?: 'technical' | 'transversal'
+  competencyType?: 'technical' | 'functional'
   page: number
   limit: number
 }

@@ -13,6 +13,7 @@ import EmployeeQuotaService from '#services/employee_quota_service'
 import SubscriptionRenewalRequestMail from '#mails/subscription_renewal_request_mail'
 import { INTERNAL_CONTACT_EMAIL } from '#constants/support_contact'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import {
@@ -816,9 +817,8 @@ export default class BillingTenantService {
         from: resolveMailSender(),
         language: 'es',
         branding: {
-          tradeName: 'Valanserh',
-          backgroundImageLogo:
-            'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png',
+          tradeName: MAIL_BRAND_TRADE_NAME,
+          backgroundImageLogo: MAIL_BRAND_LOGO_URL,
         },
         companyName: businessUnit.businessUnitName,
         planName: renewal.planName,

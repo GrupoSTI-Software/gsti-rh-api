@@ -10,6 +10,9 @@ export interface EmployeeOffboardingCreateData {
   employeeId: number
   businessUnitId: number
   employeeOffboardingPlannedDate: string
+  /** Motivos de la baja programada (VLRH-H1792172854107); ausentes = null (apertura automática, R7 de VLRH-C0038). */
+  employeeOffboardingPlannedModality?: string | null
+  employeeOffboardingPlannedType?: string | null
   employeeOffboardingOrigin: string
   employeeOffboardingNotes: string | null
   employeeOffboardingOpenedByUserId: number | null

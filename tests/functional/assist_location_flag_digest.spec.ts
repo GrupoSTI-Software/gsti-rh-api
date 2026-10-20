@@ -8,6 +8,7 @@ import Role from '#models/role'
 import User from '#models/user'
 import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { MAIL_BRAND_HEADER_COLOR, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import { ASSIST_LOCATION_FLAG } from '#constants/assist_location_flag'
 import {
   ASSIST_LOCATION_FLAG_DIGEST_SUBJECT,
@@ -273,6 +274,9 @@ test.group('Aviso de ubicación simulada — correo agrupado', (group) => {
     assert.include(html, 'lunes 5 de octubre 2026')
     assert.include(html, '08:02, 14:05')
     assert.include(html, '2 registros')
+    assert.include(html, MAIL_BRAND_HEADER_COLOR)
+    assert.include(html, MAIL_BRAND_TRADE_NAME)
+    assert.include(JSON.stringify(sent.from ?? ''), MAIL_BRAND_TRADE_NAME)
 
     const after = await notifiedAt(ids)
     for (const id of ids) assert.isNotNull(after.get(id))
@@ -332,6 +336,8 @@ test.group('Aviso de ubicación simulada — correo agrupado', (group) => {
     await service.run()
 
     assert.lengthOf(sent, 1)
+    assert.equal(sent[0].data.tradeName, MAIL_BRAND_TRADE_NAME)
+    assert.equal(sent[0].data.headerColor, MAIL_BRAND_HEADER_COLOR)
     assert.deepEqual(
       sent[0].data.lines.map((line) => line.employeeName),
       ['Ana Prueba', 'Beto Prueba', 'Carla Prueba']

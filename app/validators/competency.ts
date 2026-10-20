@@ -1,6 +1,6 @@
 import vine from '@vinejs/vine'
 
-const competencyTypeEnum = vine.enum(['technical', 'transversal'] as const)
+const competencyTypeEnum = vine.enum(['technical', 'functional'] as const)
 
 export const createCompetencyValidator = vine.compile(
   vine.object({

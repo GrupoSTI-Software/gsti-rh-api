@@ -27,10 +27,10 @@ export default class CompetencyController {
    *       - name: competencyType
    *         in: query
    *         required: false
-   *         description: Filter by competency type (technical or transversal)
+   *         description: Filter by competency type (technical or functional)
    *         schema:
    *           type: string
-   *           enum: [technical, transversal]
+   *           enum: [technical, functional]
    *       - name: page
    *         in: query
    *         required: true
@@ -57,7 +57,7 @@ export default class CompetencyController {
       const search = request.input('search')
       const rawType = request.input('competencyType')
       const competencyType =
-        rawType === 'technical' || rawType === 'transversal' ? rawType : undefined
+        rawType === 'technical' || rawType === 'functional' ? rawType : undefined
       const rawPage = Number(request.input('page', 1))
       const rawLimit = Number(request.input('limit', 100))
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
@@ -114,7 +114,7 @@ export default class CompetencyController {
    *               competencyType:
    *                 type: string
    *                 description: Competency type
-   *                 enum: [technical, transversal]
+   *                 enum: [technical, functional]
    *                 required: true
    *                 default: 'technical'
    *     responses:
@@ -178,7 +178,7 @@ export default class CompetencyController {
    *                 type: string
    *               competencyType:
    *                 type: string
-   *                 enum: [technical, transversal]
+   *                 enum: [technical, functional]
    *     responses:
    *       '201':
    *         description: Resource processed successfully
