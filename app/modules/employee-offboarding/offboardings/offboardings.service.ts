@@ -76,6 +76,11 @@ export interface UpdateOffboardingTerminationInput {
   notes?: string | null
 }
 
+/** Motivo de la cancelación de la baja programada (VLRH-H1792172886315, regla 3). */
+export interface CancelOffboardingInput {
+  cancellationNote: string
+}
+
 /** Largo máximo del snapshot de nombre (columna varchar(200)). */
 const ITEM_NAME_MAX_LENGTH = 200
 
@@ -332,6 +337,45 @@ export default class OffboardingsService {
     return await this.buildDtoForCase(updated, businessUnitScope)
   }
 
+  /**
+   * Cancela la baja programada por decisión de RH (VLRH-H1792172886315,
+   * reglas 1 a 3, 5, 6 y 9; R8 de VLRH-C0038): bajo candado de la fila y
+   * dentro del alcance se re-verifica el estado (cancelado y cerrado son de
+   * solo lectura), se guarda la nota de motivo y se marca `cancelled` con
+   * quién y cuándo. No lee ni bloquea `employees` (regla 2: procede aunque el
+   * colaborador ya esté dado de baja) ni toca `planned_*`, `termination_*`,
+   * la nota de programación, pendientes, evidencias ni documentos (regla 7).
+   */
+  async cancel(
+    employeeOffboardingId: number,
+    input: CancelOffboardingInput,
+    businessUnitScope: number[],
+    cancelledByUserId: number | null
+  ): Promise<EmployeeOffboardingDto> {
+    const cancelled = await db.transaction(async (trx) => {
+      const locked = await this.repository.lockByIdInScope(
+        employeeOffboardingId,
+        businessUnitScope,
+        trx
+      )
+      if (!locked) {
+        throw this.caseNotFoundError()
+      }
+      if (locked.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CANCELLED) {
+        throw this.caseCancelledError()
+      }
+      if (!isOffboardingCaseWritable(locked.employeeOffboardingStatus)) {
+        throw this.caseClosedReadOnlyError()
+      }
+
+      locked.employeeOffboardingCancellationNote = input.cancellationNote
+      await this.markCancelled(locked, cancelledByUserId, trx)
+      return locked
+    })
+
+    return await this.buildDtoForCase(cancelled, businessUnitScope)
+  }
+
   /** DTO tras cerrar/reabrir: el colaborador se resuelve sin alcance y con trashed. */
   private async buildDtoForCase(
     offboarding: { employeeOffboardingId: number; employeeId: number },
@@ -414,6 +458,20 @@ export default class OffboardingsService {
     if (offboarding.employeeOffboardingStatus !== EMPLOYEE_OFFBOARDING_STATUS.OPEN) {
       throw new Error('cancelOnReactivation: solo se cancela un expediente abierto')
     }
+    await this.markCancelled(offboarding, cancelledByUserId, trx)
+  }
+
+  /**
+   * Único punto que transita a `cancelled` (CA13 de VLRH-H1792172886315):
+   * estado, hora del servidor y usuario, y guarda la fila dentro de la
+   * transacción del llamador. La reactivación y la cancelación de RH dejan el
+   * expediente igual; la nota de motivo la pone antes solo la segunda.
+   */
+  private async markCancelled(
+    offboarding: EmployeeOffboarding,
+    cancelledByUserId: number | null,
+    trx: TransactionClientContract
+  ): Promise<void> {
     offboarding.employeeOffboardingStatus = EMPLOYEE_OFFBOARDING_STATUS.CANCELLED
     offboarding.employeeOffboardingCancelledAt = DateTime.now()
     offboarding.employeeOffboardingCancelledByUserId = cancelledByUserId
