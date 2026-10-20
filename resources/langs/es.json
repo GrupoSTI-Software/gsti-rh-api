@@ -937,6 +937,8 @@
   "employee_offboarding_case_closed_read_only_message": "El expediente de salida está cerrado. Vuelve a abrirlo para seguir registrando avance.",
   "employee_offboarding_case_cancelled_read_only_title": "Expediente cancelado",
   "employee_offboarding_case_cancelled_read_only_message": "La salida se canceló al reactivar al colaborador; el expediente solo se puede consultar.",
+  "employee_offboarding_case_termination_reason_invalid_title": "Motivo de baja inválido",
+  "employee_offboarding_case_termination_reason_invalid_message": "La modalidad no está en el catálogo o el tipo de baja no corresponde a la modalidad elegida.",
   "employee_offboarding_document_resource_title": "Documentos del expediente de salida",
   "employee_offboarding_document_issue_error_title": "No fue posible emitir la constancia de separación",
   "employee_offboarding_document_download_error_title": "No fue posible generar el enlace de descarga",

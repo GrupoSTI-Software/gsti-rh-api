@@ -65,6 +65,12 @@ export interface EmployeeOffboardingDto {
   employeeId: number
   businessUnitId: number
   employeeOffboardingPlannedDate: string | null
+  /** Modalidad de la baja programada: etiqueta visible del catálogo; `null` = por capturar. */
+  employeeOffboardingPlannedModality: string | null
+  /** Tipo de la baja programada (etiqueta visible); `null` = por capturar. */
+  employeeOffboardingPlannedType: string | null
+  /** `true` solo con expediente `open` y sin modalidad o sin tipo (R7 de VLRH-C0038). */
+  terminationReasonsPending: boolean
   employeeOffboardingStatus: string
   employeeOffboardingOrigin: string
   employeeOffboardingNotes: string | null
@@ -371,11 +377,20 @@ export function toOffboardingDto(
     (item) => item.employeeOffboardingItemStatus === EMPLOYEE_OFFBOARDING_ITEM_STATUS.COMPLETED
   ).length
 
+  const plannedModality = snapshotText(offboarding.employeeOffboardingPlannedModality)
+  const plannedType = snapshotText(offboarding.employeeOffboardingPlannedType)
+
   return {
     employeeOffboardingId: offboarding.employeeOffboardingId,
     employeeId: offboarding.employeeId,
     businessUnitId: offboarding.businessUnitId,
     employeeOffboardingPlannedDate: plannedDate,
+    employeeOffboardingPlannedModality: plannedModality,
+    employeeOffboardingPlannedType: plannedType,
+    // R7 de VLRH-C0038: solo un expediente en curso puede tener motivos por capturar
+    terminationReasonsPending:
+      isOffboardingCaseWritable(offboarding.employeeOffboardingStatus) &&
+      (plannedModality === null || plannedType === null),
     employeeOffboardingStatus: offboarding.employeeOffboardingStatus,
     employeeOffboardingOrigin: offboarding.employeeOffboardingOrigin,
     employeeOffboardingNotes: offboarding.employeeOffboardingNotes ?? null,
