@@ -4,6 +4,7 @@ import {
   type StripeErrorAction,
   type StripeErrorEntryKey,
 } from '#constants/billing_stripe_error_catalog'
+import { DateTime } from 'luxon'
 
 export const STRIPE_SUPPORT_LIMIT_CODES = [
   'charge_exceeds_transaction_limit',
@@ -104,4 +105,48 @@ export function shouldNotifyAccountIssue(
     outcome.previous.invoiceRef !== current.invoiceRef ||
     outcome.previous.code !== current.code
   )
+}
+
+export type LandlordLastPaymentFailure = {
+  at: string
+  active: boolean
+  code: string | null
+  declineCode: string | null
+  key: string | null
+  title: string | null
+  detail: string | null
+  action: 'tenant' | 'valanserh' | null
+  resolvedByStripeSupport: boolean
+  sensitiveDecline: boolean
+} | null
+
+export function buildLandlordLastPaymentFailure(input: {
+  failedAt: DateTime | null
+  code: string | null
+  declineCode: string | null
+  active: boolean
+}): LandlordLastPaymentFailure {
+  if (!input.failedAt) return null
+
+  const resolution = resolvePaymentFailureMessage({
+    code: input.code,
+    declineCode: input.declineCode,
+  })
+
+  return {
+    at: input.failedAt.toUTC().toISO()!,
+    active: input.active,
+    code: input.code,
+    declineCode: input.declineCode,
+    key: resolution?.key ?? null,
+    title: resolution?.title ?? null,
+    detail: resolution?.detail ?? null,
+    action: resolution?.action ?? null,
+    resolvedByStripeSupport: resolution?.resolvedByStripeSupport ?? false,
+    sensitiveDecline: resolution?.sensitiveDecline ?? false,
+  }
+}
+
+export function isProviderAccountIssue(failure: LandlordLastPaymentFailure): boolean {
+  return failure !== null && failure.active && failure.action === 'valanserh'
 }
