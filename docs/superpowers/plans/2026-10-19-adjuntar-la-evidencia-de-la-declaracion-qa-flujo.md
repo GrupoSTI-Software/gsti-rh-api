@@ -199,7 +199,7 @@ cd ~/Documents/projects/qa-valanserh
 python3 ubicacion-de-una-foto.py original.jpg equipo-propio-5.jpg
 ```
 
-De cada archivo imprime dos líneas: la foto original dice `ubicación: SÍ` con sus coordenadas, y el archivo que bajaste del sistema dice `ubicación: NO`. Si los archivos están en otra carpeta, pásale la ruta completa (`python3 ubicacion-de-una-foto.py ~/Downloads/original.jpg`).
+De cada archivo imprime dos líneas: la foto original dice `ubicación: SÍ` con sus coordenadas, y el archivo que bajaste del sistema dice `ubicación: NO`. El lector vive en esa carpeta, por eso el primer comando es el `cd`: si lo corres desde donde tienes las fotos, no lo encuentra. Si prefieres, cópialo junto a ellas. Si los archivos están en otra carpeta, pásale la ruta completa (`python3 ubicacion-de-una-foto.py ~/Downloads/original.jpg`).
 
 Sin terminal también sirve: abre la foto en **Vista Previa** y pulsa **⌘I** (Mostrar inspector); el apartado **GPS** trae las coordenadas en la original y no aparece en la que bajaste. Ojo con los atajos de macOS: `sips` y `mdls` **no** muestran la ubicación; para esta comprobación no sirven.
 
