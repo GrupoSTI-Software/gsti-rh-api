@@ -676,6 +676,28 @@ export default class PositionController {
         body.departmentId !== '' &&
         normalizeHierarchyId(body.departmentId) !== pivotDeptId
 
+      const exist = await positionService.verifyInfoExist(position)
+      if (exist.status !== 200) {
+        response.status(exist.status)
+        return {
+          type: exist.type,
+          title: exist.title,
+          message: exist.message,
+          data: { ...data },
+        }
+      }
+      const verifyInfo = await positionService.verifyInfo(position)
+      if (verifyInfo.status !== 200) {
+        response.status(verifyInfo.status)
+        return {
+          type: verifyInfo.type,
+          title: verifyInfo.title,
+          message: verifyInfo.message,
+          data: { ...data },
+        }
+      }
+
+      let employeesRelocated = 0
       if (parentDirty || deptDirty) {
         if (targetDeptForRelocate === null || Number.isNaN(targetDeptForRelocate)) {
           response.status(422)
@@ -709,30 +731,11 @@ export default class PositionController {
           }
         }
 
+        employeesRelocated = relocateResult.employeesRelocated
         await currentPosition.refresh()
         position.parentPositionId = currentPosition.parentPositionId
       }
 
-      const exist = await positionService.verifyInfoExist(position)
-      if (exist.status !== 200) {
-        response.status(exist.status)
-        return {
-          type: exist.type,
-          title: exist.title,
-          message: exist.message,
-          data: { ...data },
-        }
-      }
-      const verifyInfo = await positionService.verifyInfo(position)
-      if (verifyInfo.status !== 200) {
-        response.status(verifyInfo.status)
-        return {
-          type: verifyInfo.type,
-          title: verifyInfo.title,
-          message: verifyInfo.message,
-          data: { ...data },
-        }
-      }
       const updatePosition = await positionService.update(currentPosition, position)
       if (updatePosition) {
         response.status(201)
@@ -740,7 +743,7 @@ export default class PositionController {
           type: 'success',
           title: 'Positions',
           message: 'The position was updated successfully',
-          data: { position: updatePosition },
+          data: { position: updatePosition, employeesRelocated },
         }
       }
     } catch (error) {
@@ -816,7 +819,9 @@ export default class PositionController {
       }
 
       response.status(200)
-      return { data: { position: result.position } }
+      return {
+        data: { position: result.position, employeesRelocated: result.employeesRelocated },
+      }
     } catch (error) {
       const err = error as { code?: string; messages?: Array<{ message: string }>; message?: string }
       if (err.code === 'E_VALIDATION_ERROR') {
