@@ -95,4 +95,5 @@ export const SUPPLIES_PERMISSION_DECLARATIONS = {
   upsertAssetCharacteristicValues: suppliesStandard('update'),
   downloadSupplyResponseContract: suppliesStandard('read'),
   downloadSupplyAssignationPhoto: suppliesStandard('read'),
+  downloadOwnEquipmentDeclarationFile: suppliesStandard('read'),
 } as const satisfies Record<string, PermissionGateOptions>

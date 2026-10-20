@@ -66,6 +66,10 @@ export default class BillingSubscriptionController {
    *       (`minEmployees > maxEmployees`, `minTotal > maxTotal`,
    *       `trialEndsFrom > trialEndsTo`) se rechaza con
    *       `422 PLT.SUB.VAL_INPUT`; nunca se ignora en silencio.
+   *
+   *       Desde VLRH-H1791936413002 cada objeto de la lista incluye el campo
+   *       `providerAccountIssue` (boolean) que indica si existe un fallo activo
+   *       atribuible a Valanserh.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -128,7 +132,7 @@ export default class BillingSubscriptionController {
    *           maximum: 100
    *     responses:
    *       '200':
-   *         description: Lista de suscripciones con empresa y plan precargados, más `meta` de paginación
+   *         description: Lista de suscripciones con empresa y plan precargados, más `providerAccountIssue` y `meta` de paginación
    *         content:
    *           application/json:
    *             schema:
@@ -141,6 +145,12 @@ export default class BillingSubscriptionController {
    *                   type: array
    *                   items:
    *                     type: object
+   *                     properties:
+   *                       billingSubscriptionId:
+   *                         type: integer
+   *                       providerAccountIssue:
+   *                         type: boolean
+   *                         example: false
    *                 meta:
    *                   type: object
    *                   properties:
@@ -227,7 +237,7 @@ export default class BillingSubscriptionController {
    *                   example: success
    *                 data:
    *                   type: object
-   *                   description: Serialización natural del modelo `BillingSubscription`, más `pendingIncreaseChange`.
+   *                   description: Serialización natural del modelo `BillingSubscription`, más `pendingIncreaseChange`, `discountBenefitRestoredFrom` y `lastPaymentFailure`.
    *                   properties:
    *                     pendingIncreaseChange:
    *                       type: object
@@ -270,6 +280,42 @@ export default class BillingSubscriptionController {
    *                         `period_end` del pago que agotó el beneficio. `null` sin
    *                         código, con beneficio vigente o indefinido, o si ningún
    *                         pago registró el consumo que lo agotó.
+   *                     lastPaymentFailure:
+   *                       type: object
+   *                       nullable: true
+   *                       description: >
+   *                         Detalle del último cobro rechazado en Stripe (VLRH-H1791936413002).
+   *                         Incluye códigos crudos, vigencia y bandera de acción para soporte en Landlord.
+   *                         `null` cuando es una suscripción manual o no tiene fallos registrados.
+   *                       properties:
+   *                         at:
+   *                           type: string
+   *                           format: date-time
+   *                         active:
+   *                           type: boolean
+   *                         code:
+   *                           type: string
+   *                           nullable: true
+   *                         declineCode:
+   *                           type: string
+   *                           nullable: true
+   *                         key:
+   *                           type: string
+   *                           nullable: true
+   *                         title:
+   *                           type: string
+   *                           nullable: true
+   *                         detail:
+   *                           type: string
+   *                           nullable: true
+   *                         action:
+   *                           type: string
+   *                           enum: [tenant, valanserh]
+   *                           nullable: true
+   *                         resolvedByStripeSupport:
+   *                           type: boolean
+   *                         sensitiveDecline:
+   *                           type: boolean
    *       '404':
    *         description: Suscripción no encontrada
    */

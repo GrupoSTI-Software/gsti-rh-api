@@ -1,5 +1,15 @@
 import { DateTime } from 'luxon'
 import Employee from '#models/employee'
+import { MAIL_BRAND_HEADER_COLOR, MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
+
+function escapeHtml(value: string | number | null | undefined): string {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;')
+    .replaceAll('>', '&gt;')
+}
 
 function lightenColor(color: string, percent: number): string {
     // Función para aclarar un color hexadecimal
@@ -13,29 +23,19 @@ function lightenColor(color: string, percent: number): string {
       (B < 255 ? B < 1 ? 0 : B : 255)).toString(16).slice(1)
   }
 
-/**
- * Bloque del logo de la empresa. Devuelve cadena vacía cuando la empresa aún no
- * ha cargado su logo (las empresas nuevas nacen sin imágenes de marca), en vez
- * de emitir un `<img src="null">` roto en el correo.
- */
-function logoBlock(systemLogo: string | null, companyName: string): string {
-  if (!systemLogo) {
-    return ''
-  }
+/** Logo de Valanserh. Los correos de felicitación ya lo llevan; no se omite. */
+function logoBlock(): string {
   return `<div class="logo-container">
-                    <img src="${systemLogo}" alt="Logo de ${companyName}">
+                    <img src="${MAIL_BRAND_LOGO_URL}" alt="Logo de ${escapeHtml(MAIL_BRAND_TRADE_NAME)}">
                 </div>`
 }
 
 export function generateBirthdayEmailHtml(
     firstName: string,
     lastName: string,
-    companyName: string,
-    sidebarColor: string,
-    systemLogo: string | null
+    companyName: string
   ): string {
-    // Asegurar que el color tenga el formato hexadecimal correcto
-    const formattedColor = sidebarColor.startsWith('#') ? sidebarColor : `#${sidebarColor}`
+    const formattedColor = MAIL_BRAND_HEADER_COLOR
     const lightColor = lightenColor(formattedColor, 20)
     return `
     <!DOCTYPE html>
@@ -141,20 +141,20 @@ export function generateBirthdayEmailHtml(
         <div class="container">
             <div class="header">
                 <h1>¡Feliz Cumpleaños!</h1>
-                <div class="company-name">${companyName}</div>
+                <div class="company-name">${escapeHtml(MAIL_BRAND_TRADE_NAME)}</div>
             </div>
 
             <div class="content">
-                ${logoBlock(systemLogo, companyName)}
+                ${logoBlock()}
 
                 <div class="greeting">
-                    ¡Querido/a <span class="highlight">${firstName} ${lastName}</span>!
+                    ¡Querido/a <span class="highlight">${escapeHtml(firstName)} ${escapeHtml(lastName)}</span>!
                 </div>
 
                 <div class="message">
                     <p>En este día tan especial, queremos tomarnos un momento para celebrar tu cumpleaños y, más importante aún, para <strong>agradecerte</strong> por tu valiosa participación en nuestra empresa.</p>
 
-                    <p>Tu <strong>arduo esfuerzo</strong> y dedicación no pasan desapercibidos. Cada día contribuyes de manera significativa al crecimiento y éxito de <span class="highlight">${companyName}</span>, y eso es algo que valoramos profundamente.</p>
+                    <p>Tu <strong>arduo esfuerzo</strong> y dedicación no pasan desapercibidos. Cada día contribuyes de manera significativa al crecimiento y éxito de <span class="highlight">${escapeHtml(companyName)}</span>, y eso es algo que valoramos profundamente.</p>
 
                     <p>Tu <strong>desempeño excepcional</strong> y tus <strong>competencias profesionales</strong> son un ejemplo para todos nosotros. Has demostrado ser un miembro clave de nuestro equipo, y estamos orgullosos de tenerte como parte de nuestra familia laboral.</p>
 
@@ -165,13 +165,13 @@ export function generateBirthdayEmailHtml(
 
                 <div class="signature">
                     <p>Con cariño y aprecio,<br>
-                    <strong>El equipo de ${companyName}</strong></p>
+                    <strong>El equipo de ${escapeHtml(companyName)}</strong></p>
                 </div>
             </div>
 
             <div class="footer">
-                <p>Este mensaje fue enviado automáticamente por el sistema de ${companyName}</p>
-                <p>© ${new Date().getFullYear()} ${companyName}. Todos los derechos reservados.</p>
+                <p>Este mensaje fue enviado automáticamente por el sistema de ${escapeHtml(MAIL_BRAND_TRADE_NAME)}</p>
+                <p>© ${new Date().getFullYear()} ${escapeHtml(MAIL_BRAND_TRADE_NAME)}. Todos los derechos reservados.</p>
             </div>
         </div>
     </body>
@@ -182,13 +182,9 @@ export function generateBirthdayEmailHtml(
 export function generateBirthdayReminderEmailHtml(
     hrFirstName: string,
     hrLastName: string,
-    birthdayEmployees: Employee[],
-    companyName: string,
-    sidebarColor: string,
-    systemLogo: string | null
+    birthdayEmployees: Employee[]
   ): string {
-    // Asegurar que el color tenga el formato hexadecimal correcto
-    const formattedColor = sidebarColor.startsWith('#') ? sidebarColor : `#${sidebarColor}`
+    const formattedColor = MAIL_BRAND_HEADER_COLOR
     const lightColor = lightenColor(formattedColor, 20)
 
     // Generar la lista de empleados que cumplen años
@@ -234,18 +230,18 @@ export function generateBirthdayReminderEmailHtml(
       return `
         <tr style="border-bottom: 1px solid #eee;">
           <td style="padding: 12px; text-align: left;">
-            <strong>${person.personFirstname} ${person.personLastname}</strong>
+            <strong>${escapeHtml(person.personFirstname)} ${escapeHtml(person.personLastname)}</strong>
           </td>
-          <td style="padding: 12px; text-align: left;">${department}</td>
-          <td style="padding: 12px; text-align: left;">${position}</td>
+          <td style="padding: 12px; text-align: left;">${escapeHtml(department)}</td>
+          <td style="padding: 12px; text-align: left;">${escapeHtml(position)}</td>
           <td style="padding: 12px; text-align: center; vertical-align: middle;">
             <div style="display: inline-block; background-color: ${formattedColor}; color: white; padding: 6px 12px; border-radius: 15px; font-weight: 600; font-size: 13px; min-width: 60px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
               ${age > 0 ? Math.floor(age) : 'N/A'}
             </div>
           </td>
           <td style="padding: 12px; text-align: left;">
-            <a href="mailto:${person.personEmail}" style="color: ${formattedColor}; text-decoration: none;">
-              ${person.personEmail}
+            <a href="mailto:${escapeHtml(person.personEmail)}" style="color: ${formattedColor}; text-decoration: none;">
+              ${escapeHtml(person.personEmail)}
             </a>
           </td>
         </tr>
@@ -402,14 +398,14 @@ export function generateBirthdayReminderEmailHtml(
         <div class="container">
             <div class="header">
                 <h1>🎂 Recordatorio de Cumpleaños</h1>
-                <div class="company-name">${companyName}</div>
+                <div class="company-name">${escapeHtml(MAIL_BRAND_TRADE_NAME)}</div>
             </div>
 
             <div class="content">
-                ${logoBlock(systemLogo, companyName)}
+                ${logoBlock()}
 
                 <div class="greeting">
-                    Hola <span class="highlight">${hrFirstName} ${hrLastName}</span>,
+                    Hola <span class="highlight">${escapeHtml(hrFirstName)} ${escapeHtml(hrLastName)}</span>,
                 </div>
 
                 <div class="message">
@@ -446,13 +442,13 @@ export function generateBirthdayReminderEmailHtml(
                 </table>
 
                 <div class="signature">
-                    <p>Este mensaje fue generado automáticamente por el sistema de ${companyName}</p>
+                    <p>Este mensaje fue generado automáticamente por el sistema de ${escapeHtml(MAIL_BRAND_TRADE_NAME)}</p>
                     <p><strong>Equipo de Sistemas</strong></p>
                 </div>
             </div>
 
             <div class="footer">
-                <p>© ${new Date().getFullYear()} ${companyName}. Todos los derechos reservados.</p>
+                <p>© ${new Date().getFullYear()} ${escapeHtml(MAIL_BRAND_TRADE_NAME)}. Todos los derechos reservados.</p>
                 <p>Este es un mensaje automático del sistema de gestión de empleados.</p>
             </div>
         </div>
@@ -465,12 +461,9 @@ export function generateAnniversaryEmailHtml(
     firstName: string,
     lastName: string,
     yearsOfService: number,
-    companyName: string,
-    sidebarColor: string,
-    systemLogo: string | null
+    companyName: string
   ): string {
-    // Asegurar que el color tenga el formato hexadecimal correcto
-    const formattedColor = sidebarColor.startsWith('#') ? sidebarColor : `#${sidebarColor}`
+    const formattedColor = MAIL_BRAND_HEADER_COLOR
     const lightColor = lightenColor(formattedColor, 20)
     return `
     <!DOCTYPE html>
@@ -592,14 +585,14 @@ export function generateAnniversaryEmailHtml(
         <div class="container">
             <div class="header">
                 <h1>¡Feliz Aniversario!</h1>
-                <div class="company-name">${companyName}</div>
+                <div class="company-name">${escapeHtml(MAIL_BRAND_TRADE_NAME)}</div>
             </div>
 
             <div class="content">
-                ${logoBlock(systemLogo, companyName)}
+                ${logoBlock()}
 
                 <div class="greeting">
-                    ¡Querido/a <span class="highlight">${firstName} ${lastName}</span>!
+                    ¡Querido/a <span class="highlight">${escapeHtml(firstName)} ${escapeHtml(lastName)}</span>!
                 </div>
 
                 <div class="years-badge">
@@ -610,7 +603,7 @@ export function generateAnniversaryEmailHtml(
                 <div class="message">
                     <p>En este día tan especial, queremos tomarnos un momento para celebrar tu <strong>aniversario laboral</strong> y, más importante aún, para <strong>agradecerte</strong> por tu valiosa participación en nuestra empresa.</p>
 
-                    <p>Tu <strong>arduo esfuerzo</strong> y dedicación durante estos ${yearsOfService} ${yearsOfService === 1 ? 'año' : 'años'} no pasan desapercibidos. Cada día contribuyes de manera significativa al crecimiento y éxito de <span class="highlight">${companyName}</span>, y eso es algo que valoramos profundamente.</p>
+                    <p>Tu <strong>arduo esfuerzo</strong> y dedicación durante estos ${yearsOfService} ${yearsOfService === 1 ? 'año' : 'años'} no pasan desapercibidos. Cada día contribuyes de manera significativa al crecimiento y éxito de <span class="highlight">${escapeHtml(companyName)}</span>, y eso es algo que valoramos profundamente.</p>
 
                     <p>Tu <strong>desempeño excepcional</strong> y tus <strong>competencias profesionales</strong> son un ejemplo para todos nosotros. Has demostrado ser un miembro clave de nuestro equipo, y estamos orgullosos de tenerte como parte de nuestra familia laboral.</p>
 
@@ -621,13 +614,13 @@ export function generateAnniversaryEmailHtml(
 
                 <div class="signature">
                     <p>Con cariño y aprecio,<br>
-                    <strong>El equipo de ${companyName}</strong></p>
+                    <strong>El equipo de ${escapeHtml(companyName)}</strong></p>
                 </div>
             </div>
 
             <div class="footer">
-                <p>Este mensaje fue enviado automáticamente por el sistema de ${companyName}</p>
-                <p>© ${new Date().getFullYear()} ${companyName}. Todos los derechos reservados.</p>
+                <p>Este mensaje fue enviado automáticamente por el sistema de ${escapeHtml(MAIL_BRAND_TRADE_NAME)}</p>
+                <p>© ${new Date().getFullYear()} ${escapeHtml(MAIL_BRAND_TRADE_NAME)}. Todos los derechos reservados.</p>
             </div>
         </div>
     </body>
@@ -638,13 +631,9 @@ export function generateAnniversaryEmailHtml(
 export function generateAnniversaryReminderEmailHtml(
     hrFirstName: string,
     hrLastName: string,
-    anniversaryEmployees: Employee[],
-    companyName: string,
-    sidebarColor: string,
-    systemLogo: string | null
+    anniversaryEmployees: Employee[]
   ): string {
-    // Asegurar que el color tenga el formato hexadecimal correcto
-    const formattedColor = sidebarColor.startsWith('#') ? sidebarColor : `#${sidebarColor}`
+    const formattedColor = MAIL_BRAND_HEADER_COLOR
     const lightColor = lightenColor(formattedColor, 20)
 
     // Generar la lista de empleados que cumplen aniversario
@@ -672,18 +661,18 @@ export function generateAnniversaryReminderEmailHtml(
       return `
         <tr style="border-bottom: 1px solid #eee;">
           <td style="padding: 12px; text-align: left;">
-            <strong>${person.personFirstname} ${person.personLastname}</strong>
+            <strong>${escapeHtml(person.personFirstname)} ${escapeHtml(person.personLastname)}</strong>
           </td>
-          <td style="padding: 12px; text-align: left;">${department}</td>
-          <td style="padding: 12px; text-align: left;">${position}</td>
+          <td style="padding: 12px; text-align: left;">${escapeHtml(department)}</td>
+          <td style="padding: 12px; text-align: left;">${escapeHtml(position)}</td>
           <td style="padding: 12px; text-align: center; vertical-align: middle;">
             <div style="display: inline-block; background-color: ${formattedColor}; color: white; padding: 6px 12px; border-radius: 15px; font-weight: 600; font-size: 13px; min-width: 60px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
               ${yearsOfService > 0 ? yearsOfService : 'N/A'}
             </div>
           </td>
           <td style="padding: 12px; text-align: left;">
-            <a href="mailto:${person.personEmail}" style="color: ${formattedColor}; text-decoration: none;">
-              ${person.personEmail}
+            <a href="mailto:${escapeHtml(person.personEmail)}" style="color: ${formattedColor}; text-decoration: none;">
+              ${escapeHtml(person.personEmail)}
             </a>
           </td>
         </tr>
@@ -840,14 +829,14 @@ export function generateAnniversaryReminderEmailHtml(
         <div class="container">
             <div class="header">
                 <h1>🎂 Recordatorio de Aniversario</h1>
-                <div class="company-name">${companyName}</div>
+                <div class="company-name">${escapeHtml(MAIL_BRAND_TRADE_NAME)}</div>
             </div>
 
             <div class="content">
-                ${logoBlock(systemLogo, companyName)}
+                ${logoBlock()}
 
                 <div class="greeting">
-                    Hola <span class="highlight">${hrFirstName} ${hrLastName}</span>,
+                    Hola <span class="highlight">${escapeHtml(hrFirstName)} ${escapeHtml(hrLastName)}</span>,
                 </div>
 
                 <div class="message">
@@ -884,13 +873,13 @@ export function generateAnniversaryReminderEmailHtml(
                 </table>
 
                 <div class="signature">
-                    <p>Este mensaje fue generado automáticamente por el sistema de ${companyName}</p>
+                    <p>Este mensaje fue generado automáticamente por el sistema de ${escapeHtml(MAIL_BRAND_TRADE_NAME)}</p>
                     <p><strong>Equipo de Sistemas</strong></p>
                 </div>
             </div>
 
             <div class="footer">
-                <p>© ${new Date().getFullYear()} ${companyName}. Todos los derechos reservados.</p>
+                <p>© ${new Date().getFullYear()} ${escapeHtml(MAIL_BRAND_TRADE_NAME)}. Todos los derechos reservados.</p>
                 <p>Este es un mensaje automático del sistema de gestión de empleados.</p>
             </div>
         </div>

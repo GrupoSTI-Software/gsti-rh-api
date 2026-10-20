@@ -1,11 +1,10 @@
 import { BaseMail } from '@adonisjs/mail'
 import type { WorkJournalSealRunSummary } from '#models/work_journal_seal_run'
+import { MAIL_BRAND_HEADER_COLOR, MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 
 export interface WorkJournalSealRunSummaryMailParams {
   to: string[]
   from: string
-  tradeName: string
-  sidebarColor: string
   runId: number
   status: 'running' | 'ok' | 'partial' | 'failed'
   summary: WorkJournalSealRunSummary
@@ -28,7 +27,9 @@ export default class WorkJournalSealRunSummaryMail extends BaseMail {
   }
 
   prepare() {
-    const { to, from, tradeName, sidebarColor, runId, status, summary } = this.params
+    const { to, from, runId, status, summary } = this.params
+    const tradeName = MAIL_BRAND_TRADE_NAME
+    const headerColor = MAIL_BRAND_HEADER_COLOR
 
     const subject = `[Registro de jornada] Corrida de cierre ${summary.cutoffDate} — ${status}`
 
@@ -50,12 +51,13 @@ export default class WorkJournalSealRunSummaryMail extends BaseMail {
     for (const recipient of to) {
       this.message.to(recipient)
     }
-    this.message.from(from, tradeName).subject(subject)
+    this.message.from(from, MAIL_BRAND_TRADE_NAME).subject(subject)
 
     this.message.htmlView('emails/work_journal_seal_run_summary', {
       subject,
       tradeName,
-      sidebarColor,
+      headerColor,
+      backgroundImageLogo: MAIL_BRAND_LOGO_URL,
       runId,
       status,
       statusLabel: statusLabel[status] ?? status,

@@ -16,10 +16,11 @@ import type {
 /**
  * Declaración tal como sale al API (§11). Sin `businessUnitId` ni la llave del
  * archivo: la empresa nunca sale y `..._file` es privada (la evidencia es de la
- * hermana C). `monthlyFee` es número (el DECIMAL llega como texto) y las fechas
- * son civiles serializadas (`YYYY-MM-DD` / ISO). `endDate` y `closedReason`
- * solo traen valor en la versión cerrada y `feeSource` dice si la cuota es la
- * estándar (`default`) o la capturó RH (`adjusted`).
+ * hermana C) — de ella solo se delata `hasEvidence`. `monthlyFee` es número (el
+ * DECIMAL llega como texto) y las fechas son civiles serializadas
+ * (`YYYY-MM-DD` / ISO). `endDate` y `closedReason` solo traen valor en la
+ * versión cerrada y `feeSource` dice si la cuota es la estándar (`default`) o la
+ * capturó RH (`adjusted`).
  */
 export interface OwnEquipmentDeclarationDto {
   declarationId: number
@@ -33,6 +34,12 @@ export interface OwnEquipmentDeclarationDto {
   feeSource: OwnEquipmentFeeSource
   status: OwnEquipmentDeclarationStatus
   closedReason: OwnEquipmentClosedReason | null
+  /**
+   * Si la declaración tiene evidencia adjunta (VLRH-H1791493046616, §14): la
+   * única señal que sale al API de `..._file`. Un archivo vacío o solo espacios
+   * no cuenta, y la key NUNCA viaja en el DTO (R3).
+   */
+  hasEvidence: boolean
   createdAt: string
 }
 
@@ -52,6 +59,13 @@ export interface OwnEquipmentDeclarationInsert {
   monthlyFee: number
   feeSource: OwnEquipmentFeeSource
   createdByUserId: number
+  /**
+   * Key del objeto de la evidencia en S3 (VLRH-H1791493046616, §14). OPCIONAL:
+   * la trae el alta cuando viene archivo (Tarea 3); el ajuste y el término no
+   * la tocan y el adaptador escribe `row.file ?? null`, así que la versión
+   * nueva del ajuste nace sin evidencia de facto (regla 5).
+   */
+  file?: string | null
 }
 
 /**

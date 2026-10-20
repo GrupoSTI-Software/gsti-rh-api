@@ -1,4 +1,5 @@
 import { BaseMail } from '@adonisjs/mail'
+import { MAIL_BRAND_HEADER_COLOR } from '#constants/mail_branding'
 import env from '#start/env'
 import type { ApplyIncreaseNotApplicableReason } from '#services/billing_subscription_change_service'
 
@@ -19,7 +20,6 @@ export interface SubscriptionChangeNotApplicableMailParams {
   reason: ApplyIncreaseNotApplicableReason
 }
 
-const DEFAULT_SIDEBAR_COLOR = '#0a3057'
 
 const REASON_LABELS: Record<ApplyIncreaseNotApplicableReason, string> = {
   'base-de-cantidad-desfasada':
@@ -70,7 +70,7 @@ export default class SubscriptionChangeNotApplicableMail extends BaseMail {
     this.message.htmlView('emails/subscription_change_not_applicable', {
       subject,
       tradeName,
-      sidebarColor: DEFAULT_SIDEBAR_COLOR,
+      sidebarColor: MAIL_BRAND_HEADER_COLOR,
       businessUnitName,
       billingPlanName,
       billingSubscriptionId,
