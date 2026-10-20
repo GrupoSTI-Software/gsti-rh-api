@@ -19,7 +19,6 @@ import { test } from '@japa/runner'
 
 const IN_PROCESS_CALL_SITES = [
   'app/services/auth_mail_service.ts',
-  'app/services/proceeding_file_service.ts',
   'app/services/traumatic_event_registry_report_service.ts',
   'app/services/traumatic_event_report_document_service.ts',
   'app/services/assist_service.ts',
@@ -31,7 +30,7 @@ const read = (relativePath: string) =>
   readFileSync(join(process.cwd(), relativePath), 'utf-8')
 
 test.group('Configuración in-process — se resuelve por empresa activa', () => {
-  test('los siete archivos resuelven con resolveForActiveTenant()', ({ assert }) => {
+  test('los seis archivos resuelven con resolveForActiveTenant()', ({ assert }) => {
     for (const relativePath of IN_PROCESS_CALL_SITES) {
       const content = read(relativePath)
       assert.include(

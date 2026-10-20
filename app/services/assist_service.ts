@@ -21,6 +21,7 @@ import { LogAssist } from '../interfaces/MongoDB/log_assist.js'
 import BusinessUnit from '#models/business_unit'
 import env from '#start/env'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import { resolveOrgAliasDisplay } from '#utils/org_alias_display'
 import SystemSettingService from './system_setting_service.js'
 import SystemSetting from '#models/system_setting'
@@ -5433,17 +5434,8 @@ export default class AssistsService {
         delays = result.delays
       }
 
-      let tradeName = 'BO'
       const userEmail = resolveMailSender()
-      let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-      if (systemSettingActive) {
-        if ( systemSettingActive.systemSettingLogo) {
-          backgroundImageLogo = systemSettingActive.systemSettingLogo
-        }
-        if ( systemSettingActive.systemSettingTradeName) {
-          tradeName = systemSettingActive.systemSettingTradeName
-        }
-      }
+      const backgroundImageLogo = MAIL_BRAND_LOGO_URL
       if (type === 'absences') {
         if (maxAbsences) {
           if (faults >= maxAbsences) {
@@ -5456,7 +5448,7 @@ export default class AssistsService {
               await mail.send((message) => {
                 message
                 .to(user.userEmail)
-                  .from(userEmail, tradeName)
+                  .from(userEmail, MAIL_BRAND_TRADE_NAME)
                   .subject('Registro de asistencia bloqueado')
                   .htmlView('emails/attendance_lock', emailData)
               })
@@ -5486,7 +5478,7 @@ export default class AssistsService {
               await mail.send((message) => {
                 message
                   .to(user.userEmail)
-                  .from(userEmail, tradeName)
+                  .from(userEmail, MAIL_BRAND_TRADE_NAME)
                   .subject('Registro de asistencia bloqueado')
                   .htmlView('emails/attendance_lock', emailData)
               })
@@ -5552,16 +5544,9 @@ export default class AssistsService {
   }
 
   async sendEmailAttendanceLock(systemSettingActive: SystemSetting, newMessage: string, user: User) {
-    let tradeName = 'BO'
     const userEmail = resolveMailSender()
-    let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
+    const backgroundImageLogo = MAIL_BRAND_LOGO_URL
     if (systemSettingActive) {
-      if ( systemSettingActive.systemSettingLogo) {
-        backgroundImageLogo = systemSettingActive.systemSettingLogo
-      }
-      if ( systemSettingActive.systemSettingTradeName) {
-        tradeName = systemSettingActive.systemSettingTradeName
-      }
       const emailData = {
         user: user,
         backgroundImageLogo,
@@ -5588,7 +5573,7 @@ export default class AssistsService {
                await mail.send((message) => {
                message
                .to(email)
-               .from(userEmail, tradeName)
+               .from(userEmail, MAIL_BRAND_TRADE_NAME)
                .subject('Registro de asistencia bloqueado - Falta administrativa')
                .htmlView('emails/attendance_lock_rh', emailData )
               })

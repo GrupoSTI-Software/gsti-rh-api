@@ -16,6 +16,7 @@ import {
 import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import { DateTime } from 'luxon'
 import { resolveBusinessUnitSlugsForSetting } from '#helpers/system_settings_by_business_unit'
 import { fetchTenantHumanCapitalUsers } from '#helpers/tenant_users_with_module_permission'
@@ -145,7 +146,7 @@ export default class EmployeeCelebrationEmailService {
       return 'skipped_dev'
     }
     await mail.send((message) => {
-      message.to(recipient).from(resolveMailSender()).subject(subject).html(html)
+      message.to(recipient).from(resolveMailSender(), MAIL_BRAND_TRADE_NAME).subject(subject).html(html)
     })
     return 'sent'
   }
@@ -315,9 +316,7 @@ export default class EmployeeCelebrationEmailService {
       const html = generateBirthdayEmailHtml(
         person.personFirstname,
         person.personLastname,
-        systemSetting.systemSettingTradeName,
-        systemSetting.systemSettingSidebarColor,
-        systemSetting.systemSettingLogo
+        systemSetting.systemSettingTradeName
       )
       const subject = `¡Feliz Cumpleaños! - ${systemSetting.systemSettingTradeName}`
 
@@ -385,10 +384,7 @@ export default class EmployeeCelebrationEmailService {
       const html = generateBirthdayReminderEmailHtml(
         person.personFirstname,
         person.personLastname,
-        batch.employees,
-        systemSetting.systemSettingTradeName,
-        systemSetting.systemSettingSidebarColor,
-        systemSetting.systemSettingLogo
+        batch.employees
       )
       const subject = `🎂 Recordatorio: Empleados que cumplen años hoy - ${systemSetting.systemSettingTradeName}`
 
@@ -460,9 +456,7 @@ export default class EmployeeCelebrationEmailService {
         person.personFirstname,
         person.personLastname,
         yearsOfService,
-        systemSetting.systemSettingTradeName,
-        systemSetting.systemSettingSidebarColor,
-        systemSetting.systemSettingLogo
+        systemSetting.systemSettingTradeName
       )
       const subject = `¡Feliz Aniversario! - ${systemSetting.systemSettingTradeName}`
 
@@ -537,10 +531,7 @@ export default class EmployeeCelebrationEmailService {
       const html = generateAnniversaryReminderEmailHtml(
         person.personFirstname,
         person.personLastname,
-        batch.employees,
-        systemSetting.systemSettingTradeName,
-        systemSetting.systemSettingSidebarColor,
-        systemSetting.systemSettingLogo
+        batch.employees
       )
       const subject = `🎂 Recordatorio: Empleados que cumplen aniversario hoy - ${systemSetting.systemSettingTradeName}`
 
@@ -657,8 +648,6 @@ export default class EmployeeCelebrationEmailService {
             'business_unit_id',
             'system_setting_active',
             'system_setting_trade_name',
-            'system_setting_sidebar_color',
-            'system_setting_logo',
             'system_setting_birthday_emails',
           ]
         : [
@@ -666,8 +655,6 @@ export default class EmployeeCelebrationEmailService {
             'business_unit_id',
             'system_setting_active',
             'system_setting_trade_name',
-            'system_setting_sidebar_color',
-            'system_setting_logo',
             'system_setting_anniversary_emails',
           ]
 

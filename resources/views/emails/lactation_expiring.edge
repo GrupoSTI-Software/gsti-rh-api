@@ -27,9 +27,14 @@
       <td align="center" style="padding: 24px 12px;">
         <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 640px;">
 
-          {{-- Encabezado de marca --}}
+          {{-- Logotipo sobre blanco: el asset es oscuro y se pierde en el azul. --}}
           <tr>
-            <td style="background-color: {{ sidebarColor }}; padding: 18px 24px; border-top-left-radius: 12px; border-top-right-radius: 12px; color: #ffffff;">
+            <td align="center" style="background-color: #ffffff; padding: 20px 24px 28px; border-top-left-radius: 12px; border-top-right-radius: 12px; text-align: center;">
+              <img src="{{ backgroundImageLogo }}" alt="{{ tradeName }}" height="42" style="height: 42px; width: auto; display: inline-block; border: 0; margin: 0 auto;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="background-color: {{ headerColor }}; padding: 18px 24px; color: #ffffff;">
               <div style="font-size: 18px; font-weight: 700; line-height: 1.2;">{{ tradeName }}</div>
               <div style="font-size: 13px; opacity: 0.9; margin-top: 4px;">{{ headerSubtitle }}</div>
             </td>

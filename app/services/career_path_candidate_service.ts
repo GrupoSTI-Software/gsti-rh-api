@@ -9,8 +9,8 @@ import CareerPathTemplate from '#models/career_path_template'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import Employee from '#models/employee'
 import DepartmentPosition from '#models/department_position'
-import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
+import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import User from '#models/user'
 import SystemSettingService from '#services/system_setting_service'
@@ -448,17 +448,14 @@ verifyInvalidTransitions(currentCareerPathCandidate: CareerPathCandidate, career
       await candidate.load('originPosition')
       await candidate.load('targetPosition')
 
-      let tradeName = 'BO'
-      let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
+      let companyName: string | null = null
       if (businessUnitId) {
         const systemSettingService = new SystemSettingService()
         try {
           const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
-          if (systemSettingActive.systemSettingLogo) {
-            backgroundImageLogo = systemSettingActive.systemSettingLogo
-          }
-          if (systemSettingActive.systemSettingTradeName) {
-            tradeName = systemSettingActive.systemSettingTradeName
+          const trade = systemSettingActive.systemSettingTradeName?.trim()
+          if (trade) {
+            companyName = trade
           }
         } catch (error) {
           if (!(error instanceof SystemSettingResolutionError)) throw error
@@ -483,8 +480,12 @@ verifyInvalidTransitions(currentCareerPathCandidate: CareerPathCandidate, career
       await mail.send((message) => {
         message
           .to(proposer.userEmail)
-          .from(smtpUsername, tradeName)
-          .subject(t('career_path_candidate_email_subject', { tradeName, statusLabel }))
+          .from(smtpUsername, MAIL_BRAND_TRADE_NAME)
+          .subject(
+            companyName
+              ? t('career_path_candidate_email_subject', { companyName, statusLabel })
+              : t('career_path_candidate_email_subject_without_company', { statusLabel })
+          )
           .htmlView('emails/career_path_candidate_status', {
             lang: i18n.locale,
             title: t('career_path_candidate_email_title'),
@@ -502,7 +503,7 @@ verifyInvalidTransitions(currentCareerPathCandidate: CareerPathCandidate, career
             targetPosition: candidate.targetPosition?.positionName ?? `#${candidate.targetPositionId}`,
             newStatus: statusLabel,
             rejectionReason: candidate.careerPathCandidateRejectionReason ?? null,
-            backgroundImageLogo,
+            backgroundImageLogo: MAIL_BRAND_LOGO_URL,
           })
       })
     } catch (_error) {

@@ -10,6 +10,7 @@ import PasswordRecoveryMail from '#mails/password_recovery_mail'
 import UserInvitationMail from '#mails/user_invitation_mail'
 import { PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES } from '#constants/password_recovery'
 import { USER_INVITATION_TOKEN_VALIDITY_DAYS } from '#constants/user_invitation'
+import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 
 /**
  * Idiomas soportados por las plantillas de correo del flujo de signup.
@@ -124,8 +125,8 @@ export default class AuthMailService {
       const branding = await this.resolveBranding()
 
       if (!isWhiteLabel) {
-        branding.tradeName = 'Valanserh'
-        branding.backgroundImageLogo = 'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
+        branding.tradeName = MAIL_BRAND_TRADE_NAME
+        branding.backgroundImageLogo = MAIL_BRAND_LOGO_URL
       }
 
       await mail.send(
@@ -288,8 +289,8 @@ export default class AuthMailService {
    */
   private async resolveBranding(): Promise<AuthMailBranding> {
     const branding: AuthMailBranding = {
-      tradeName: 'Valanserh',
-      backgroundImageLogo: 'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png',
+      tradeName: MAIL_BRAND_TRADE_NAME,
+      backgroundImageLogo: MAIL_BRAND_LOGO_URL,
       favicon: null,
     }
 

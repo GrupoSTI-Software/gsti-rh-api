@@ -1,4 +1,5 @@
 import { BaseMail } from '@adonisjs/mail'
+import { MAIL_BRAND_HEADER_COLOR } from '#constants/mail_branding'
 import { DateTime } from 'luxon'
 import env from '#start/env'
 import type {
@@ -27,7 +28,6 @@ export interface SubscriptionChangeRequestedMailParams {
   appliedImmediately: boolean
 }
 
-const DEFAULT_SIDEBAR_COLOR = '#0a3057'
 const DISPLAY_TIMEZONE = 'America/Mexico_City'
 
 /**
@@ -89,7 +89,7 @@ export default class SubscriptionChangeRequestedMail extends BaseMail {
     this.message.htmlView('emails/subscription_change_requested', {
       subject,
       tradeName,
-      sidebarColor: DEFAULT_SIDEBAR_COLOR,
+      sidebarColor: MAIL_BRAND_HEADER_COLOR,
       event,
       eventLabel,
       businessUnitName,

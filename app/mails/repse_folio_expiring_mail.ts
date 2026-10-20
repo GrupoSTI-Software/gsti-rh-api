@@ -1,6 +1,7 @@
 import { BaseMail } from '@adonisjs/mail'
 import i18nManager from '@adonisjs/i18n/services/main'
 import { resolveMailLocale } from '#constants/mail_locale'
+import { MAIL_BRAND_HEADER_COLOR, MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import type { RepseFolioAvisoTipoValue } from '#constants/repse_folio_aviso'
 import { REPSE_FOLIO_AVISO_TIPO } from '#constants/repse_folio_aviso'
 
@@ -21,8 +22,7 @@ export interface RepseFolioExpiringMailParams {
   bcc?: string[]
   from: string
   language: 'es' | 'en'
-  tradeName: string
-  sidebarColor: string
+  companyName: string
   rows: RepseFolioExpiringMailRow[]
 }
 
@@ -39,7 +39,8 @@ export default class RepseFolioExpiringMail extends BaseMail {
   }
 
   prepare() {
-    const { to, bcc, from, language, tradeName, sidebarColor, rows } = this.params
+    const { to, bcc, from, language, companyName, rows } = this.params
+    const tradeName = MAIL_BRAND_TRADE_NAME
     // Correo siempre en español hasta el lanzamiento en inglés (mail_locale.ts).
     const i18n = i18nManager.locale(resolveMailLocale(language))
 
@@ -53,7 +54,7 @@ export default class RepseFolioExpiringMail extends BaseMail {
     const greeting = i18n.formatMessage('repse_folio_expiring_notification.greeting')
     const intro = i18n.formatMessage('repse_folio_expiring_notification.intro', {
       count: rows.length,
-      tradeName,
+      companyName,
     })
     const headerFolio = i18n.formatMessage('repse_folio_expiring_notification.table_folio')
     const headerEventType = i18n.formatMessage(
@@ -83,7 +84,7 @@ export default class RepseFolioExpiringMail extends BaseMail {
             }),
     }))
 
-    this.message.to(to).from(from, tradeName).subject(subject)
+    this.message.to(to).from(from, MAIL_BRAND_TRADE_NAME).subject(subject)
     if (bcc && bcc.length > 0) {
       this.message.bcc(bcc)
     }
@@ -91,7 +92,8 @@ export default class RepseFolioExpiringMail extends BaseMail {
     this.message.htmlView('emails/repse_folio_expiring', {
       language,
       tradeName,
-      sidebarColor,
+      headerColor: MAIL_BRAND_HEADER_COLOR,
+      backgroundImageLogo: MAIL_BRAND_LOGO_URL,
       subject,
       preheader,
       headerSubtitle,

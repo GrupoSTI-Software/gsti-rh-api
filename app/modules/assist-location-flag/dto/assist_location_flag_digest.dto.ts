@@ -12,7 +12,9 @@ export interface AssistLocationFlagDigestLine {
 /** Datos de la vista `emails/assist_location_flag_digest`. */
 export interface AssistLocationFlagDigestMailData {
   tradeName: string
-  sidebarColor: string
+  headerColor: string
+  backgroundImageLogo: string
+  companyName: string
   lines: AssistLocationFlagDigestLine[]
 }
 
