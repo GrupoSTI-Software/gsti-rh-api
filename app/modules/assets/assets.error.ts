@@ -203,6 +203,32 @@ export class AssetError extends Error {
       'Captura una cuota mensual de 0 o más, con hasta dos decimales y sin exceder 99,999,999.99.'
     )
   }
+
+  /**
+   * La declaración no existe, es de otra empresa o está borrada lógicamente:
+   * el ajeno, el inexistente y el dado de baja dan el mismo 404 y el mismo
+   * cuerpo (CA-11).
+   */
+  static ownEquipmentDeclarationNotFound(): AssetError {
+    return new AssetError(
+      404,
+      ASSET_ERROR_KEYS.DECLARATION_NOT_FOUND,
+      'asset_own_equipment_declaration_not_found',
+      'Declaración de equipo propio no encontrada',
+      'La declaración no existe o no pertenece a la empresa.'
+    )
+  }
+
+  /** La declaración ya está cerrada: no admite ajuste ni un segundo término (regla 9). */
+  static ownEquipmentDeclarationNotActive(): AssetError {
+    return new AssetError(
+      409,
+      ASSET_ERROR_KEYS.DECLARATION_NOT_ACTIVE,
+      'asset_own_equipment_declaration_not_active',
+      'Declaración de equipo propio no vigente',
+      'La declaración ya está cerrada; consulta la versión vigente en la ficha del colaborador.'
+    )
+  }
 }
 
 type ErrorContext = Pick<HttpContext, 'response' | 'i18n'>

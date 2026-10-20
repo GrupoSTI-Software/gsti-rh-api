@@ -1,6 +1,7 @@
 import {
   EMPLOYEE_ASSET_CUSTODY_STATUSES,
   type EmployeeAssetCustodyStatus,
+  type OwnEquipmentFeeSource,
   type TeleworkSupplyCoverageStatus,
 } from './assets.constants.js'
 import {
@@ -16,6 +17,7 @@ import type {
   EmployeeTeleworkSuppliesDto,
   TeleworkCoverageRow,
   TeleworkProfile,
+  TeleworkSuppliesLifecycle,
   TeleworkSuppliesSummary,
   TeleworkSupplyAssetDto,
   TeleworkSupplyCategoryDto,
@@ -110,11 +112,17 @@ export function resolveCategoryStatus(
  * LLAVES del mapa alimentan a `resolveCategoryStatus` (el estado lo sigue
  * decidiendo la regla pura) y el valor se adjunta como `ownEquipment` a la
  * categoría. Vacío por defecto: los callers existentes no cambian.
+ *
+ * `lifecycle` (VLRH-H1791493045968, Tarea 6) acompaña a la matriz con el
+ * histórico ordenado y la cuota estándar de la empresa; con `applies: false`
+ * las vigentes del mapa salen además en `ownEquipmentToClose` para terminarlas.
+ * El default deja todo vacío: el resumen por lote construye con él y no cambia.
  */
 export function buildEmployeeTeleworkSupplies(
   profile: TeleworkProfile,
   rows: readonly TeleworkCoverageRow[],
-  ownEquipmentDeclarations: ReadonlyMap<SupplyTypeTeleworkCategory, OwnEquipmentDeclarationDto> = new Map()
+  ownEquipmentDeclarations: ReadonlyMap<SupplyTypeTeleworkCategory, OwnEquipmentDeclarationDto> = new Map(),
+  lifecycle: TeleworkSuppliesLifecycle = { history: [], feeDefault: null }
 ): EmployeeTeleworkSuppliesDto {
   const applicability = resolveTeleworkApplicability(profile)
   const ownRows = rows.filter((row) => row.employeeId === profile.employeeId)
@@ -127,6 +135,11 @@ export function buildEmployeeTeleworkSupplies(
       teleworkPercentage: profile.teleworkPercentage,
       legalThresholdPercent: TELEWORK_LEGAL_THRESHOLD_PERCENT,
       categories: [],
+      ownEquipmentHistory: lifecycle.history,
+      ownEquipmentFeeDefault: lifecycle.feeDefault,
+      // Quien dejó de aplicar conserva TODAS sus vigentes listadas para
+      // terminarlas (incluidas las de un colaborador dado de baja).
+      ownEquipmentToClose: [...ownEquipmentDeclarations.values()],
       teleworkSuppliesSummary: emptySummary(),
     }
     return { ...matrix, teleworkSuppliesSummary: summarizeTeleworkSupplies(matrix) }
@@ -147,6 +160,10 @@ export function buildEmployeeTeleworkSupplies(
     teleworkPercentage: profile.teleworkPercentage,
     legalThresholdPercent: TELEWORK_LEGAL_THRESHOLD_PERCENT,
     categories,
+    ownEquipmentHistory: lifecycle.history,
+    ownEquipmentFeeDefault: lifecycle.feeDefault,
+    // Quien aplica no tiene nada que cerrar por dejar de teletrabajar (el tipo lo fija).
+    ownEquipmentToClose: [],
     teleworkSuppliesSummary: emptySummary(),
   }
   return { ...matrix, teleworkSuppliesSummary: summarizeTeleworkSupplies(matrix) }
@@ -230,6 +247,11 @@ function buildCategoryDto(
       status,
       assets: assets as [TeleworkSupplyAssetDto, ...TeleworkSupplyAssetDto[]],
       ownEquipment: ownEquipmentDeclarations.get(category) ?? null,
+      // El aviso solo prende con la categoría cubierta y una vigente que sustituir.
+      ownEquipmentSuperseded: isOwnEquipmentSuperseded(
+        status,
+        ownEquipmentDeclarations.has(category)
+      ),
     }
   }
 
@@ -242,11 +264,13 @@ function buildCategoryDto(
       status,
       assets: [],
       ownEquipment: ownEquipmentDeclarations.get(category) as OwnEquipmentDeclarationDto,
+      // El equipo propio no se sustituye a sí mismo: literal `false` (el tipo lo exige).
+      ownEquipmentSuperseded: false,
     }
   }
 
   if (status === 'uncovered' && category !== SUPPLY_TYPE_TELEWORK_CATEGORY.ACCESSORY) {
-    return { category, status, assets: [], ownEquipment: null }
+    return { category, status, assets: [], ownEquipment: null, ownEquipmentSuperseded: false }
   }
 
   // Inalcanzable por construcción: el resolver solo da `not_delivered` al aditamento, así que `category` ya es ACCESSORY aquí; se deja explícito por la unión discriminada, no como sustitución silenciosa.
@@ -255,6 +279,7 @@ function buildCategoryDto(
     status: 'not_delivered',
     assets: [],
     ownEquipment: null,
+    ownEquipmentSuperseded: false,
   }
 }
 
@@ -275,4 +300,69 @@ function toAssetDto(row: TeleworkCoverageRow): TeleworkSupplyAssetDto {
 function resolveCustodyStatus(hasContract: boolean): EmployeeAssetCustodyStatus {
   const [signed, unsigned] = EMPLOYEE_ASSET_CUSTODY_STATUSES
   return hasContract ? signed : unsigned
+}
+
+/**
+ * Origen de la cuota mensual (regla 5, R2): `default` solo cuando la cuota
+ * coincide, al centavo, con la estándar vigente de la empresa; sin estándar o
+ * con una cuota distinta el origen es `adjusted`. Comparar centavos
+ * (`Math.round(x * 100)`) evita el ruido del punto flotante: nunca igualdad de
+ * `number` a pelo.
+ */
+export function resolveOwnEquipmentFeeSource(
+  monthlyFee: number,
+  feeDefault: number | null
+): OwnEquipmentFeeSource {
+  const isDefault =
+    feeDefault !== null && Math.round(monthlyFee * 100) === Math.round(feeDefault * 100)
+
+  return isDefault ? 'default' : 'adjusted'
+}
+
+/**
+ * ¿La categoría la cubre un activo y además el colaborador tiene declaración
+ * vigente? (regla 7, R5): el aviso de sustitución solo aplica con la categoría
+ * `delivered` o `shipping` —el activo deja obsoleta la declaración— y con una
+ * vigente que sustituir. `own_equipment` no se sustituye a sí mismo y los
+ * estados sin cobertura no llevan aviso.
+ */
+export function isOwnEquipmentSuperseded(
+  status: TeleworkSupplyCoverageStatus,
+  hasOpenDeclaration: boolean
+): boolean {
+  return hasOpenDeclaration && (status === 'delivered' || status === 'shipping')
+}
+
+/**
+ * Normaliza un texto opcional de la declaración: recorta los espacios y trata
+ * el vacío (y el `null`) como ausencia de valor, para comparar dos versiones.
+ */
+function normalizeOptionalText(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null
+  const trimmed = value.trim()
+  return trimmed.length === 0 ? null : trimmed
+}
+
+/**
+ * ¿El ajuste introduce un cambio real? (R5): la cuota se compara en centavos y
+ * la descripción y las condiciones normalizadas (`trim`, vacío = `null`), donde
+ * un `undefined` hereda el valor vigente. Limpiar las condiciones
+ * (`conditions: null` contra un valor vigente) ES un cambio; contra otro vacío,
+ * no.
+ */
+export function hasOwnEquipmentChanges(
+  current: { monthlyFee: number; description: string; conditions: string | null },
+  input: { monthlyFee: number; description?: string; conditions?: string | null }
+): boolean {
+  if (Math.round(current.monthlyFee * 100) !== Math.round(input.monthlyFee * 100)) {
+    return true
+  }
+
+  const nextDescription = input.description ?? current.description
+  if (normalizeOptionalText(nextDescription) !== normalizeOptionalText(current.description)) {
+    return true
+  }
+
+  const nextConditions = input.conditions === undefined ? current.conditions : input.conditions
+  return normalizeOptionalText(nextConditions) !== normalizeOptionalText(current.conditions)
 }
