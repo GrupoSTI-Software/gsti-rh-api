@@ -180,7 +180,7 @@ Objetivo: comprobar que se puede adjuntar como evidencia una foto del celular y 
 1. Con el Usuario A, en la ficha de **Ulises Pardo Gil** (`QA-TEL-02`), sección **Activos**.
 2. En el renglón **Equipo de cómputo o impresión** (chip **Sin cubrir**) pulsa **Declarar equipo propio**.
 3. Llena **Descripción del equipo** con `Laptop propia`, deja **Condiciones pactadas** vacío, elige **Fecha de inicio** el 1 de noviembre de 2026 y deja la **Cuota mensual (MXN)** como llega.
-4. En **Evidencia o condiciones (opcional)** elige la foto tomada con el celular (por ejemplo una del carrete, tomada con la ubicación activada).
+4. Antes de subir nada, pasa el comando del final de este escenario sobre la foto que vas a adjuntar: tiene que imprimir las coordenadas. Si imprime `GPS: sin ubicacion`, esa foto no sirve para esta prueba —elige otra, o toma una nueva con la ubicación activada en el celular—: sin ese dato el escenario no comprueba nada. Ya comprobada, en **Evidencia o condiciones (opcional)** elige esa foto.
 5. Pulsa **Guardar**.
 6. Ya guardada, en el renglón **Equipo de cómputo o impresión** pulsa **Descargar evidencia** y guarda el archivo.
 7. Compara la foto original del carrete con la evidencia que se bajó: usa el comando del final de este escenario o mira la información de cada archivo (la ficha con el lugar y la fecha en que se tomó).
@@ -194,7 +194,7 @@ Objetivo: comprobar que se puede adjuntar como evidencia una foto del celular y 
 
 **Cómo se revisa la ubicación de una foto** (dos formas; la primera no necesita instalar nada):
 
-- **Con un comando:** en la Terminal, sobre cada archivo: `python3 -c "from PIL import Image; import sys; e = Image.open(sys.argv[1]).getexif(); print('GPS:', e.get_ifd(0x8825) or 'sin ubicacion')" archivo.jpg` — en la foto original imprime las coordenadas; en el archivo que bajaste imprime `GPS: sin ubicacion`.
+- **Con un comando:** en la Terminal, una vez por archivo (primero la foto original; después el archivo que bajaste): `python3 -c "from PIL import Image; import sys; e = Image.open(sys.argv[1]).getexif(); print('GPS:', e.get_ifd(0x8825) or 'sin ubicacion')" archivo.jpg` — en la foto original imprime las coordenadas; en el archivo que bajaste imprime `GPS: sin ubicacion`.
 - **Sin terminal:** abre la foto en Vista Previa y pulsa ⌘I (Mostrar inspector); el apartado **GPS** trae las coordenadas en la original y no aparece en la que bajaste.
 - **Ojo con los atajos de macOS:** `sips` y `mdls` **no** muestran la ubicación; para esta comprobación no sirven. (Si prefieres una herramienta dedicada, `exiftool -gps:all archivo.jpg` la imprime, pero hay que instalarla.)
 
