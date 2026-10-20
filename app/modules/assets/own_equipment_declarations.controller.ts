@@ -93,7 +93,7 @@ export default class OwnEquipmentDeclarationsController {
    *                 startDate: "2026-11-01"
    *                 monthlyFee: 350
    *                 status: active
-   *                 hasEvidence: true
+   *                 hasEvidence: false
    *                 createdAt: "2026-11-01T16:02:11.000Z"
    *       '403': { description: "Sin `employees:manage-employee-supplies` (gate)." }
    *       '404':

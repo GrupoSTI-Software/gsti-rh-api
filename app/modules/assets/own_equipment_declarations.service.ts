@@ -236,15 +236,16 @@ export default class OwnEquipmentDeclarationsService {
         })
       })
     } catch (error) {
+      // La transacción tronó DESPUÉS de subir: el objeto quedó huérfano (residual
+      // aceptado, regla 8: nada se borra). Se registra la key —que no lleva PII—
+      // SIEMPRE que de verdad se haya subido algo, antes de cualquier re-mapeo,
+      // porque también la carrera del UNIQUE deja el objeto sin rastro (§7).
+      if (storedKey !== null) {
+        logger.warn({ storedKey }, 'Equipo propio: evidencia sin declaración')
+      }
       // Único re-mapeo: el UNIQUE condicionado que ganó la carrera del re-chequeo.
       if ((error as { code?: string }).code === 'ER_DUP_ENTRY') {
         throw AssetError.ownEquipmentDeclarationOpenExists()
-      }
-      // La transacción tronó DESPUÉS de subir: el objeto quedó huérfano (residual
-      // aceptado, regla 8: nada se borra). Se registra la key —que no lleva PII—
-      // y se relanza el error original.
-      if (storedKey !== null) {
-        logger.warn({ storedKey }, 'Equipo propio: evidencia sin declaración')
       }
       throw error
     }
