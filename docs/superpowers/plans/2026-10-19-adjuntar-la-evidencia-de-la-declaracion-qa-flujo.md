@@ -49,7 +49,7 @@ Estado de cada colaborador (lo que deja el sembrador):
 - **El PDF del acuerdo** (`acuerdo-equipo-propio.pdf`): abre tu procesador de textos, escribe unas líneas del acuerdo del equipo propio y **expórtalo como PDF** con ese nombre.
 - **Una foto del celular**: una foto tomada con la cámara del celular con la ubicación activada; sirve una que ya tengas en el carrete.
 - **Un documento de Word** (`acuerdo-equipo-propio.docx`): un documento breve, del mismo procesador, guardado en formato Word.
-- **Un PDF pesado** (`acuerdo-equipo-propio-pesado.pdf`): un PDF de más de 10 MB, por ejemplo uniendo varias fotos en un solo PDF.
+- **Un PDF pesado** (`acuerdo-equipo-propio-pesado.pdf`): un PDF de **11 MB** —el límite es 10 MB, así que va un mega arriba y no justo en el borde—, por ejemplo uniendo varias fotos en un solo PDF. Antes de usarlo, comprueba su medida: `ls -lh acuerdo-equipo-propio-pesado.pdf` tiene que mostrar alrededor de `11M`. Si trae 10 MB o menos, el cajón no lo rechaza y el Escenario 4.6 no comprueba nada.
 
 ## 2. Usuarios
 
@@ -252,7 +252,7 @@ Objetivo: comprobar que el cajón del alta avisa en cuanto se elige un archivo d
 - Con el archivo quitado, el mensaje **Solo PDF, JPG, PNG o WEBP.** ya no está y **Guardar** vuelve a responder.
 - Los cuatro datos capturados siguen intactos: `Silla propia`, `Sin adenda`, `2026-09-01` y `300` no se borraron al quitar el archivo.
 
-6. Hazlo de nuevo: en **Evidencia o condiciones (opcional)** elige ahora el PDF pesado `acuerdo-equipo-propio-pesado.pdf`.
+6. Hazlo de nuevo: en **Evidencia o condiciones (opcional)** elige ahora el PDF pesado `acuerdo-equipo-propio-pesado.pdf`, el de **11 MB**.
 
 **Qué debe verse (el tamaño de más):**
 
@@ -272,6 +272,7 @@ Objetivo: comprobar que el cajón del alta avisa en cuanto se elige un archivo d
 - **Evidencia o condiciones (opcional)**: es el mismo campo del alta del Escenario 4.1; aquí sirve para comprobar qué archivos acepta.
 - **Solo PDF, JPG, PNG o WEBP.** y **El archivo supera 10 MB.**: los dos avisos con los que el cajón prevalida el archivo elegido, uno por tipo y otro por tamaño; salen en cuanto se elige el archivo, sin esperar al envío, y mientras el archivo siga puesto **Guardar** no manda nada. El rechazo del servidor trae otro título y otros textos (Escenario 5.1).
 - **Guardar** que no dispara nada: con un archivo que no se acepta, el alta no se manda ni se guarda; la declaración no nace.
+- **El peso de la evidencia**: se aceptan hasta 10 MB. El archivo de esta prueba trae **11 MB**, o sea un mega arriba del límite; uno que apenas lo rozara no serviría, porque lo que se comprueba es justamente pasarse.
 - **Quitar archivo**: saca el archivo equivocado del campo sin tocar lo demás; es el camino para corregir y seguir capturando.
 - **Obligatorio: este colaborador está en el listado de teletrabajadores (NOM-037 5.7, LFT 330-E)**: la leyenda de la tarjeta cuando la persona teletrabaja el 40% o más, así que su registro sí es exigible.
 
