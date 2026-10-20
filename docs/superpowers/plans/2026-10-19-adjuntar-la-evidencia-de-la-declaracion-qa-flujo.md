@@ -106,8 +106,8 @@ Objetivo: comprobar que al declarar equipo propio adjuntando el archivo del acue
 - El cajón se cierra y aparece el aviso de guardado: **Silla ergonómica** con **Declaración guardada.**
 - En el renglón **Silla ergonómica**, el chip **Sin cubrir** se cambió por **Equipo propio declarado**; debajo está la declaración **Silla ergonomica de casa**, sus condiciones **Acuerdo firmado el 1 de octubre**, la línea **Desde el 01/11/2026**, **$350.00 al mes**, el chip **Cuota estándar** y, junto a ellos, el chip **Con evidencia adjunta** con su botón **Descargar evidencia** a la derecha.
 - El chip de resumen de la tarjeta pasó de **2 sin cubrir** a **1 sin cubrir**.
-- Al pulsar **Descargar evidencia**, el navegador baja un archivo llamado `acuerdo-equipo-propio.pdf`; al abrirlo es el mismo PDF del acuerdo que se adjuntó.
-- **Negativo a comprobar a propósito:** la declaración **no** queda **Sin evidencia** —el chip es **Con evidencia adjunta** y el botón de descarga está— y el archivo descargado no baja vacío ni con otro nombre.
+- Al pulsar **Descargar evidencia**, el navegador baja un archivo llamado `equipo-propio-<número de la declaración>.pdf` —el número que trae la declaración recién creada—; al abrirlo es el mismo PDF del acuerdo que se adjuntó. El nombre es genérico a propósito: la descarga no conserva el nombre del archivo que se adjuntó ni datos de la persona.
+- **Negativo a comprobar a propósito:** la declaración **no** queda **Sin evidencia** —el chip es **Con evidencia adjunta** y el botón de descarga está— y el archivo descargado no baja vacío: su nombre es el genérico `equipo-propio-<número>.pdf`, no el del archivo que se adjuntó.
 
 **Qué significa cada cosa que se ve:**
 
@@ -124,7 +124,7 @@ Objetivo: comprobar que al declarar equipo propio adjuntando el archivo del acue
 - **Cuota estándar**: el origen de la cuota vigente; quiere decir que el monto coincide con la cuota estándar de la empresa. En los escenarios siguientes se remite a este.
 - **Con evidencia adjunta**: la declaración lleva un archivo que la respalda; es el que baja su botón **Descargar evidencia**.
 - **Sin evidencia**: la declaración no lleva ningún archivo.
-- **Descargar evidencia**: el botón que baja el archivo con el que se respaldó esa versión de la declaración; solo está donde hay evidencia que bajar.
+- **Descargar evidencia**: el botón que baja el archivo con el que se respaldó esa versión de la declaración; solo está donde hay evidencia que bajar. El archivo baja siempre con un nombre genérico, `equipo-propio-<número de la declaración>` y su extensión real (`.pdf` o `.jpg`): la descarga nunca conserva el nombre original del archivo ni el nombre de la persona.
 - **2 sin cubrir / 1 sin cubrir**: cuántas categorías obligatorias están pendientes. Cuenta solo las que están **Sin cubrir** y las que están **En envío**; lo declarado como equipo propio y lo que no aplica (el aditamento) no se cuentan.
 
 ### 4.2 Ajustar la cuota de una declaración con evidencia
@@ -166,7 +166,7 @@ Objetivo: comprobar que una declaración cerrada conserva su evidencia y que su 
 **Qué debe verse:**
 
 - El renglón cerrado trae el chip **Con evidencia adjunta** y su botón **Descargar evidencia**.
-- Al pulsarlo, el navegador baja un archivo llamado `acuerdo-equipo-propio.pdf`; al abrirlo es el mismo PDF del acuerdo que se adjuntó en el Escenario 4.1.
+- Al pulsarlo, el navegador baja un archivo llamado `equipo-propio-<número de la declaración>.pdf` —el número de la versión cerrada—; al abrirlo es el mismo PDF del acuerdo que se adjuntó en el Escenario 4.1.
 - **Negativo a comprobar a propósito:** la versión vigente de la categoría (chip **Sin evidencia**) **no** trae botón, y el renglón que dejó el sembrador (**Silla de escritorio anterior**) tampoco: el botón solo está en el renglón del histórico que sí conserva su archivo.
 
 **Qué significa lo nuevo aquí:**
@@ -189,7 +189,7 @@ Objetivo: comprobar que se puede adjuntar como evidencia una foto del celular y 
 
 - El renglón **Equipo de cómputo o impresión** queda en **Equipo propio declarado**, con la declaración **Laptop propia**, **Desde el 01/11/2026**, **$350.00 al mes**, el chip **Cuota estándar** y, junto a ellos, el chip **Con evidencia adjunta** con su botón **Descargar evidencia**.
 - El chip de resumen de la tarjeta pasó de **1 sin cubrir** a **Completo**.
-- El archivo que baja es la misma foto que se adjuntó (se ve la misma imagen), pero al abrir su información **ya no aparece ningún lugar ni coordenadas**: donde la foto original mostraba el lugar o el mapa donde se tomó, la evidencia descargada no muestra nada.
+- El archivo que baja es la misma foto que se adjuntó (se ve la misma imagen) y su nombre es el genérico `equipo-propio-<número>.jpg`, pero al abrir su información **ya no aparece ningún lugar ni coordenadas**: donde la foto original mostraba el lugar o el mapa donde se tomó, la evidencia descargada no muestra nada.
 - **Negativo a comprobar a propósito:** la foto original del carrete **sí** trae su ubicación; la evidencia que se bajó **no**. Lo demás de la foto no cambia: la imagen se ve igual.
 
 **Cómo se revisa la ubicación de una foto:** ábrela con el visor de fotos de tu computadora y mira su ficha o su información, la parte donde el visor anota dónde y cuándo se tomó. Es el mismo dato que aparece cuando compartes una foto y el teléfono te avisa que lleva el lugar donde la tomaste.
@@ -377,9 +377,9 @@ Objetivo: comprobar que el bloque de la matriz, la declaración con su evidencia
 
 Cada casilla se marca **contra el objetivo de su escenario**, no contra «se hicieron los pasos»:
 
-- [ ] 4.1 En la ficha de `QA-TEL-02`, declarar la silla adjuntando `acuerdo-equipo-propio.pdf` la deja en **Equipo propio declarado** con el chip **Con evidencia adjunta** y su botón **Descargar evidencia**, que baja el mismo PDF, y el resumen pasa de **2 sin cubrir** a **1 sin cubrir**
+- [ ] 4.1 En la ficha de `QA-TEL-02`, declarar la silla adjuntando `acuerdo-equipo-propio.pdf` la deja en **Equipo propio declarado** con el chip **Con evidencia adjunta** y su botón **Descargar evidencia**, que lo baja con el nombre genérico `equipo-propio-<número>.pdf`, y el resumen pasa de **2 sin cubrir** a **1 sin cubrir**
 - [ ] 4.2 Ajustar la silla a `420` deja la versión nueva **Sin evidencia** (sin botón) y manda la anterior a **Declaraciones anteriores (2)** —con la del sembrador— con periodo **01/11/2026 a 30/11/2026**, motivo **Ajuste de cuota** y su chip **Con evidencia adjunta** con su botón
-- [ ] 4.3 La evidencia de la versión cerrada se baja desde el histórico (**Descargar evidencia** en **Declaraciones anteriores**) y es el mismo archivo, aunque la vigente ya no la tenga
+- [ ] 4.3 La evidencia de la versión cerrada se baja desde el histórico (**Descargar evidencia** en **Declaraciones anteriores**) y es el mismo archivo —con el nombre genérico `equipo-propio-<número>.pdf`—, aunque la vigente ya no la tenga
 - [ ] 4.4 Adjuntar una foto del celular deja el cómputo **Con evidencia adjunta** con el resumen en **Completo**, y la foto descargada ya no trae la ubicación con la que se tomó
 - [ ] 4.5 Declarar el aditamento sin archivo lo deja **Sin evidencia** y sin botón de descarga, sin que el alta falle
 - [ ] 4.6 Con `QA-TEL-03`, el `.docx` y el PDF de 11 MB se rechazan en el cajón con los avisos de la prevalidación —**Solo PDF, JPG, PNG o WEBP.** para el tipo y **El archivo supera 10 MB.** para el tamaño—, **Guardar** no dispara nada mientras el archivo siga puesto, y **Quitar archivo** lo saca sin perder descripción, fecha ni cuota
