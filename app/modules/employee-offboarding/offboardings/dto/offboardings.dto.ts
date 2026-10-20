@@ -84,6 +84,8 @@ export interface EmployeeOffboardingDto {
   employeeOffboardingCancelledByUserId: number | null
   /** Nombre de quien reactivó (misma regla que la autoría de pendientes); `null` sin usuario o ya borrado. */
   employeeOffboardingCancelledByUserName: string | null
+  /** Motivo de la cancelación de RH (VLRH-H1792172886315); `null` si no se canceló o se canceló al reactivar. */
+  employeeOffboardingCancellationNote: string | null
   /** Baja deshecha (VLRH-H1791055795208): `null` si no quedó ningún dato. */
   terminationSnapshot: EmployeeOffboardingTerminationSnapshotDto | null
   /**
@@ -152,12 +154,12 @@ export function toListRowDto(row: Record<string, unknown>): EmployeeOffboardingL
     employeeOffboardingId: Number(row.employeeOffboardingId),
     employeeId: Number(row.employeeId),
     employeeFullName: typeof row.employeeFullName === 'string' ? row.employeeFullName : '',
-    employeeCode: row.employeeCode === null || row.employeeCode === undefined
-      ? null
-      : String(row.employeeCode),
-    employeePayrollCode: row.employeePayrollCode === null || row.employeePayrollCode === undefined
-      ? null
-      : String(row.employeePayrollCode),
+    employeeCode:
+      row.employeeCode === null || row.employeeCode === undefined ? null : String(row.employeeCode),
+    employeePayrollCode:
+      row.employeePayrollCode === null || row.employeePayrollCode === undefined
+        ? null
+        : String(row.employeePayrollCode),
     departmentName: typeof row.departmentName === 'string' ? row.departmentName : null,
     positionName: typeof row.positionName === 'string' ? row.positionName : null,
     status,
@@ -177,9 +179,10 @@ export function toListRowDto(row: Record<string, unknown>): EmployeeOffboardingL
     itemsOpen: Number(row.itemsOpen ?? 0),
     itemsOverdue: Number(row.itemsOverdue ?? 0),
     closedAt: toIsoDateTime(row.closedAt),
-    closedByUserId: row.closedByUserId === null || row.closedByUserId === undefined
-      ? null
-      : Number(row.closedByUserId),
+    closedByUserId:
+      row.closedByUserId === null || row.closedByUserId === undefined
+        ? null
+        : Number(row.closedByUserId),
     // MySQL devuelve el EXISTS como 1/0 (a veces string), nunca booleano
     hasSeparationLetter: Number(row.hasSeparationLetter) === 1,
   }
@@ -302,7 +305,7 @@ export function toItemDto(
     employeeOffboardingItemCompletedAt: item.employeeOffboardingItemCompletedAt?.toISO() ?? null,
     employeeOffboardingItemCompletedByUserId: completedByUserId,
     employeeOffboardingItemCompletedByUserName:
-      completedByUserId !== null ? (context.userNamesById.get(completedByUserId) ?? null) : null,
+      completedByUserId !== null ? context.userNamesById.get(completedByUserId) ?? null : null,
     requiresEvidence: Boolean(item.concept?.offboardingConceptRequiresEvidence ?? false),
     allowsAmount: Boolean(item.concept?.offboardingConceptAllowsAmount ?? false),
     evidenceCount: context.evidenceCountsByItemId.get(item.employeeOffboardingItemId) ?? 0,
@@ -403,8 +406,9 @@ export function toOffboardingDto(
     employeeOffboardingCancelledByUserName:
       offboarding.employeeOffboardingCancelledByUserId !== null &&
       offboarding.employeeOffboardingCancelledByUserId !== undefined
-        ? (params.userNamesById.get(offboarding.employeeOffboardingCancelledByUserId) ?? null)
+        ? params.userNamesById.get(offboarding.employeeOffboardingCancelledByUserId) ?? null
         : null,
+    employeeOffboardingCancellationNote: offboarding.employeeOffboardingCancellationNote ?? null,
     terminationSnapshot,
     itemsTotal: items.length,
     itemsCompleted,

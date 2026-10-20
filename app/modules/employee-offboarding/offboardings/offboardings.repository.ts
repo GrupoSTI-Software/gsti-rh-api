@@ -128,6 +128,17 @@ export interface OffboardingsRepository {
   ): Promise<EmployeeOffboarding | null>
 
   /**
+   * Igual que `findByIdInScope`, con `forUpdate` dentro de la transacción de la
+   * edición de motivos (VLRH-H1792177926178): el estado se re-verifica bajo
+   * candado. Alcance antes que estado: fuera de él, `null` (404), nunca 409.
+   */
+  lockByIdInScope(
+    employeeOffboardingId: number,
+    businessUnitIds: number[],
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboarding | null>
+
+  /**
    * Expediente más reciente del colaborador SIN filtrar por estado (regla 13
    * de USRH1786568279596): respaldo del `by-employee` cuando no hay `open`.
    */
