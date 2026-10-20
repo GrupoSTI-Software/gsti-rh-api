@@ -61,6 +61,17 @@ export interface OwnEquipmentDeclarationsRepository {
     id: number
   ): Promise<OwnEquipmentDeclarationDto | null>
   /**
+   * Ruta viva de la evidencia de una declaración, con el alcance de empresas
+   * DENTRO de la consulta (R3, VLRH-H1791493046616 §14): vale para la vigente
+   * **o cerrada** —el cierre conserva la evidencia, regla 8— y devuelve su id
+   * junto a su key, o `storedPath: null` si la declaración no tiene archivo.
+   * Ajena, inexistente o borrada lógicamente → `null`, indistinguible (CA-8).
+   */
+  findEvidencePath(
+    businessUnitIds: readonly number[],
+    declarationId: number
+  ): Promise<{ declarationId: number; storedPath: string | null } | null>
+  /**
    * Declaración vigente por lote de colaboradores, con el alcance de empresas
    * dentro de la consulta. Es la que leen la matriz y la adenda. Cualquier
    * argumento vacío → `[]` sin consultar.
