@@ -1,4 +1,5 @@
 import { BaseMail } from '@adonisjs/mail'
+import { MAIL_BRAND_HEADER_COLOR } from '#constants/mail_branding'
 import env from '#start/env'
 import type { StripeErrorEntryKey } from '#constants/billing_stripe_error_catalog'
 import { BILLING_STRIPE_ERROR_ENTRIES } from '#constants/billing_stripe_error_catalog'
@@ -19,7 +20,6 @@ export interface BillingProviderAccountIssueMailParams {
   landlordSubscriptionUrl: string
 }
 
-const DEFAULT_SIDEBAR_COLOR = '#0a3057'
 
 export default class BillingProviderAccountIssueMail extends BaseMail {
   constructor(private readonly params: BillingProviderAccountIssueMailParams) {
@@ -56,7 +56,7 @@ export default class BillingProviderAccountIssueMail extends BaseMail {
 
     this.message.htmlView('emails/billing_provider_account_issue', {
       tradeName,
-      sidebarColor: DEFAULT_SIDEBAR_COLOR,
+      sidebarColor: MAIL_BRAND_HEADER_COLOR,
       subject,
       billingSubscriptionId,
       businessUnitTradeName,

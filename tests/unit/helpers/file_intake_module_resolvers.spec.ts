@@ -59,6 +59,7 @@ test.group('Resolvers de módulo — rechazo de archivos', () => {
       'app/controllers/employee_certification_upload_controller.ts',
       'app/modules/repse-providers/expediente/expediente.controller.ts',
       'app/modules/repse-providers/validations/validations.controller.ts',
+      'app/modules/assets/assets.error.ts',
     ]
 
     for (const ruta of controladores) {

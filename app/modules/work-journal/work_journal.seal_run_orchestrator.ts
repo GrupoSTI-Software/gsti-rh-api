@@ -399,25 +399,11 @@ export default class WorkJournalSealRunOrchestrator {
 
     const from = resolveMailSender()
 
-    // Toma el nombre de marca y color del primer system_setting activo que
-    // tenga al menos una empresa mapeada, para darle identidad visual al correo.
-    const firstSetting = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
-      .select('system_setting_trade_name', 'system_setting_sidebar_color')
-      .first()
-
-    const tradeName = firstSetting?.systemSettingTradeName ?? 'GSTI RH'
-    const rawColor = firstSetting?.systemSettingSidebarColor ?? '1e3a5f'
-    const sidebarColor = rawColor.startsWith('#') ? rawColor : `#${rawColor}`
-
     try {
       await mail.send(
         new WorkJournalSealRunSummaryMail({
           to: recipients,
           from,
-          tradeName,
-          sidebarColor,
           runId: run.workJournalSealRunId,
           status: run.status,
           summary,

@@ -14,6 +14,7 @@ import { DiscountCodeServiceError } from '#exceptions/discount_code_service_erro
 import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
 import BillingSubscriptionChange from '#models/billing_subscription_change'
 import BillingPayment from '#models/billing_payment'
+
 import type { SubscriptionChangeRecord } from '#services/billing_subscription_change_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
@@ -27,6 +28,9 @@ import { resolveBillingProvider } from '#modules/billing-provider/billing_provid
 import { BILLING_PROVIDER_KEYS } from '#modules/billing-provider/billing_provider.port'
 import { subscriptionOpeningMismatch } from '#modules/billing-provider/billing_provider.errors'
 import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
+import { isPaymentFailureActive } from '#services/billing_recurring_billing_service'
+import { buildLandlordLastPaymentFailure, isProviderAccountIssue, LandlordLastPaymentFailure, resolvePaymentFailureMessage } from '#helpers/billing_payment_failure_message'
+
 
 // ---------------------------------------------------------------------------
 // Tipos de entrada / salida
@@ -92,8 +96,12 @@ export interface ListSubscriptionsFilters {
   limit?: number
 }
 
+export type LandlordSubscriptionListRow = ReturnType<BillingSubscription['serialize']> & {
+  providerAccountIssue: boolean
+}
+
 export interface ListSubscriptionsResult {
-  data: BillingSubscription[]
+  data: LandlordSubscriptionListRow[]
   meta: { total: number; page: number; limit: number; lastPage: number }
 }
 
@@ -163,6 +171,10 @@ export default class BillingSubscriptionService {
    * (USRH1785962095092). Sin criterios, se comporta como antes: todas las
    * suscripciones vivas, en orden `billing_subscription_id asc`. Ningún
    * filtro relaja `whereNull(deleted_at)` ni cambia el orden por defecto.
+   *
+   * Desde VLRH-H1791936413002 adjunta `providerAccountIssue` (boolean) a cada
+   * fila, evaluado mediante consulta por lote para las suscripciones Stripe
+   * con fallo atribuible a Valanserh.
    */
   async listSubscriptions(
     filters: ListSubscriptionsFilters = {}
@@ -219,9 +231,54 @@ export default class BillingSubscriptionService {
 
     const paginated = await query.paginate(page, limit)
     const json = paginated.toJSON()
+    const rows = paginated.all()
+
+    // 1. Filtrar solo los candidatos con proveedor Stripe, fallo registrado y acción 'valanserh'
+    const stripeCandidateIds = rows
+      .filter((sub) => {
+        if (
+          sub.billingSubscriptionProvider !== 'stripe' ||
+          !sub.billingSubscriptionLastPaymentFailedAt
+        ) {
+          return false
+        }
+        const resolution = resolvePaymentFailureMessage({
+          code: sub.billingSubscriptionLastPaymentFailureCode,
+          declineCode: sub.billingSubscriptionLastPaymentFailureDeclineCode,
+        })
+        return resolution?.action === 'valanserh'
+      })
+      .map((sub) => sub.billingSubscriptionId)
+
+    // 2. Traer en una sola consulta agrupada la fecha del último pago Stripe para esos IDs
+    const latestPaidMap = await this.findLatestStripePaidAtBySubscription(stripeCandidateIds)
+
+    // 3. Mapear cada fila adjuntando providerAccountIssue
+    const data = rows.map((sub) => {
+      let providerAccountIssue = false
+      if (stripeCandidateIds.includes(sub.billingSubscriptionId)) {
+        const latestPaidAt = latestPaidMap.get(sub.billingSubscriptionId) ?? null
+        const active = isPaymentFailureActive(
+          sub.billingSubscriptionLastPaymentFailedAt,
+          latestPaidAt
+        )
+        const failure = buildLandlordLastPaymentFailure({
+          failedAt: sub.billingSubscriptionLastPaymentFailedAt,
+          code: sub.billingSubscriptionLastPaymentFailureCode,
+          declineCode: sub.billingSubscriptionLastPaymentFailureDeclineCode,
+          active,
+        })
+        providerAccountIssue = isProviderAccountIssue(failure)
+      }
+
+      return {
+        ...sub.serialize(),
+        providerAccountIssue,
+      }
+    })
 
     return {
-      data: json.data as BillingSubscription[],
+      data,
       meta: {
         total: json.meta.total,
         page: json.meta.currentPage,
@@ -313,11 +370,16 @@ export default class BillingSubscriptionService {
    * congelado, para que la ficha explique un total más alto sin que el
    * operador tenga que consultar la base de datos. `null` sin código, con
    * beneficio vigente o indefinido, o si ningún pago registró el consumo.
+   *
+   * Desde VLRH-H1791936413002 expone `lastPaymentFailure`: el detalle del
+   * último cobro rechazado en Stripe con sus códigos crudos, vigencia y
+   * banderas para soporte en landlord. `null` si es manual o sin fallo.
    */
   async getSubscriptionDetail(subscriptionId: number): Promise<
-    Record<string, unknown> & {
+    ReturnType<BillingSubscription['serialize']> & {
       pendingIncreaseChange: SubscriptionChangeRecord | null
       discountBenefitRestoredFrom: string | null
+      lastPaymentFailure: LandlordLastPaymentFailure
     }
   > {
     const subscription = await this.getSubscription(subscriptionId)
@@ -326,10 +388,34 @@ export default class BillingSubscriptionService {
     )
     const discountBenefitRestoredFrom = await this.findDiscountBenefitRestoredFrom(subscription)
 
+    let lastPaymentFailure: LandlordLastPaymentFailure = null
+
+    if (
+      subscription.billingSubscriptionProvider === 'stripe' &&
+      subscription.billingSubscriptionLastPaymentFailedAt
+    ) {
+      const latestPaidMap = await this.findLatestStripePaidAtBySubscription([
+        subscription.billingSubscriptionId,
+      ])
+      const latestPaidAt = latestPaidMap.get(subscription.billingSubscriptionId) ?? null
+      const active = isPaymentFailureActive(
+        subscription.billingSubscriptionLastPaymentFailedAt,
+        latestPaidAt
+      )
+
+      lastPaymentFailure = buildLandlordLastPaymentFailure({
+        failedAt: subscription.billingSubscriptionLastPaymentFailedAt,
+        code: subscription.billingSubscriptionLastPaymentFailureCode,
+        declineCode: subscription.billingSubscriptionLastPaymentFailureDeclineCode,
+        active,
+      })
+    }
+
     return {
       ...subscription.serialize(),
       pendingIncreaseChange,
       discountBenefitRestoredFrom,
+      lastPaymentFailure,
     }
   }
 
@@ -995,5 +1081,27 @@ export default class BillingSubscriptionService {
       .first()
 
     return row !== null
+  }
+
+  
+  private async findLatestStripePaidAtBySubscription(ids: number[]): Promise<Map<number, DateTime>> {
+    const result = new Map<number, DateTime>()
+    if (ids.length === 0) return result
+  
+    const rows = await BillingPayment.query()
+      .select('billing_subscription_id')
+      .max('billing_payment_paid_at as max_paid_at')
+      .whereIn('billing_subscription_id', ids)
+      .where('billing_payment_provider', 'stripe')
+      .groupBy('billing_subscription_id')
+  
+    for (const row of rows) {
+      const maxPaidAt = row.$extras.max_paid_at
+      if (maxPaidAt) {
+        result.set(row.billingSubscriptionId, DateTime.fromJSDate(new Date(maxPaidAt)).toUTC())
+      }
+    }
+  
+    return result
   }
 }

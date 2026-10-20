@@ -1,4 +1,5 @@
 import { BaseMail } from '@adonisjs/mail'
+import { MAIL_BRAND_HEADER_COLOR } from '#constants/mail_branding'
 import env from '#start/env'
 
 export type ProviderPaymentUnsettledReason =
@@ -27,7 +28,6 @@ export interface BillingProviderPaymentUnsettledMailParams {
   currency: string | null
 }
 
-const DEFAULT_SIDEBAR_COLOR = '#0a3057'
 
 export const PROVIDER_PAYMENT_UNSETTLED_REASON_LABELS: Record<
   ProviderPaymentUnsettledReason,
@@ -84,7 +84,7 @@ export default class BillingProviderPaymentUnsettledMail extends BaseMail {
     this.message.htmlView('emails/billing_provider_payment_unsettled', {
       subject,
       tradeName,
-      sidebarColor: DEFAULT_SIDEBAR_COLOR,
+      sidebarColor: MAIL_BRAND_HEADER_COLOR,
       invoiceRef,
       subscriptionRef: subscriptionRef ?? '—',
       eventRef,

@@ -15,7 +15,7 @@ import {
 import AssistsService from '#services/assist_service'
 import mail from '@adonisjs/mail/services/main'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
-import { MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
+import { MAIL_BRAND_HEADER_COLOR, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import Database from '@adonisjs/lucid/services/db'
 import i18nManager from '@adonisjs/i18n/services/main'
 import { DateTime } from 'luxon'
@@ -25,9 +25,6 @@ import { shiftStartInstant } from '#modules/attendance-time/attendance_clock'
 import SyncAssistsService from '#services/sync_assists_service'
 import { TenantContext } from '#utils/tenant_context'
 import type { AssistDayInterface } from '../interfaces/assist_day_interface.js'
-
-/** Color de plataforma del encabezado. El aviso de faltas no usa el color de la empresa. */
-const MAIL_HEADER_COLOR = '#0a3057'
 
 export interface AttendanceFaultHrNotifyRow {
   employeeAssistCalendarId: number
@@ -723,7 +720,7 @@ export default class AttendanceFaultHrNotificationService {
     const companyName = systemSetting.systemSettingTradeName
     const emailData = {
       tradeName: MAIL_BRAND_TRADE_NAME,
-      headerColor: MAIL_HEADER_COLOR,
+      headerColor: MAIL_BRAND_HEADER_COLOR,
       companyName,
       calendarDayLabel: now.setZone(businessZone).setLocale('es').toFormat("cccc d 'de' LLLL yyyy"),
       employees: emailRows,

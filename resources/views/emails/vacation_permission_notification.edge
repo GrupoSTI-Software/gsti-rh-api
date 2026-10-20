@@ -21,7 +21,7 @@
             overflow: hidden;
         }
         .header {
-            background: linear-gradient(135deg, {{ systemSetting.sidebarColor }}, {{ systemSetting.sidebarColor }}dd);
+            background: linear-gradient(135deg, {{ headerColor }}, {{ headerColor }}dd);
             color: white;
             padding: 40px 30px;
             text-align: center;
@@ -74,7 +74,7 @@
         }
         .notification-box {
             background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
-            border-left: 4px solid {{ systemSetting.sidebarColor }};
+            border-left: 4px solid {{ headerColor }};
             padding: 15px;
             margin: 15px 0;
             border-radius: 0 8px 8px 0;
@@ -101,7 +101,7 @@
         }
         .info-section h3 {
             margin: 0 0 12px 0;
-            color: {{ systemSetting.sidebarColor }};
+            color: {{ headerColor }};
             font-size: 16px;
             font-weight: 600;
             display: flex;
@@ -184,11 +184,14 @@
 </head>
 <body>
     <div class="email-container">
+        {{-- El logotipo es oscuro: va sobre blanco, no sobre el azul de la cabecera. --}}
+        @if(backgroundImageLogo)
+            <div style="background-color: #ffffff; padding: 20px 30px 28px; text-align: center;">
+                <img src="{{ backgroundImageLogo }}" alt="{{ tradeName }}" height="42" style="height: 42px; width: auto; display: inline-block; border: 0; margin: 0 auto;" />
+            </div>
+        @endif
         <!-- Header -->
         <div class="header">
-            @if(systemSetting.logo)
-                <img src="{{ systemSetting.logo }}" alt="{{ systemSetting.tradeName }}" class="logo">
-            @endif
             @if(exception.isVacation)
                 <h1>Notificación de Vacaciones</h1>
             @elseif(exception.isAbsence)
@@ -202,7 +205,7 @@
             @else
                 <h1>Notificación de Excepción</h1>
             @endif
-            <p>{{ systemSetting.tradeName }}</p>
+            <p>{{ tradeName }}</p>
         </div>
 
         <!-- Content -->
@@ -319,10 +322,10 @@
 
         <!-- Footer -->
         <div class="footer">
-            <p><strong>{{ systemSetting.tradeName }}</strong></p>
+            <p><strong>{{ tradeName }}</strong></p>
             <p>Notificación automática del sistema de gestión de ausencias</p>
             <p class="copyright">
-                ©{{ new Date().getFullYear() }} {{ systemSetting.tradeName }}. Todos los derechos reservados.
+                ©{{ new Date().getFullYear() }} {{ tradeName }}. Todos los derechos reservados.
             </p>
         </div>
     </div>

@@ -38,6 +38,7 @@ import {
   generateProvisionalPassword,
 } from '#helpers/user_invitation_credentials'
 import { USER_INVITATION_LOGIN_ERRORS, USER_INVITATION_RESEND_ERRORS } from '#constants/user_invitation_error_codes'
+import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
@@ -950,9 +951,8 @@ export default class UserController {
         // estuvo deshabilitado (isWhiteLabel siempre false) y nunca se aplicaba;
         // se retira la consulta muerta a `getActive()` en vez de migrarla a
         // `resolveByBusinessUnitId`, que exigiría un tenant que aquí no existe.
-        const tradeName = 'Valanserh'
-        const backgroundImageLogo =
-          'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
+        const tradeName = MAIL_BRAND_TRADE_NAME
+        const backgroundImageLogo = MAIL_BRAND_LOGO_URL
 
         const smtpUsername = resolveMailSender()
         // El asunto es parte del correo, no de la respuesta: va en el idioma
@@ -970,6 +970,7 @@ export default class UserController {
               token: user.userToken,
               host_data: hostData,
               backgroundImageLogo,
+              tradeName,
               isApp: true,
               pinCode: user.pinCode,
               // La vigencia se pasa desde la constante que fija `pinCodeExpiresAt`:

@@ -21,6 +21,7 @@ import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
 import { I18n } from '@adonisjs/i18n'
 import { SUPPORT_EMAIL } from '#constants/support_contact'
+import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import RoleDepartment from '#models/role_department'
 import { hasFullStaffAccess } from '#helpers/responsible_employee_scope'
 import { resolveEffectiveTenantRole } from '#helpers/effective_tenant_role'
@@ -567,9 +568,8 @@ export default class UserService {
    * @param newUser - Usuario cuya contraseña acaba de cambiar.
    */
   async sendNewPasswordEmail(url: string | null, newUser: User) {
-    const tradeName = 'Valanserh'
-    const backgroundImageLogo =
-      'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
+    const tradeName = MAIL_BRAND_TRADE_NAME
+    const backgroundImageLogo = MAIL_BRAND_LOGO_URL
 
     await newUser.load('person')
     const firstName = newUser.person?.personFirstname || newUser.userEmail

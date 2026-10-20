@@ -96,6 +96,29 @@ function hasStoredFile(storedPath: string | null): storedPath is string {
 }
 
 /**
+ * Entrega un objeto del almacenamiento privado como archivo descargable, con el
+ * nombre armado con `nameParts` y la extensión real del objeto. La ruta viaja
+ * tal cual: vacía, en blanco o con el centinela de subida fallida es «sin
+ * archivo», igual que si el almacenamiento ya no lo tiene.
+ *
+ * @throws AssetError 404 `archivo-no-encontrado`.
+ */
+export async function streamAssetFile(
+  storage: Pick<UploadService, 'streamStoredFile'>,
+  storedPath: string | null,
+  nameParts: Array<string | number>
+): Promise<AssetFile> {
+  if (!hasStoredFile(storedPath)) throw AssetError.fileNotFound()
+  const object = await storage.streamStoredFile(storedPath)
+  if (!object) throw AssetError.fileNotFound()
+  const fileName = buildDownloadFileName(
+    nameParts,
+    resolveStoredFileExtension({ storedPath, contentType: object.contentType })
+  )
+  return { object, fileName }
+}
+
+/**
  * Activos del backoffice: listado con resguardo activo embebido, resumen,
  * ficha (características, resguardos, historial de valor), tipos y descargas.
  * El scope de empresas sale del `TenantContext` de la petición.
@@ -249,17 +272,11 @@ export default class AssetsService {
     return asset
   }
 
-  private async streamFile(
+  /** Delegación al stream compartido (`streamAssetFile`) con el almacenamiento del service. */
+  private streamFile(
     storedPath: string | null,
     nameParts: Array<string | number>
   ): Promise<AssetFile> {
-    if (!hasStoredFile(storedPath)) throw AssetError.fileNotFound()
-    const object = await this.storage.streamStoredFile(storedPath)
-    if (!object) throw AssetError.fileNotFound()
-    const fileName = buildDownloadFileName(
-      nameParts,
-      resolveStoredFileExtension({ storedPath, contentType: object.contentType })
-    )
-    return { object, fileName }
+    return streamAssetFile(this.storage, storedPath, nameParts)
   }
 }
