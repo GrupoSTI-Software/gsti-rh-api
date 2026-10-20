@@ -1,4 +1,5 @@
 import { BaseMail } from '@adonisjs/mail'
+import { MAIL_BRAND_HEADER_COLOR } from '#constants/mail_branding'
 import env from '#start/env'
 
 export interface BillingProviderInvoiceHeldMailParams {
@@ -12,7 +13,6 @@ export interface BillingProviderInvoiceHeldMailParams {
   billingSubscriptionId: number | null
 }
 
-const DEFAULT_SIDEBAR_COLOR = '#0a3057'
 
 /**
  * Aviso interno: factura de Stripe retenida tras fallo al ajustar el ciclo (USRH1790708507665).
@@ -47,7 +47,7 @@ export default class BillingProviderInvoiceHeldMail extends BaseMail {
     this.message.htmlView('emails/billing_provider_invoice_held', {
       subject,
       tradeName,
-      sidebarColor: DEFAULT_SIDEBAR_COLOR,
+      sidebarColor: MAIL_BRAND_HEADER_COLOR,
       invoiceRef,
       subscriptionRef: subscriptionRef ?? '—',
       eventRef,

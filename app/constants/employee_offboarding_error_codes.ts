@@ -50,6 +50,8 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   CASE_CLOSED_READ_ONLY: 'OFFB.CASE.CLOSED_READ_ONLY',
   /** Escritura sobre un expediente cancelado al deshacer la baja (regla 3, VLRH-H1790812613830) — 409. */
   CASE_CANCELLED_READ_ONLY: 'OFFB.CASE.CANCELLED_READ_ONLY',
+  /** Modalidad fuera del catálogo o tipo de baja que no corresponde a la modalidad (VLRH-H1792172854107) — 422. */
+  CASE_TERMINATION_REASON_INVALID: 'OFFB.CASE.TERMINATION_REASON_INVALID',
   /** Pendiente o expediente inexistente o fuera del alcance (USRH1786568279590) — 404 uniforme. */
   ITEM_NOT_FOUND: 'OFFB.ITEM.NOT_FOUND',
   /** Completar un pendiente ya cumplido (regla 3, USRH1786568279590) — 409. */

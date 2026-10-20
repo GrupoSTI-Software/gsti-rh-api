@@ -179,8 +179,7 @@ export default class RepseFolioAvisoService {
               bcc: recipients.length > 1 ? recipients.slice(1) : undefined,
               from,
               language: 'es',
-              tradeName: setting.systemSettingTradeName,
-              sidebarColor: this.formatSidebarColor(setting.systemSettingSidebarColor),
+              companyName: setting.systemSettingTradeName,
               rows: mailRows,
             })
           )
@@ -395,8 +394,4 @@ export default class RepseFolioAvisoService {
     return null
   }
 
-  private formatSidebarColor(color: string | null | undefined): string {
-    const c = (color ?? '').trim() || '3D5DC0'
-    return c.startsWith('#') ? c : `#${c}`
-  }
 }

@@ -1,4 +1,5 @@
 import { BaseMail } from '@adonisjs/mail'
+import { MAIL_BRAND_HEADER_COLOR } from '#constants/mail_branding'
 import env from '#start/env'
 import type { BillingSubscriptionStatus } from '#models/billing_subscription'
 import type { ProviderSubscriptionStatus } from '#modules/billing-provider/billing_provider.port'
@@ -17,7 +18,6 @@ export interface BillingProviderSubscriptionStateMailParams {
   alert: ProviderSubscriptionStateAlert
 }
 
-const DEFAULT_SIDEBAR_COLOR = '#0a3057'
 
 export const PROVIDER_SUBSCRIPTION_STATE_ALERT_LABELS: Record<
   ProviderSubscriptionStateAlert,
@@ -58,7 +58,7 @@ export default class BillingProviderSubscriptionStateMail extends BaseMail {
 
     this.message.htmlView('emails/billing_provider_subscription_state', {
       tradeName,
-      sidebarColor: DEFAULT_SIDEBAR_COLOR,
+      sidebarColor: MAIL_BRAND_HEADER_COLOR,
       subject,
       billingSubscriptionId,
       subscriptionRef,

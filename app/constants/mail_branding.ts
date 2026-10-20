@@ -8,6 +8,9 @@ export const MAIL_BRAND_TRADE_NAME = 'Valanserh'
 export const MAIL_BRAND_LOGO_URL =
   'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
 
+/** Azul de cabecera de Valanserh. Lo usan todos los correos que pintan encabezado. */
+export const MAIL_BRAND_HEADER_COLOR = '#0a3057'
+
 /**
  * Zona en la que se escriben las fechas de los correos. Los clientes operan en
  * el centro de México; el servidor corre en UTC.

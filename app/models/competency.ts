@@ -22,7 +22,7 @@ import { TenantContext } from '#utils/tenant_context'
  *            description: Competency name
  *          competencyType:
  *            type: string
- *            enum: [technical, transversal]
+ *            enum: [technical, functional]
  *            description: Competency type
  *          competencyCreatedAt:
  *            type: string
@@ -49,7 +49,7 @@ export default class Competency extends compose(BaseModel, SoftDeletes, withBusi
   declare competencyName: string
 
   @column()
-  declare competencyType: 'technical' | 'transversal'
+  declare competencyType: 'technical' | 'functional'
 
   /**
    * Marca de pertenencia propia (VLRH-H1792026427127). NULL = competencia de

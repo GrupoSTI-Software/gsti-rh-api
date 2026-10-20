@@ -9,6 +9,11 @@ import RoleService from '#services/role_service'
 import EmployeeSupplieService from '#services/employee_supplie_service'
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
+import {
+  isTerminationTypeCompatibleWithModality,
+  isValidEmployeeTerminationModality,
+} from '#constants/employee_termination'
+import { parseEmployeeTerminatedDate } from '#helpers/employee_termination_record'
 import type { EmployeeReactivationExitConcludedReason } from '#constants/employee_reactivation_error_codes'
 import { employeeReactivationExitConcludedError } from '#helpers/employee_reactivation_api_error'
 import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
@@ -56,6 +61,8 @@ export interface EmployeeOffboardingListResult {
 export interface ScheduleOffboardingInput {
   employeeId: number
   plannedDate: string
+  terminationModality: string
+  terminationType: string
   notes?: string | null
 }
 
@@ -134,13 +141,17 @@ export default class OffboardingsService {
     businessUnitScope: number[],
     openedByUserId: number | null
   ): Promise<EmployeeOffboardingDto> {
+    // R4 de VLRH-C0038: fecha real y motivos del catálogo se deciden antes de tocar la BD
+    const plannedDate = this.assertValidTermination(input)
     const employee = await this.repository.findEmployeeInScope(input.employeeId, businessUnitScope)
     if (!employee) {
       throw this.employeeNotFoundError()
     }
 
     const result = await this.openCase(employee, {
-      plannedDate: input.plannedDate,
+      plannedDate,
+      plannedModality: input.terminationModality,
+      plannedType: input.terminationType,
       origin: EMPLOYEE_OFFBOARDING_ORIGIN.SCHEDULED,
       notes: input.notes ?? null,
       openedByUserId,
@@ -417,6 +428,9 @@ export default class OffboardingsService {
     employee: Employee,
     params: {
       plannedDate: string
+      /** Motivos programados (VLRH-H1792172854107); la apertura automática no los trae (R7 de VLRH-C0038). */
+      plannedModality?: string | null
+      plannedType?: string | null
       origin: string
       notes: string | null
       openedByUserId: number | null
@@ -473,6 +487,8 @@ export default class OffboardingsService {
           // Snapshot desde el colaborador ya resuelto; nunca TenantContext (§7 D2)
           businessUnitId: employee.businessUnitId,
           employeeOffboardingPlannedDate: params.plannedDate,
+          employeeOffboardingPlannedModality: params.plannedModality ?? null,
+          employeeOffboardingPlannedType: params.plannedType ?? null,
           employeeOffboardingOrigin: params.origin,
           employeeOffboardingNotes: params.notes,
           employeeOffboardingOpenedByUserId: params.openedByUserId,
@@ -534,6 +550,47 @@ export default class OffboardingsService {
       suppliesById: buildSuppliesMap(supplies),
       userNamesById: buildUserNamesMap(users),
       evidenceCountsByItemId,
+    })
+  }
+
+  /**
+   * Día de calendario real y par modalidad/tipo del catálogo (R3, R4, R5 de
+   * VLRH-C0038). Sin acceso a BD. Devuelve la fecha como `yyyy-MM-dd`.
+   */
+  private assertValidTermination(input: {
+    plannedDate: string
+    terminationModality: string
+    terminationType: string
+  }): string {
+    const parsed = parseEmployeeTerminatedDate(input.plannedDate)
+    if (parsed.kind !== 'valid') throw this.invalidInputError()
+    if (
+      !isValidEmployeeTerminationModality(input.terminationModality) ||
+      !isTerminationTypeCompatibleWithModality(input.terminationType, input.terminationModality)
+    ) {
+      throw this.terminationReasonInvalidError()
+    }
+    return parsed.calendarDate
+  }
+
+  private invalidInputError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'datos-invalidos',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_VAL_INPUT,
+      httpStatus: 400,
+      title: this.t('employee_offboarding_val_input_title'),
+      detail: this.t('employee_offboarding_val_input_message'),
+    })
+  }
+
+  /** Sin repetir el valor recibido: el motivo de una baja es dato laboral confidencial. */
+  private terminationReasonInvalidError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'motivo-de-baja-invalido',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_TERMINATION_REASON_INVALID,
+      httpStatus: 422,
+      title: this.t('employee_offboarding_case_termination_reason_invalid_title'),
+      detail: this.t('employee_offboarding_case_termination_reason_invalid_message'),
     })
   }
 
