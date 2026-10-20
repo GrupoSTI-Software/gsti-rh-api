@@ -1,5 +1,14 @@
 import type { BillingPaymentMethod } from '#models/billing_payment'
 
+export const VALANSERH_INVOICE_PARTS = [
+  'license_period',
+  'employee_headcount_increase',
+] as const
+
+export function isValanserhInvoicePart(value: unknown): value is ValanserhInvoicePart {
+  return typeof value === 'string' && (VALANSERH_INVOICE_PARTS as readonly string[]).includes(value)
+}
+
 export const BILLING_PROVIDER_KEYS = {
   MANUAL: 'manual',
   STRIPE: 'stripe',
@@ -352,4 +361,14 @@ export function isBillingCustomerIdentityProvider(
 ): provider is BillingProviderPort & BillingCustomerIdentityProviderPort {
   return typeof (provider as Partial<BillingCustomerIdentityProviderPort>).syncCustomerIdentity ===
     'function'
+}
+
+export interface ValanserhInvoiceLineItem {
+  part: ValanserhInvoicePart
+  description: string
+  quantity: number
+  unitPriceCents: number
+  subtotalCents: number
+  taxAmountCents: number
+  totalCents: number
 }
