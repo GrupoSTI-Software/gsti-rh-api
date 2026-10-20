@@ -42,6 +42,13 @@ export default class OwnEquipmentDeclarationsController {
    *       precarga con la estándar configurada de la empresa y, si tampoco
    *       existe, se rechaza. `fee_source` y `status` los fija el servidor y la
    *       empresa sale de la fila del colaborador, nunca del body.
+   *
+   *       El alta viaja como `multipart/form-data` y acepta un archivo opcional
+   *       `file` con la evidencia del equipo (PDF o foto, hasta 10 MB): se sube
+   *       con el perfil `evidence-document` —que valida el contenido real y
+   *       re-encodea las imágenes a JPEG— después de las validaciones baratas y
+   *       antes de la transacción, y su rechazo responde con el sobre del intake
+   *       (`key`/`code`, p. ej. `contenido-no-corresponde`).
    *     tags: [Assets]
    *     security:
    *       - bearerAuth: []
@@ -51,7 +58,7 @@ export default class OwnEquipmentDeclarationsController {
    *     requestBody:
    *       required: true
    *       content:
-   *         application/json:
+   *         multipart/form-data:
    *           schema:
    *             type: object
    *             required: [category, description, startDate]
@@ -61,6 +68,7 @@ export default class OwnEquipmentDeclarationsController {
    *               conditions: { type: string, maxLength: 2000, nullable: true }
    *               startDate: { type: string, format: date, example: "2026-11-01" }
    *               monthlyFee: { type: number, example: 350, description: "Opcional: 0 o más, hasta dos decimales, sin exceder 99999999.99. Si falta, se precarga con la cuota estándar de la empresa; sin estándar, es obligatoria." }
+   *               file: { type: string, format: binary, description: "Opcional: evidencia del equipo (PDF, JPG, PNG o WEBP de hasta 10 MB)." }
    *           example:
    *             category: ergonomic_chair
    *             description: Silla de oficina con respaldo ajustable
@@ -85,6 +93,7 @@ export default class OwnEquipmentDeclarationsController {
    *                 startDate: "2026-11-01"
    *                 monthlyFee: 350
    *                 status: active
+   *                 hasEvidence: false
    *                 createdAt: "2026-11-01T16:02:11.000Z"
    *       '403': { description: "Sin `employees:manage-employee-supplies` (gate)." }
    *       '404':
@@ -96,10 +105,13 @@ export default class OwnEquipmentDeclarationsController {
    *       '422':
    *         description: |
    *           `categoria-de-insumo-invalida`, `colaborador-sin-teletrabajo`,
-   *           `cuota-de-equipo-propio-invalida` o `entrada-invalida`.
+   *           `cuota-de-equipo-propio-invalida` o `entrada-invalida`; o el
+   *           rechazo del intake del archivo (título `Archivo no aceptado` con
+   *           su `key`/`code`: `extension-no-permitida`, `contenido-no-corresponde`
+   *           o `archivo-demasiado-grande`).
    *         content: { application/json: { schema: { $ref: '#/components/schemas/AssetError' } } }
    *       '500':
-   *         description: "`key: error-inesperado` (detalle fijo, sin `error.message`)."
+   *         description: "`key: error-inesperado` (detalle fijo, sin `error.message`) o `archivo-no-almacenado` si falla la subida."
    *         content: { application/json: { schema: { $ref: '#/components/schemas/AssetError' } } }
    */
   async store(ctx: HttpContext) {
@@ -129,6 +141,9 @@ export default class OwnEquipmentDeclarationsController {
 
       // La cuota no pasa por Vine: se entrega cruda para validarla por texto.
       const rawMonthlyFee = request.input('monthlyFee')
+      // El archivo tampoco pasa por Vine: lo valida el intake con su perfil
+      // (`evidence-document`) y el servicio lo sube tras las validaciones baratas.
+      const file = request.file('file')
       const userId = auth.getUserOrFail().userId
 
       const data = await this.service.create(
@@ -140,6 +155,7 @@ export default class OwnEquipmentDeclarationsController {
           startDate: input.startDate,
         },
         rawMonthlyFee,
+        file,
         userId
       )
 

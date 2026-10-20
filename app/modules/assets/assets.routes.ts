@@ -81,6 +81,16 @@ router
       .use(
         middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.closeOwnEquipmentDeclaration)
       )
+    // Evidencia adjunta de la declaración: la abre la ficha del activo, así que
+    // pide la lectura de insumos (no el permiso de Empleados que exige el alta).
+    router
+      .get(
+        '/own-equipment-declarations/:declarationId/file',
+        '#modules/assets/asset_files.controller.ownEquipmentEvidence'
+      )
+      .use(
+        middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.downloadOwnEquipmentDeclarationFile)
+      )
   })
   .prefix('/api')
   .use(middleware.auth())

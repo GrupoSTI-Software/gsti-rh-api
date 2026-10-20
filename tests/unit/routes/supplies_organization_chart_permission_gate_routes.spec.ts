@@ -198,6 +198,7 @@ const SUPPLIES_ROUTE_FILES: RouteFileContract[] = [
       { method: 'post', path: '/employees/:employeeId/own-equipment-declarations', handler: '#modules/assets/own_equipment_declarations.controller.store', declaration: 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.storeOwnEquipmentDeclaration' },
       { method: 'put', path: '/own-equipment-declarations/:declarationId', handler: '#modules/assets/own_equipment_declarations.controller.update', declaration: 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateOwnEquipmentDeclaration' },
       { method: 'post', path: '/own-equipment-declarations/:declarationId/close', handler: '#modules/assets/own_equipment_declarations.controller.close', declaration: 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.closeOwnEquipmentDeclaration' },
+      { method: 'get', path: '/own-equipment-declarations/:declarationId/file', handler: '#modules/assets/asset_files.controller.ownEquipmentEvidence', declaration: supplies('downloadOwnEquipmentDeclarationFile') },
     ],
     open: [],
   },
