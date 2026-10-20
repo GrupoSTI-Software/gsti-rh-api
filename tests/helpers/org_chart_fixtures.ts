@@ -41,6 +41,26 @@ export async function createPositionFixture(businessUnitId: number, label: strin
   return position
 }
 
+/**
+ * Liga un puesto a un departamento insertando la pivote. Firma posicional:
+ * las historias que siguen llaman `linkDepartmentPositionFixture` así.
+ */
+export async function linkDepartmentPositionFixture(
+  departmentId: number,
+  positionId: number,
+  businessUnitId: number
+): Promise<number> {
+  const inserted = await db.table('department_position').insert({
+    department_id: departmentId,
+    position_id: positionId,
+    business_unit_id: businessUnitId,
+    department_position_created_at: db.raw('NOW()'),
+    department_position_updated_at: db.raw('NOW()'),
+  })
+  const id = Array.isArray(inserted) ? inserted[0] : inserted
+  return Number(id)
+}
+
 export async function cleanupOrgChartFixtures(businessUnitId: number): Promise<void> {
   const departments: { department_id: number }[] = await db
     .from('departments')

@@ -1,7 +1,29 @@
 import Department from '#models/department'
 import DepartmentPosition from '#models/department_position'
 import Position from '#models/position'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { I18n } from '@adonisjs/i18n'
+
+/**
+ * Resultado de comprobar que un puesto quede en un solo departamento vigente
+ * de su empresa. `linkedDepartmentName` es null cuando el departamento ligado
+ * es de otra empresa: el tipo impide nombrarlo.
+ */
+export type DepartmentPositionLinkCheck =
+  | { ok: true; positionBusinessUnitId: number; positionName: string }
+  | { ok: false; reason: 'position-not-found' | 'department-not-found' | 'business-unit-mismatch' }
+  | {
+      ok: false
+      reason: 'position-linked-to-other-department'
+      positionName: string
+      linkedDepartmentName: string | null
+    }
+
+/** Transacción y empresa del puesto, para escribir el vínculo sin salir de la transacción. */
+export interface DepartmentPositionLinkWrite {
+  trx: TransactionClientContract
+  businessUnitId: number
+}
 
 export default class DepartmentPositionService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -10,27 +32,44 @@ export default class DepartmentPositionService {
     this.t = i18n.formatMessage.bind(i18n)
   }
 
-  async syncCreate(departmentId: number, positionId: number) {
+  async syncCreate(
+    departmentId: number,
+    positionId: number,
+    link?: DepartmentPositionLinkWrite
+  ) {
     const newDepartmentPosition = new DepartmentPosition()
     newDepartmentPosition.departmentId = departmentId
     newDepartmentPosition.positionId = positionId
     newDepartmentPosition.departmentPositionLastSynchronizationAt = new Date()
+    if (link) {
+      newDepartmentPosition.useTransaction(link.trx)
+      newDepartmentPosition.businessUnitId = link.businessUnitId
+    }
     await newDepartmentPosition.save()
     return newDepartmentPosition
   }
 
-  async create(departmentPosition: DepartmentPosition) {
+  async create(departmentPosition: DepartmentPosition, link?: DepartmentPositionLinkWrite) {
     const newDepartmentPosition = new DepartmentPosition()
     newDepartmentPosition.departmentId = departmentPosition.departmentId
     newDepartmentPosition.positionId = departmentPosition.positionId
+    if (link) {
+      newDepartmentPosition.useTransaction(link.trx)
+      newDepartmentPosition.businessUnitId = link.businessUnitId
+    }
     await newDepartmentPosition.save()
     return newDepartmentPosition
   }
 
   async update(
     currentDepartmentPosition: DepartmentPosition,
-    departmentPosition: DepartmentPosition
+    departmentPosition: DepartmentPosition,
+    link?: DepartmentPositionLinkWrite
   ) {
+    if (link) {
+      currentDepartmentPosition.useTransaction(link.trx)
+      currentDepartmentPosition.businessUnitId = link.businessUnitId
+    }
     currentDepartmentPosition.departmentId = departmentPosition.departmentId
     currentDepartmentPosition.positionId = departmentPosition.positionId
     await currentDepartmentPosition.save()
@@ -48,6 +87,94 @@ export default class DepartmentPositionService {
       .where('department_position_id', departmentPositionId)
       .first()
     return departmentPosition ? departmentPosition : null
+  }
+
+  /**
+   * Garantiza, con la fila del puesto bloqueada, que el puesto quede en un
+   * solo departamento vigente de su misma empresa. Cuenta vínculos de
+   * cualquier empresa; los retirados no cuentan.
+   */
+  async verifySingleDepartmentLink(
+    params: {
+      positionId: number
+      departmentId: number
+      excludeDepartmentPositionId?: number
+      previousPositionId?: number
+    },
+    trx: TransactionClientContract
+  ): Promise<DepartmentPositionLinkCheck> {
+    const ids = [params.positionId]
+    if (
+      params.previousPositionId !== undefined &&
+      params.previousPositionId !== params.positionId
+    ) {
+      ids.push(params.previousPositionId)
+    }
+    ids.sort((left, right) => left - right)
+
+    const lockedPositions: Array<{
+      position_id: number
+      business_unit_id: number
+      position_name: string
+    }> = await trx
+      .from('positions')
+      .whereIn('position_id', ids)
+      .whereNull('position_deleted_at')
+      .orderBy('position_id')
+      .forUpdate()
+      .select('position_id', 'business_unit_id', 'position_name')
+
+    const position = lockedPositions.find((row) => Number(row.position_id) === params.positionId)
+    if (!position) {
+      return { ok: false, reason: 'position-not-found' }
+    }
+
+    const department: { business_unit_id: number } | null = await trx
+      .from('departments')
+      .where('department_id', params.departmentId)
+      .whereNull('department_deleted_at')
+      .select('business_unit_id')
+      .first()
+
+    if (!department) {
+      return { ok: false, reason: 'department-not-found' }
+    }
+
+    const positionBusinessUnitId = Number(position.business_unit_id)
+    if (Number(department.business_unit_id) !== positionBusinessUnitId) {
+      return { ok: false, reason: 'business-unit-mismatch' }
+    }
+
+    let otherLink = trx
+      .from('department_position as dp')
+      .join('departments as d', 'd.department_id', 'dp.department_id')
+      .where('dp.position_id', params.positionId)
+      .whereNull('dp.department_position_deleted_at')
+      .whereNot('dp.department_id', params.departmentId)
+      .select('d.department_name', 'd.business_unit_id')
+
+    if (params.excludeDepartmentPositionId !== undefined) {
+      otherLink = otherLink.whereNot('dp.department_position_id', params.excludeDepartmentPositionId)
+    }
+
+    const linked: { department_name: string; business_unit_id: number } | null =
+      await otherLink.first()
+
+    if (linked) {
+      const sameCompany = Number(linked.business_unit_id) === positionBusinessUnitId
+      return {
+        ok: false,
+        reason: 'position-linked-to-other-department',
+        positionName: position.position_name,
+        linkedDepartmentName: sameCompany ? linked.department_name : null,
+      }
+    }
+
+    return {
+      ok: true,
+      positionBusinessUnitId,
+      positionName: position.position_name,
+    }
   }
 
   async verifyInfoExist(departmentPosition: DepartmentPosition) {
