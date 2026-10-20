@@ -183,7 +183,7 @@ Objetivo: comprobar que se puede adjuntar como evidencia una foto del celular y 
 4. En **Evidencia o condiciones (opcional)** elige la foto tomada con el celular (por ejemplo una del carrete, tomada con la ubicación activada).
 5. Pulsa **Guardar**.
 6. Ya guardada, en el renglón **Equipo de cómputo o impresión** pulsa **Descargar evidencia** y guarda el archivo.
-7. Compara la foto original del carrete con la evidencia que se bajó: revisa la información de cada una (la ficha que el visor de fotos muestra con el lugar y la fecha en que se tomó).
+7. Compara la foto original del carrete con la evidencia que se bajó: usa el comando del final de este escenario o mira la información de cada archivo (la ficha con el lugar y la fecha en que se tomó).
 
 **Qué debe verse:**
 
@@ -192,7 +192,11 @@ Objetivo: comprobar que se puede adjuntar como evidencia una foto del celular y 
 - El archivo que baja es la misma foto que se adjuntó (se ve la misma imagen) y su nombre es el genérico `equipo-propio-<número>.jpg`, pero al abrir su información **ya no aparece ningún lugar ni coordenadas**: donde la foto original mostraba el lugar o el mapa donde se tomó, la evidencia descargada no muestra nada.
 - **Negativo a comprobar a propósito:** la foto original del carrete **sí** trae su ubicación; la evidencia que se bajó **no**. Lo demás de la foto no cambia: la imagen se ve igual.
 
-**Cómo se revisa la ubicación de una foto:** ábrela con el visor de fotos de tu computadora y mira su ficha o su información, la parte donde el visor anota dónde y cuándo se tomó. Es el mismo dato que aparece cuando compartes una foto y el teléfono te avisa que lleva el lugar donde la tomaste.
+**Cómo se revisa la ubicación de una foto** (dos formas; la primera no necesita instalar nada):
+
+- **Con un comando:** en la Terminal, sobre cada archivo: `python3 -c "from PIL import Image; import sys; e = Image.open(sys.argv[1]).getexif(); print('GPS:', e.get_ifd(0x8825) or 'sin ubicacion')" archivo.jpg` — en la foto original imprime las coordenadas; en el archivo que bajaste imprime `GPS: sin ubicacion`.
+- **Sin terminal:** abre la foto en Vista Previa y pulsa ⌘I (Mostrar inspector); el apartado **GPS** trae las coordenadas en la original y no aparece en la que bajaste.
+- **Ojo con los atajos de macOS:** `sips` y `mdls` **no** muestran la ubicación; para esta comprobación no sirven. (Si prefieres una herramienta dedicada, `exiftool -gps:all archivo.jpg` la imprime, pero hay que instalarla.)
 
 **Qué significa lo nuevo aquí:**
 
