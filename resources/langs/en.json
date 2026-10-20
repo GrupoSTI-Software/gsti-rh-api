@@ -936,6 +936,7 @@
   "employee_offboarding_case_cancelled_read_only_message": "The exit was cancelled when the employee was reactivated; the case is read-only.",
   "employee_offboarding_case_termination_reason_invalid_title": "Invalid termination reason",
   "employee_offboarding_case_termination_reason_invalid_message": "The modality is not in the catalog or the termination type does not match the selected modality.",
+  "employee_offboarding_case_updated_message": "The termination details were updated successfully",
   "employee_offboarding_document_resource_title": "Offboarding case documents",
   "employee_offboarding_document_issue_error_title": "The separation certificate could not be issued",
   "employee_offboarding_document_download_error_title": "The download link could not be generated",

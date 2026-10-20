@@ -3,7 +3,8 @@ import { middleware } from '#start/kernel'
 
 /**
  * Expediente de salida (USRH1786568279587 + listado, cierre y reapertura de
- * USRH1786568279596). RBAC granular vía `OffboardingsService.assertCanAccess`
+ * USRH1786568279596 + edición de motivos de VLRH-H1792177926178). RBAC
+ * granular vía `OffboardingsService.assertCanAccess`
  * en el controller. Las rutas estáticas se declaran ANTES que las
  * paramétricas (molde `start/routes/position_level_routes.ts`).
  */
@@ -18,6 +19,10 @@ router
     router.patch(
       '/:employeeOffboardingId/close',
       '#modules/employee-offboarding/offboardings/offboardings.controller.close'
+    )
+    router.patch(
+      '/:employeeOffboardingId',
+      '#modules/employee-offboarding/offboardings/offboardings.controller.update'
     )
     router.patch(
       '/:employeeOffboardingId/reopen',

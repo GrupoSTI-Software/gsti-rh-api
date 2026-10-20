@@ -9,6 +9,7 @@ import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboardin
 import OffboardingsService from './offboardings.service.js'
 import { listOffboardingsValidator } from './validators/list_offboardings.validator.js'
 import { scheduleOffboardingValidator } from './validators/schedule_offboarding.validator.js'
+import { updateOffboardingTerminationValidator } from './validators/update_offboarding_termination.validator.js'
 
 /** Ramos genéricos del resolvedor con los códigos del slice del expediente. */
 const CASE_FALLBACKS: EmployeeOffboardingErrorFallbacks = {
@@ -269,6 +270,82 @@ export default class OffboardingsController {
         employeeOffboarding,
         i18n.formatMessage('employee_offboarding_case_title'),
         i18n.formatMessage('employee_offboarding_case_closed_message'),
+        200,
+        'employeeOffboarding'
+      )
+    } catch (error) {
+      return this.respondWithError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-offboardings/{employeeOffboardingId}:
+   *   patch:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Expediente de salida]
+   *     summary: Corrige la fecha de baja, los motivos y la nota de un expediente en curso
+   *     description: |
+   *       Edición total de los datos de la baja (VLRH-H1792177926178): fecha de
+   *       baja, modalidad y tipo obligatorios con las mismas validaciones del
+   *       alta; la nota ausente se conserva, `null` o vacía la borra. Solo con el
+   *       expediente `open`, verificado bajo candado al guardar. No toca la copia
+   *       de la baja (`termination_*`) ni al colaborador.
+   *     parameters:
+   *       - in: path
+   *         name: employeeOffboardingId
+   *         required: true
+   *         schema: { type: integer }
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [plannedDate, terminationModality, terminationType]
+   *             properties:
+   *               plannedDate: { type: string, format: date, description: 'Fecha de baja, YYYY-MM-DD; cualquier día real' }
+   *               terminationModality: { type: string, maxLength: 120 }
+   *               terminationType: { type: string, maxLength: 200, description: 'Compatible con la modalidad enviada' }
+   *               notes: { type: string, maxLength: 1000, nullable: true }
+   *     responses:
+   *       200:
+   *         description: Expediente actualizado en data.employeeOffboarding (DTO de la ficha)
+   *       400:
+   *         description: Id no entero, dato faltante, formato o fecha inexistente (key datos-invalidos)
+   *       403:
+   *         description: Sin permiso update sobre employee-offboardings (key sin-permiso)
+   *       404:
+   *         description: Expediente inexistente, borrado o fuera del alcance (key expediente-no-encontrado)
+   *       409:
+   *         description: Expediente cerrado (key expediente-cerrado) o cancelado (key expediente-cancelado); nada cambió
+   *       422:
+   *         description: Modalidad fuera del catálogo o tipo incompatible (key motivo-de-baja-invalido)
+   */
+  async update({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+    try {
+      const service = new OffboardingsService(i18n)
+      await service.assertCanAccess(auth.user?.roleId, 'update')
+      const employeeOffboardingId = this.parseEmployeeId(
+        request.param('employeeOffboardingId'),
+        i18n
+      )
+      const data = await request.validateUsing(updateOffboardingTerminationValidator)
+      const employeeOffboarding = await service.updateTermination(
+        employeeOffboardingId,
+        {
+          plannedDate: data.plannedDate,
+          terminationModality: data.terminationModality,
+          terminationType: data.terminationType,
+          notes: data.notes,
+        },
+        businessUnitScope
+      )
+      return StandardResponseFormatter.success(
+        response,
+        employeeOffboarding,
+        i18n.formatMessage('employee_offboarding_case_title'),
+        i18n.formatMessage('employee_offboarding_case_updated_message'),
         200,
         'employeeOffboarding'
       )

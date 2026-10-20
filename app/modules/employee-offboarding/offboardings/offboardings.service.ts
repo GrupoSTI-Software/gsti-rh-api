@@ -27,6 +27,7 @@ import type { ConceptsRepository } from '../concepts/concepts.repository.js'
 import {
   EMPLOYEE_OFFBOARDING_ORIGIN,
   EMPLOYEE_OFFBOARDING_STATUS,
+  isOffboardingCaseWritable,
 } from './offboardings.constants.js'
 import OffboardingsRepositoryMysql from './offboardings.repository.mysql.js'
 import type {
@@ -63,6 +64,15 @@ export interface ScheduleOffboardingInput {
   plannedDate: string
   terminationModality: string
   terminationType: string
+  notes?: string | null
+}
+
+/** Datos de la baja que se corrigen en un expediente en curso (VLRH-H1792177926178). */
+export interface UpdateOffboardingTerminationInput {
+  plannedDate: string
+  terminationModality: string
+  terminationType: string
+  /** Ausente conserva la nota; `null` o vacía la borra; texto la reemplaza. */
   notes?: string | null
 }
 
@@ -275,6 +285,51 @@ export default class OffboardingsService {
     await this.repository.saveCase(offboarding)
 
     return await this.buildDtoForCase(offboarding, businessUnitScope)
+  }
+
+  /**
+   * Corrige fecha de baja, modalidad, tipo y nota de un expediente en curso
+   * (VLRH-H1792177926178, reglas 1, 3, 4 y 5; R3 a R7 de VLRH-C0038). Las
+   * mismas validaciones del alta ANTES de tocar la BD; luego, bajo candado de
+   * la fila y dentro del alcance, se re-verifica el estado: cancelado y cerrado
+   * son de solo lectura. No toca `termination_*` ni la fila de `employees`
+   * (orden de candados de la reactivación: colaborador → expediente).
+   */
+  async updateTermination(
+    employeeOffboardingId: number,
+    input: UpdateOffboardingTerminationInput,
+    businessUnitScope: number[]
+  ): Promise<EmployeeOffboardingDto> {
+    const plannedDate = this.assertValidTermination(input)
+
+    const updated = await db.transaction(async (trx) => {
+      const locked = await this.repository.lockByIdInScope(
+        employeeOffboardingId,
+        businessUnitScope,
+        trx
+      )
+      if (!locked) {
+        throw this.caseNotFoundError()
+      }
+      if (locked.employeeOffboardingStatus === EMPLOYEE_OFFBOARDING_STATUS.CANCELLED) {
+        throw this.caseCancelledError()
+      }
+      if (!isOffboardingCaseWritable(locked.employeeOffboardingStatus)) {
+        throw this.caseClosedReadOnlyError()
+      }
+
+      locked.employeeOffboardingPlannedDate = plannedDate
+      locked.employeeOffboardingPlannedModality = input.terminationModality
+      locked.employeeOffboardingPlannedType = input.terminationType
+      if (input.notes !== undefined) {
+        locked.employeeOffboardingNotes =
+          input.notes !== null && input.notes.length > 0 ? input.notes : null
+      }
+      await this.repository.saveCase(locked, trx)
+      return locked
+    })
+
+    return await this.buildDtoForCase(updated, businessUnitScope)
   }
 
   /** DTO tras cerrar/reabrir: el colaborador se resuelve sin alcance y con trashed. */
@@ -641,6 +696,17 @@ export default class OffboardingsService {
       httpStatus: 409,
       title: this.t('employee_offboarding_case_cancelled_read_only_title'),
       detail: this.t('employee_offboarding_case_cancelled_read_only_message'),
+    })
+  }
+
+  /** Escritura sobre un expediente cerrado (regla 3 de VLRH-H1792177926178); gemelo del de pendientes. */
+  private caseClosedReadOnlyError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'expediente-cerrado',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.CASE_CLOSED_READ_ONLY,
+      httpStatus: 409,
+      title: this.t('employee_offboarding_case_closed_read_only_title'),
+      detail: this.t('employee_offboarding_case_closed_read_only_message'),
     })
   }
 
