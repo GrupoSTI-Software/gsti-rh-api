@@ -377,14 +377,14 @@ Objetivo: comprobar que el bloque de la matriz, la declaración con su evidencia
 
 Cada casilla se marca **contra el objetivo de su escenario**, no contra «se hicieron los pasos»:
 
-- [x] 4.1 En la ficha de `QA-TEL-02`, declarar la silla adjuntando `acuerdo-equipo-propio.pdf` la deja en **Equipo propio declarado** con el chip **Con evidencia adjunta** y su botón **Descargar evidencia**, que baja el mismo PDF, y el resumen pasa de **2 sin cubrir** a **1 sin cubrir**
-- [x] 4.2 Ajustar la silla a `420` deja la versión nueva **Sin evidencia** (sin botón) y manda la anterior a **Declaraciones anteriores (2)** —con la del sembrador— con periodo **01/11/2026 a 30/11/2026**, motivo **Ajuste de cuota** y su chip **Con evidencia adjunta** con su botón
-- [x] 4.3 La evidencia de la versión cerrada se baja desde el histórico (**Descargar evidencia** en **Declaraciones anteriores**) y es el mismo archivo, aunque la vigente ya no la tenga
-- [x] 4.4 Adjuntar una foto del celular deja el cómputo **Con evidencia adjunta** con el resumen en **Completo**, y la foto descargada ya no trae la ubicación con la que se tomó
-- [x] 4.5 Declarar el aditamento sin archivo lo deja **Sin evidencia** y sin botón de descarga, sin que el alta falle
-- [x] 4.6 Con `QA-TEL-03`, el `.docx` y el PDF de 11 MB se rechazan en el cajón con los avisos de la prevalidación —**Solo PDF, JPG, PNG o WEBP.** para el tipo y **El archivo supera 10 MB.** para el tamaño—, **Guardar** no dispara nada mientras el archivo siga puesto, y **Quitar archivo** lo saca sin perder descripción, fecha ni cuota
-- [x] 4.7 Con el Usuario B se ven las declaraciones, sus chips de evidencia y el botón **Descargar evidencia** —que funciona—, y no aparecen **Declarar equipo propio**, **Ajustar cuota**, **Terminar declaración** ni el campo **Evidencia o condiciones (opcional)**
-- [x] 4.8 A 360 px no hay desplazamiento horizontal, el histórico y la evidencia van en una columna y el cajón queda a todo lo ancho con los botones apilados; a unos 850 px los renglones siguen en una columna; desde unos 1024 px el renglón se abre con el chip de estado al extremo derecho y la declaración y su histórico debajo a todo lo ancho
+- [ ] 4.1 En la ficha de `QA-TEL-02`, declarar la silla adjuntando `acuerdo-equipo-propio.pdf` la deja en **Equipo propio declarado** con el chip **Con evidencia adjunta** y su botón **Descargar evidencia**, que baja el mismo PDF, y el resumen pasa de **2 sin cubrir** a **1 sin cubrir**
+- [ ] 4.2 Ajustar la silla a `420` deja la versión nueva **Sin evidencia** (sin botón) y manda la anterior a **Declaraciones anteriores (2)** —con la del sembrador— con periodo **01/11/2026 a 30/11/2026**, motivo **Ajuste de cuota** y su chip **Con evidencia adjunta** con su botón
+- [ ] 4.3 La evidencia de la versión cerrada se baja desde el histórico (**Descargar evidencia** en **Declaraciones anteriores**) y es el mismo archivo, aunque la vigente ya no la tenga
+- [ ] 4.4 Adjuntar una foto del celular deja el cómputo **Con evidencia adjunta** con el resumen en **Completo**, y la foto descargada ya no trae la ubicación con la que se tomó
+- [ ] 4.5 Declarar el aditamento sin archivo lo deja **Sin evidencia** y sin botón de descarga, sin que el alta falle
+- [ ] 4.6 Con `QA-TEL-03`, el `.docx` y el PDF de 11 MB se rechazan en el cajón con los avisos de la prevalidación —**Solo PDF, JPG, PNG o WEBP.** para el tipo y **El archivo supera 10 MB.** para el tamaño—, **Guardar** no dispara nada mientras el archivo siga puesto, y **Quitar archivo** lo saca sin perder descripción, fecha ni cuota
+- [ ] 4.7 Con el Usuario B se ven las declaraciones, sus chips de evidencia y el botón **Descargar evidencia** —que funciona—, y no aparecen **Declarar equipo propio**, **Ajustar cuota**, **Terminar declaración** ni el campo **Evidencia o condiciones (opcional)**
+- [ ] 4.8 A 360 px no hay desplazamiento horizontal, el histórico y la evidencia van en una columna y el cajón queda a todo lo ancho con los botones apilados; a unos 850 px los renglones siguen en una columna; desde unos 1024 px el renglón se abre con el chip de estado al extremo derecho y la declaración y su histórico debajo a todo lo ancho
 
 ## Hallazgos de otras historias
 
