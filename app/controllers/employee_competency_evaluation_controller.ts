@@ -2,6 +2,7 @@ import { HttpContext } from '@adonisjs/core/http'
 import { createEmployeeCompetencyEvaluationValidator, updateEmployeeCompetencyEvaluationValidator } from '#validators/employee_competency_evaluation'
 import EmployeeCompetencyEvaluation from '#models/employee_competency_evaluation'
 import EmployeeCompetencyEvaluationService from '#services/employee_competency_evaluation_service'
+import { competencyNotFoundResponse } from '#helpers/competency_api_error'
 
 export default class EmployeeCompetencyEvaluationController {
  /**
@@ -158,6 +159,17 @@ export default class EmployeeCompetencyEvaluationController {
       competencyBracketId: competencyBracketId,
       employeeCompetencyEvaluationScore: employeeCompetencyEvaluationScore,
     } as EmployeeCompetencyEvaluation
+
+    // VLRH-H1792032453526 (regla 2 propia): valida lo que se persiste
+    // (request.input), no el payload validado — es el valor real que guarda create().
+    const outOfScopeCode = await employeeCompetencyEvaluationService.findOutOfScopeReference({
+      positionBusinessUnitCompetencyLevelId,
+      businessUnitCompetencyLevelId,
+      competencyBracketId,
+    })
+    if (outOfScopeCode) {
+      return competencyNotFoundResponse(response, outOfScopeCode)
+    }
 
     const newEmployeeCompetencyEvaluation = await employeeCompetencyEvaluationService.create(employeeCompetencyEvaluation)
     response.status(201)
@@ -358,6 +370,15 @@ export default class EmployeeCompetencyEvaluationController {
         }
       }
       const employeeCompetencyEvaluationService = new EmployeeCompetencyEvaluationService(i18n)
+      // VLRH-H1792032453526 (regla 2 propia): valida lo que se persiste
+      // (request.input), no el payload validado — es el valor real que guarda update().
+      const outOfScopeCode = await employeeCompetencyEvaluationService.findOutOfScopeReference({
+        businessUnitCompetencyLevelId,
+        competencyBracketId,
+      })
+      if (outOfScopeCode) {
+        return competencyNotFoundResponse(response, outOfScopeCode)
+      }
       const updateEmployeeCompetencyEvaluation = await employeeCompetencyEvaluationService.update(currentEmployeeCompetencyEvaluation, employeeCompetencyEvaluation)
       if (updateEmployeeCompetencyEvaluation) {
         response.status(200)

@@ -2,6 +2,9 @@ import { HttpContext } from '@adonisjs/core/http'
 import CompetencyDescriptorService from '#services/competency_descriptor_service'
 import { createCompetencyDescriptorValidator, updateCompetencyDescriptorValidator } from '#validators/competency_descriptor'
 import CompetencyDescriptor from '#models/competency_descriptor'
+import Competency from '#models/competency'
+import { competencyNotFoundResponse } from '#helpers/competency_api_error'
+import { COMPETENCY_ERROR_CODES } from '#constants/competency_error_codes'
 
 export default class CompetencyDescriptorController {
   /**
@@ -280,13 +283,7 @@ export default class CompetencyDescriptorController {
         .where('competency_descriptor_id', competencyDescriptorId)
         .first()
       if (!currentCompetencyDescriptor) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity: t('competency_descriptor') }),
-          message: t('entity_was_not_found_with_entered_id', { entity: t('competency_descriptor') }),
-          data: { competencyDescriptorId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.DESCRIPTOR_NOT_FOUND)
       }
       const competencyDescriptorService = new CompetencyDescriptorService(i18n)
       const data = await request.validateUsing(updateCompetencyDescriptorValidator)
@@ -431,14 +428,7 @@ export default class CompetencyDescriptorController {
         .where('competency_descriptor_id', competencyDescriptorId)
         .first()
       if (!currentCompetencyDescriptor) {
-        const entity = t('competency_descriptor')
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { competencyDescriptorId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.DESCRIPTOR_NOT_FOUND)
       }
       const competencyDescriptorService = new CompetencyDescriptorService(i18n)
       const deleteCompetencyDescriptor = await competencyDescriptorService.delete(currentCompetencyDescriptor)
@@ -578,14 +568,7 @@ export default class CompetencyDescriptorController {
       const competencyDescriptorService = new CompetencyDescriptorService(i18n)
       const showCompetencyDescriptor = await competencyDescriptorService.show(competencyDescriptorId)
       if (!showCompetencyDescriptor) {
-        const entity = t('competency_descriptor')
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { competencyDescriptorId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.DESCRIPTOR_NOT_FOUND)
       } else {
         response.status(200)
         return {
@@ -718,17 +701,20 @@ export default class CompetencyDescriptorController {
           data: { competencyId },
         }
       }
+      // VLRH-H1792032453526 (regla 3 propia): el padre debe ser de la empresa
+      // en contexto. `Competency.query()` está escopeado (withBusinessUnitScope,
+      // VLRH-H1792026427127): si no vuelve fila, es ajeno, plantilla o inexistente.
+      const parentCompetency = await Competency.query()
+        .whereNull('competency_deleted_at')
+        .where('competencyId', Number(competencyId))
+        .first()
+      if (!parentCompetency) {
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.COMPETENCY_NOT_FOUND)
+      }
       const competencyDescriptorService = new CompetencyDescriptorService(i18n)
       const competencyDescriptors = await competencyDescriptorService.getByCompetencyId(competencyId)
       if (!competencyDescriptors) {
-        const entity = t('competency_descriptor')
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { competencyId },
-        }
+        return competencyNotFoundResponse(response, COMPETENCY_ERROR_CODES.DESCRIPTOR_NOT_FOUND)
       } else {
         response.status(200)
         return {

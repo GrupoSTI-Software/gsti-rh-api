@@ -4,8 +4,10 @@ import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework
 import type {
   OwnEquipmentDeclarationByEmployee,
   OwnEquipmentDeclarationDto,
+  OwnEquipmentDeclarationForChange,
   OwnEquipmentDeclarationInsert,
 } from './dto/own_equipment_declarations.dto.js'
+import type { OwnEquipmentClosedReason } from './assets.constants.js'
 
 /**
  * Puerto de la declaración de equipo propio (VLRH-H1791306075599), sin modelo
@@ -67,4 +69,38 @@ export interface OwnEquipmentDeclarationsRepository {
     businessUnitIds: readonly number[],
     employeeIds: readonly number[]
   ): Promise<OwnEquipmentDeclarationByEmployee[]>
+  /**
+   * Declaración viva por id, acotada al alcance de empresas, con su empresa:
+   * es la fila que el ajuste clona (empresa, colaborador y categoría salen de
+   * aquí, nunca del body). Con `lock` toma `forUpdate` (solo tiene efecto si
+   * `executor` es una transacción). Ajeno, inexistente o dado de baja lógica →
+   * `null`, indistinguible.
+   */
+  findDeclarationForChange(
+    executor: OwnEquipmentDbExecutor,
+    businessUnitIds: readonly number[],
+    declarationId: number,
+    options: { lock: boolean }
+  ): Promise<OwnEquipmentDeclarationForChange | null>
+  /**
+   * Cierra la declaración dejando su periodo, su motivo y su autor. Corre
+   * dentro de la transacción del término: el `UPDATE` escribe el estado
+   * terminal, la fecha de fin, el motivo, el usuario que cierra y la marca de
+   * actualización.
+   */
+  closeDeclaration(
+    trx: TransactionClientContract,
+    declarationId: number,
+    input: { endDate: string; reason: OwnEquipmentClosedReason; userId: number }
+  ): Promise<void>
+  /**
+   * Declaraciones cerradas del colaborador, de TODAS las categorías, con el
+   * alcance de empresas dentro de la consulta (R3). Ordena por `end_date` desc
+   * y luego por `declaration_id` desc; excluye la vigente y las borradas
+   * lógicamente. Alcance vacío → `[]` sin consultar.
+   */
+  findHistoryByEmployee(
+    businessUnitIds: readonly number[],
+    employeeId: number
+  ): Promise<OwnEquipmentDeclarationDto[]>
 }

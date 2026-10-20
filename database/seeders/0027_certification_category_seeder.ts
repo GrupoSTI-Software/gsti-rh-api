@@ -1,17 +1,14 @@
 import CertificationCategory from '#models/certification_category'
+import { POSITION_TEMPLATE_CERTIFICATION_CATEGORIES } from '#constants/position_template_format'
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
 
-/** Semilla idempotente: categorías iniciales del catálogo de certificaciones. */
+/**
+ * Semilla idempotente: categorías del catálogo de certificaciones. Salen de la misma
+ * constante que acepta el formato de plantillas de puesto (VLRH-H1792026425571).
+ */
 export default class extends BaseSeeder {
   async run() {
-    const rows = [
-      { key: 'seguridad', name: 'Seguridad', order: 1 },
-      { key: 'operacion', name: 'Operación', order: 2 },
-      { key: 'tecnico', name: 'Técnico', order: 3 },
-      { key: 'administrativo', name: 'Administrativo', order: 4 },
-    ]
-
-    for (const row of rows) {
+    for (const row of POSITION_TEMPLATE_CERTIFICATION_CATEGORIES) {
       await CertificationCategory.updateOrCreate(
         { certificationCategoryKey: row.key },
         {

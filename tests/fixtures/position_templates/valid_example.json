@@ -1,0 +1,90 @@
+{
+  "version_formato": 1,
+  "idioma": "es",
+  "descripcion": "Ejemplo válido del formato de plantillas v1 (fixture de pruebas, no contenido importable).",
+  "puestos": [
+    {
+      "codigo": "pt-avp-piloto", "version": 1, "estado": "estandar", "nombre": "Piloto de aviación privada",
+      "codigo_sinco": "2635", "alcance": "giro", "giros": ["aviacion-privada"],
+      "descripcion": { "texto": "Opera aeronaves de la empresa en vuelos privados conforme a la regulación aeronáutica.", "atribucion": { "fuente": "onet", "id_en_fuente": "53-2012.00", "adaptado": true } },
+      "objetivo": { "texto": "Realizar vuelos seguros y puntuales cumpliendo los procedimientos de operación.", "atribucion": { "fuente": "propio", "adaptado": false } },
+      "funciones": [
+        { "nombre": "Realizar la inspección prevuelo de la aeronave", "frecuencia": "Diaria", "atribucion": { "fuente": "onet", "id_en_fuente": "53-2012.00", "adaptado": true } },
+        { "nombre": "Elaborar el plan de vuelo", "frecuencia": "Por evento", "atribucion": { "fuente": "propio", "adaptado": false } }
+      ],
+      "competencias": [
+        { "nombre": "Operación de aeronaves", "tipo": "technical", "nivel_esperado": 5, "atribucion": { "fuente": "onet", "id_en_fuente": "53-2012.00", "adaptado": true } },
+        { "nombre": "Toma de decisiones", "tipo": "functional", "nivel_esperado": 4, "atribucion": { "fuente": "esco", "id_en_fuente": "S2.2.1", "adaptado": true } }
+      ],
+      "herramientas": [
+        { "nombre": "Tableta con cartas de navegación", "tipo_activo_sugerido": { "nombre": "Equipo de cómputo", "categoria_teletrabajo": "computing_equipment" }, "atribucion": { "fuente": "propio", "adaptado": false } }
+      ],
+      "certificaciones": [
+        { "nombre": "Licencia de piloto comercial", "categoria": "operacion", "emisor": "AFAC", "id_en_emisor": "piloto-comercial", "atribucion": { "fuente": "afac", "id_en_fuente": "licencia-piloto-comercial", "adaptado": false } }
+      ]
+    },
+    {
+      "codigo": "pt-hot-recepcionista", "version": 1, "estado": "estandar", "nombre": "Recepcionista de hotel",
+      "codigo_sinco": "4213", "alcance": "giro", "giros": ["hoteleria"],
+      "descripcion": { "texto": "Atiende el registro de entrada y salida de huéspedes y sus solicitudes.", "atribucion": { "fuente": "onet", "id_en_fuente": "43-4081.00", "adaptado": true } },
+      "objetivo": { "texto": "Dar una atención ágil y cordial al huésped durante su estancia.", "atribucion": { "fuente": "propio", "adaptado": false } },
+      "funciones": [
+        { "nombre": "Registrar la entrada y salida de huéspedes", "frecuencia": "Diaria", "atribucion": { "fuente": "onet", "id_en_fuente": "43-4081.00", "adaptado": true } }
+      ],
+      "competencias": [
+        { "nombre": "Servicio al cliente", "tipo": "functional", "nivel_esperado": 4, "atribucion": { "fuente": "onet", "id_en_fuente": "43-4081.00", "adaptado": true } }
+      ],
+      "herramientas": [
+        { "nombre": "Terminal de reservaciones", "tipo_activo_sugerido": { "nombre": "Terminal de recepción" }, "atribucion": { "fuente": "propio", "adaptado": false } }
+      ]
+    },
+    {
+      "codigo": "pt-res-gerente", "version": 1, "estado": "estandar", "nombre": "Gerente de restaurante",
+      "codigo_sinco": "1421", "alcance": "giro", "giros": ["restaurantes"],
+      "descripcion": { "texto": "Dirige la operación diaria del restaurante, el personal y la experiencia del comensal.", "atribucion": { "fuente": "onet", "id_en_fuente": "11-9051.00", "adaptado": true } },
+      "objetivo": { "texto": "Operar el restaurante con calidad, rentabilidad e higiene.", "atribucion": { "fuente": "propio", "adaptado": false } },
+      "requisitos": { "texto": "Experiencia previa en la operación de cocina y servicio.", "atribucion": { "fuente": "propio", "adaptado": false } },
+      "funciones": [
+        { "nombre": "Programar los turnos del personal", "frecuencia": "Semanal", "atribucion": { "fuente": "propio", "adaptado": false } }
+      ],
+      "competencias": [
+        { "nombre": "Liderazgo", "tipo": "functional", "nivel_esperado": 4, "atribucion": { "fuente": "esco", "id_en_fuente": "S4.8.1", "adaptado": true } },
+        { "nombre": "Control de costos de alimentos", "tipo": "technical", "nivel_esperado": 3, "atribucion": { "fuente": "propio", "adaptado": false } }
+      ],
+      "certificaciones": [
+        { "nombre": "Manejo higiénico de alimentos", "categoria": "seguridad", "emisor": "CONOCER", "id_en_emisor": "EC0000", "atribucion": { "fuente": "conocer", "id_en_fuente": "EC0000", "adaptado": false } }
+      ]
+    },
+    {
+      "codigo": "pt-man-supervisor-produccion", "version": 1, "estado": "estandar", "nombre": "Supervisor de producción",
+      "codigo_sinco": "1322", "alcance": "giro", "giros": ["manufactura"],
+      "descripcion": { "texto": "Coordina al personal de línea para cumplir el programa de producción.", "atribucion": { "fuente": "onet", "id_en_fuente": "51-1011.00", "adaptado": true } },
+      "objetivo": { "texto": "Cumplir volumen, calidad y seguridad en la línea a su cargo.", "atribucion": { "fuente": "propio", "adaptado": false } },
+      "funciones": [
+        { "nombre": "Asignar actividades a la línea de producción", "frecuencia": "Diaria", "atribucion": { "fuente": "onet", "id_en_fuente": "51-1011.00", "adaptado": true } }
+      ],
+      "competencias": [
+        { "nombre": "Liderazgo", "tipo": "functional", "nivel_esperado": 3, "atribucion": { "fuente": "esco", "id_en_fuente": "S4.8.1", "adaptado": true } }
+      ],
+      "certificaciones": [
+        { "nombre": "Seguridad en la operación de maquinaria", "categoria": "seguridad", "emisor": "STPS", "atribucion": { "fuente": "stps_dc3", "id_en_fuente": "dc-3-seguridad-maquinaria", "adaptado": false } }
+      ]
+    },
+    {
+      "codigo": "pt-trv-auxiliar-administrativo", "version": 1, "estado": "estandar", "nombre": "Auxiliar administrativo",
+      "codigo_sinco": "4111", "alcance": "transversal",
+      "descripcion": { "texto": "Apoya la gestión administrativa: archivo, captura y seguimiento de trámites.", "atribucion": { "fuente": "sinco_2019", "id_en_fuente": "4111", "adaptado": true } },
+      "objetivo": { "texto": "Mantener al día la documentación y los trámites del área.", "atribucion": { "fuente": "propio", "adaptado": false } },
+      "funciones": [
+        { "nombre": "Capturar y archivar documentos", "frecuencia": "Diaria", "atribucion": { "fuente": "propio", "adaptado": false } }
+      ],
+      "competencias": [
+        { "nombre": "Manejo de hojas de cálculo", "tipo": "technical", "nivel_esperado": 3, "atribucion": { "fuente": "propio", "adaptado": false } }
+      ],
+      "herramientas": [
+        { "nombre": "Computadora de escritorio", "tipo_activo_sugerido": { "nombre": "Equipo de cómputo", "categoria_teletrabajo": "computing_equipment" }, "atribucion": { "fuente": "propio", "adaptado": false } },
+        { "nombre": "Silla de oficina", "tipo_activo_sugerido": { "nombre": "Silla ergonómica", "categoria_teletrabajo": "ergonomic_chair" }, "atribucion": { "fuente": "propio", "adaptado": false } }
+      ]
+    }
+  ]
+}

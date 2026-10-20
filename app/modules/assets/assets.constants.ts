@@ -96,6 +96,27 @@ export type OwnEquipmentDeclarationStatus = (typeof OWN_EQUIPMENT_DECLARATION_ST
 export const OWN_EQUIPMENT_FEE_SOURCES = ['default', 'adjusted'] as const
 export type OwnEquipmentFeeSource = (typeof OWN_EQUIPMENT_FEE_SOURCES)[number]
 
+/**
+ * Motivos de cierre que RH puede elegir al terminar una declaración (regla 8):
+ * el catálogo del `Select` y el `vine.enum` del término. `adjusted` NO está
+ * aquí: es el motivo reservado al sistema cuando el cierre viene de un ajuste,
+ * y por eso no es seleccionable (R8).
+ */
+export const OWN_EQUIPMENT_CLOSE_REASONS = [
+  'company_equipment_assigned',
+  'telework_ended',
+  'conditions_changed',
+  'other',
+] as const
+
+/** Motivo de cierre reservado al sistema (R8): lo pone el ajuste, no RH. */
+export const OWN_EQUIPMENT_ADJUSTED_CLOSE_REASON = 'adjusted'
+
+/** Motivo de cierre de una declaración: los del catálogo o el del sistema. */
+export type OwnEquipmentClosedReason =
+  | (typeof OWN_EQUIPMENT_CLOSE_REASONS)[number]
+  | typeof OWN_EQUIPMENT_ADJUSTED_CLOSE_REASON
+
 /** Keys semánticas de error del módulo (contrato título/detalle/key). */
 export const ASSET_ERROR_KEYS = {
   ASSET_NOT_FOUND: 'activo-no-encontrado',
@@ -116,6 +137,8 @@ export const ASSET_ERROR_KEYS = {
   EMPLOYEE_WITHOUT_TELEWORK: 'colaborador-sin-teletrabajo',
   OWN_EQUIPMENT_DECLARATION_OPEN_EXISTS: 'declaracion-de-equipo-propio-vigente-existente',
   OWN_EQUIPMENT_FEE_INVALID: 'cuota-de-equipo-propio-invalida',
+  DECLARATION_NOT_FOUND: 'declaracion-de-equipo-propio-no-encontrada',
+  DECLARATION_NOT_ACTIVE: 'declaracion-de-equipo-propio-no-vigente',
 } as const
 
 export type AssetErrorKey = (typeof ASSET_ERROR_KEYS)[keyof typeof ASSET_ERROR_KEYS]

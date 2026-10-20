@@ -45,24 +45,32 @@ export type TeleworkSupplyCategoryDto =
       status: CoveringStatus
       assets: [TeleworkSupplyAssetDto, ...TeleworkSupplyAssetDto[]]
       ownEquipment: OwnEquipmentDeclarationDto | null
+      /**
+       * `true` solo cuando el activo deja obsoleta una declaración vigente
+       * (regla 7, R5): el aviso no compila sobre una categoría no cubierta.
+       */
+      ownEquipmentSuperseded: boolean
     }
   | {
       category: Extract<SupplyTypeTeleworkCategory, 'ergonomic_chair' | 'computing_equipment'>
       status: 'uncovered'
       assets: []
       ownEquipment: null
+      ownEquipmentSuperseded: false
     }
   | {
       category: Extract<SupplyTypeTeleworkCategory, 'accessory'>
       status: 'not_delivered'
       assets: []
       ownEquipment: null
+      ownEquipmentSuperseded: false
     }
   | {
       category: SupplyTypeTeleworkCategory
       status: 'own_equipment'
       assets: []
       ownEquipment: OwnEquipmentDeclarationDto
+      ownEquipmentSuperseded: false
     }
 
 /**
@@ -99,6 +107,12 @@ export type EmployeeTeleworkSuppliesDto =
       teleworkPercentage: number
       legalThresholdPercent: number
       categories: []
+      /** Cerradas del colaborador (todas las categorías), fin desc y luego id desc. */
+      ownEquipmentHistory: OwnEquipmentDeclarationDto[]
+      /** Cuota estándar vigente de la empresa; `null` = sin fila de ajustes. */
+      ownEquipmentFeeDefault: number | null
+      /** Vigentes del colaborador (todas las categorías): quién ya no teletrabaja las termina. */
+      ownEquipmentToClose: OwnEquipmentDeclarationDto[]
       teleworkSuppliesSummary: TeleworkSuppliesSummary
     }
   | {
@@ -112,8 +126,24 @@ export type EmployeeTeleworkSuppliesDto =
         TeleworkSupplyCategoryDto,
         TeleworkSupplyCategoryDto,
       ]
+      /** Cerradas del colaborador (todas las categorías), fin desc y luego id desc. */
+      ownEquipmentHistory: OwnEquipmentDeclarationDto[]
+      /** Cuota estándar vigente de la empresa; `null` = sin fila de ajustes. */
+      ownEquipmentFeeDefault: number | null
+      /** Quien aplica no tiene nada que cerrar por dejar de teletrabajar. */
+      ownEquipmentToClose: []
       teleworkSuppliesSummary: TeleworkSuppliesSummary
     }
+
+/**
+ * Ciclo de vida del equipo propio que acompaña a la matriz (Tarea 6): el
+ * histórico ordenado del colaborador y la cuota estándar de su empresa. El
+ * resumen por lote NO lo consume (ni histórico ni cuota en el lote).
+ */
+export interface TeleworkSuppliesLifecycle {
+  history: OwnEquipmentDeclarationDto[]
+  feeDefault: number | null
+}
 
 /** Perfil mínimo del colaborador que consumen las reglas puras. */
 export interface TeleworkProfile {

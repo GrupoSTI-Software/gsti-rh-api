@@ -1,10 +1,16 @@
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type { SupplyTypeTeleworkCategory } from '#constants/supply_type_telework_category'
-import { OPEN_ASSIGNMENT_STATUSES, type OwnEquipmentDeclarationStatus } from './assets.constants.js'
+import {
+  OPEN_ASSIGNMENT_STATUSES,
+  type OwnEquipmentClosedReason,
+  type OwnEquipmentDeclarationStatus,
+  type OwnEquipmentFeeSource,
+} from './assets.constants.js'
 import type {
   OwnEquipmentDeclarationByEmployee,
   OwnEquipmentDeclarationDto,
+  OwnEquipmentDeclarationForChange,
   OwnEquipmentDeclarationInsert,
 } from './dto/own_equipment_declarations.dto.js'
 import type {
@@ -36,8 +42,11 @@ const DECLARATION_DTO_COLUMNS = [
   'employee_own_equipment_declaration_description as description',
   'employee_own_equipment_declaration_conditions as conditions',
   calendarDate('employee_own_equipment_declaration_start_date', 'start_date'),
+  calendarDate('employee_own_equipment_declaration_end_date', 'end_date'),
   'employee_own_equipment_declaration_monthly_fee as monthly_fee',
+  'employee_own_equipment_declaration_fee_source as fee_source',
   'employee_own_equipment_declaration_status as status',
+  'employee_own_equipment_declaration_closed_reason as closed_reason',
   'employee_own_equipment_declaration_created_at as created_at',
 ]
 
@@ -49,8 +58,11 @@ interface DeclarationRow {
   description: string
   conditions: string | null
   start_date: string
+  end_date: string | null
   monthly_fee: string | number
+  fee_source: OwnEquipmentFeeSource
   status: OwnEquipmentDeclarationStatus
+  closed_reason: OwnEquipmentClosedReason | null
   created_at: string | Date
 }
 
@@ -63,9 +75,57 @@ function toDto(row: DeclarationRow): OwnEquipmentDeclarationDto {
     description: row.description,
     conditions: row.conditions,
     startDate: row.start_date,
+    endDate: row.end_date,
+    monthlyFee: Number(row.monthly_fee),
+    feeSource: row.fee_source,
+    status: row.status,
+    closedReason: row.closed_reason,
+    createdAt: new Date(row.created_at).toISOString(),
+  }
+}
+
+/**
+ * Columnas que el ajuste necesita de la fila viva: las del DTO más la empresa
+ * (la versión nueva la clona de aquí, nunca del body) y sin las que solo tienen
+ * sentido en la fila cerrada (`end_date`, `closed_reason`) o en el alta.
+ */
+const DECLARATION_FOR_CHANGE_COLUMNS = [
+  'employee_own_equipment_declaration_id as declaration_id',
+  'employee_id',
+  'business_unit_id',
+  'employee_own_equipment_declaration_category as category',
+  'employee_own_equipment_declaration_description as description',
+  'employee_own_equipment_declaration_conditions as conditions',
+  calendarDate('employee_own_equipment_declaration_start_date', 'start_date'),
+  'employee_own_equipment_declaration_monthly_fee as monthly_fee',
+  'employee_own_equipment_declaration_status as status',
+]
+
+/** Fila cruda del ajuste, con los alias de `DECLARATION_FOR_CHANGE_COLUMNS`. */
+interface DeclarationForChangeRow {
+  declaration_id: number
+  employee_id: number
+  business_unit_id: number
+  category: SupplyTypeTeleworkCategory
+  description: string
+  conditions: string | null
+  start_date: string
+  monthly_fee: string | number
+  status: OwnEquipmentDeclarationStatus
+}
+
+/** Fila cruda → fila de cambio: DECIMAL a número, `DATE` ya civil. */
+function toForChange(row: DeclarationForChangeRow): OwnEquipmentDeclarationForChange {
+  return {
+    declarationId: Number(row.declaration_id),
+    employeeId: Number(row.employee_id),
+    businessUnitId: Number(row.business_unit_id),
+    category: row.category,
+    description: row.description,
+    conditions: row.conditions,
+    startDate: row.start_date,
     monthlyFee: Number(row.monthly_fee),
     status: row.status,
-    createdAt: new Date(row.created_at).toISOString(),
   }
 }
 
@@ -201,5 +261,64 @@ export default class OwnEquipmentDeclarationsRepositoryMysql
       employeeId: Number(row.employee_id),
       declaration: toDto(row),
     }))
+  }
+
+  async findDeclarationForChange(
+    executor: OwnEquipmentDbExecutor,
+    businessUnitIds: readonly number[],
+    declarationId: number,
+    options: { lock: boolean }
+  ): Promise<OwnEquipmentDeclarationForChange | null> {
+    const query = executor
+      .from('employee_own_equipment_declarations')
+      .where('employee_own_equipment_declaration_id', declarationId)
+      .whereIn('business_unit_id', [...businessUnitIds]) // el scope DENTRO de la consulta (§13)
+      .whereNull('employee_own_equipment_declaration_deleted_at')
+      .select(DECLARATION_FOR_CHANGE_COLUMNS)
+
+    // `forUpdate` solo tiene sentido dentro de una transacción (el ajuste lo
+    // toma dentro de la suya): fuera de ella el candado se suelta sin proteger.
+    if (options.lock && query.client.isTransaction) query.forUpdate()
+
+    const row: DeclarationForChangeRow | null = await query.first()
+
+    return row ? toForChange(row) : null
+  }
+
+  async closeDeclaration(
+    trx: TransactionClientContract,
+    declarationId: number,
+    input: { endDate: string; reason: OwnEquipmentClosedReason; userId: number }
+  ): Promise<void> {
+    await trx
+      .from('employee_own_equipment_declarations')
+      .where('employee_own_equipment_declaration_id', declarationId)
+      .update({
+        employee_own_equipment_declaration_status: 'closed',
+        employee_own_equipment_declaration_end_date: input.endDate,
+        employee_own_equipment_declaration_closed_reason: input.reason,
+        employee_own_equipment_declaration_closed_by_user_id: input.userId,
+        employee_own_equipment_declaration_updated_at: new Date(),
+      })
+  }
+
+  async findHistoryByEmployee(
+    businessUnitIds: readonly number[],
+    employeeId: number
+  ): Promise<OwnEquipmentDeclarationDto[]> {
+    // Alcance vacío corta sin consultar (fail-closed, R3).
+    if (businessUnitIds.length === 0) return []
+
+    const rows: DeclarationRow[] = await db
+      .from('employee_own_equipment_declarations')
+      .whereIn('business_unit_id', [...businessUnitIds]) // el scope DENTRO de la consulta (§13)
+      .where('employee_id', employeeId)
+      .where('employee_own_equipment_declaration_status', 'closed')
+      .whereNull('employee_own_equipment_declaration_deleted_at')
+      .orderBy('employee_own_equipment_declaration_end_date', 'desc')
+      .orderBy('employee_own_equipment_declaration_id', 'desc')
+      .select(DECLARATION_DTO_COLUMNS)
+
+    return rows.map(toDto)
   }
 }

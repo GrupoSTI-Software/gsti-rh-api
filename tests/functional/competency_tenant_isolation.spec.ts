@@ -1,4 +1,6 @@
 import { test } from '@japa/runner'
+import type { Assert } from '@japa/assert'
+import type { ApiResponse } from '@japa/api-client'
 import db from '@adonisjs/lucid/services/db'
 import Competency from '#models/competency'
 import CompetencyDescriptor from '#models/competency_descriptor'
@@ -24,11 +26,12 @@ import {
  * `business_unit_id` (raíz desde `TenantContext`, hijos heredan del padre) y
  * las rutas exigen `businessScope()`.
  *
- * El módulo sigue apagado por alcance de lanzamiento (`systemModuleActive: 0`
- * en el catálogo; se enciende en VLRH-H1792032453526). El gate exige
- * `system_module_active = 1` para resolver permisos, así que el spec lo
- * enciende él mismo y lo restaura al terminar — igual que
- * `competencies_permission_gate.spec.ts`.
+ * El módulo se enciende (`systemModuleActive: 1`) en VLRH-H1792032453526,
+ * junto con la validación de pertenencia de este archivo (CA-7, CA-8). El
+ * gate exige `system_module_active = 1` para resolver permisos, así que el
+ * spec lo fuerza él mismo y restaura el valor que encontró al terminar —
+ * igual que `competencies_permission_gate.spec.ts` — para no depender del
+ * orden de la suite ni de que la siembra ya corrió.
  */
 
 const MODULE = 'competencies'
@@ -172,8 +175,22 @@ test.group('Competencias — aislamiento por tenant', (group) => {
     assert.notInclude(ids, otherFixture.competency.competencyId)
   })
 
-  test('usuario de B recibe 404 al pedir la competencia de A por id directo', async ({
+  /**
+   * VLRH-H1792032453526 (CA-8): cuerpo exacto del 404 uniforme — mismo para
+   * ajeno, plantilla, dado de baja e inexistente; sin eco del id (`data: {}`).
+   */
+  function assertUniform404(assert: Assert, response: ApiResponse, code: string): void {
+    response.assertStatus(404)
+    const body = response.body()
+    assert.equal(body.key, 'recurso-no-encontrado')
+    assert.equal(body.code, code)
+    assert.equal(body.type, 'warning')
+    assert.deepEqual(body.data, {})
+  }
+
+  test('usuario de B recibe 404 uniforme al pedir la competencia de A por id directo', async ({
     client,
+    assert,
   }) => {
     const actor = required(companyB, 'la empresa B')
     const otherFixture = required(fixtureA, 'la fixture de A')
@@ -183,11 +200,12 @@ test.group('Competencias — aislamiento por tenant', (group) => {
       .loginAs(actor.user)
       .headers(businessUnitHeaders(actor))
 
-    response.assertStatus(404)
+    assertUniform404(assert, response, 'CMPT.NF.001')
   })
 
-  test('usuario de B recibe 404 al pedir el descriptor de A por id directo', async ({
+  test('usuario de B recibe 404 uniforme al pedir el descriptor de A por id directo', async ({
     client,
+    assert,
   }) => {
     const actor = required(companyB, 'la empresa B')
     const otherFixture = required(fixtureA, 'la fixture de A')
@@ -197,10 +215,13 @@ test.group('Competencias — aislamiento por tenant', (group) => {
       .loginAs(actor.user)
       .headers(businessUnitHeaders(actor))
 
-    response.assertStatus(404)
+    assertUniform404(assert, response, 'CMPT.NF.002')
   })
 
-  test('usuario de B recibe 404 al pedir el rango de A por id directo', async ({ client }) => {
+  test('usuario de B recibe 404 uniforme al pedir el rango de A por id directo', async ({
+    client,
+    assert,
+  }) => {
     const actor = required(companyB, 'la empresa B')
     const otherFixture = required(fixtureA, 'la fixture de A')
 
@@ -209,10 +230,70 @@ test.group('Competencias — aislamiento por tenant', (group) => {
       .loginAs(actor.user)
       .headers(businessUnitHeaders(actor))
 
-    response.assertStatus(404)
+    assertUniform404(assert, response, 'CMPT.NF.003')
   })
 
-  test('DELETE de competencia ajena responde 404 y no la borra', async ({ client, assert }) => {
+  test('PUT de competencia, descriptor y rango ajenos responde 404 uniforme y nada cambia', async ({
+    client,
+    assert,
+  }) => {
+    const actor = required(companyB, 'la empresa B')
+    const otherFixture = required(fixtureA, 'la fixture de A')
+
+    const competencyResponse = await client
+      .put(`/api/competencies/${otherFixture.competency.competencyId}`)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
+      .json({ competencyName: 'hackeado', competencyType: 'transversal' })
+    assertUniform404(assert, competencyResponse, 'CMPT.NF.001')
+
+    const descriptorResponse = await client
+      .put(`/api/competency-descriptors/${otherFixture.descriptor.competencyDescriptorId}`)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
+      .json({
+        competencyId: otherFixture.competency.competencyId,
+        businessUnitCompetencyLevelId: otherFixture.level.businessUnitCompetencyLevelId,
+        competencyDescriptorDescription: 'hackeado',
+      })
+    assertUniform404(assert, descriptorResponse, 'CMPT.NF.002')
+
+    const bracketResponse = await client
+      .put(`/api/competency-brackets/${otherFixture.bracket.competencyBracketId}`)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
+      .json({
+        competencyBracketDescription: 'hackeado',
+        competencyBracketRangeMin: 0,
+        competencyBracketRangeMax: 1,
+        competencyBracketPosition: 1,
+      })
+    assertUniform404(assert, bracketResponse, 'CMPT.NF.003')
+
+    const [competency, descriptor, bracket] = await TenantContext.runUnscoped(
+      () =>
+        Promise.all([
+          Competency.findOrFail(otherFixture.competency.competencyId),
+          CompetencyDescriptor.findOrFail(otherFixture.descriptor.competencyDescriptorId),
+          CompetencyBracket.findOrFail(otherFixture.bracket.competencyBracketId),
+        ]),
+      'verificación post-PUT ajeno (spec)'
+    )
+    assert.equal(competency.competencyName, otherFixture.competency.competencyName)
+    assert.equal(
+      descriptor.competencyDescriptorDescription,
+      otherFixture.descriptor.competencyDescriptorDescription
+    )
+    assert.equal(
+      bracket.competencyBracketDescription,
+      otherFixture.bracket.competencyBracketDescription
+    )
+  })
+
+  test('DELETE de competencia ajena responde 404 uniforme y no la borra', async ({
+    client,
+    assert,
+  }) => {
     const actor = required(companyA, 'la empresa A')
     const otherFixture = required(fixtureB, 'la fixture de B')
 
@@ -221,7 +302,7 @@ test.group('Competencias — aislamiento por tenant', (group) => {
       .loginAs(actor.user)
       .headers(businessUnitHeaders(actor))
 
-    response.assertStatus(404)
+    assertUniform404(assert, response, 'CMPT.NF.001')
 
     const stillAlive = await TenantContext.runUnscoped(
       () =>
@@ -232,5 +313,66 @@ test.group('Competencias — aislamiento por tenant', (group) => {
       'verificación post-delete (spec)'
     )
     assert.isNotNull(stillAlive)
+  })
+
+  /**
+   * VLRH-H1792032453526 (CA-7, regla 3 propia): pedir las descripciones de
+   * una competencia ajena, o los rangos de una descripción ajena, responde
+   * 404 uniforme — no 200 con lista vacía.
+   */
+  test('by-competency con competencia ajena o inexistente responde 404 uniforme; con la propia, 200', async ({
+    client,
+    assert,
+  }) => {
+    const actor = required(companyB, 'la empresa B')
+    const ownFixture = required(fixtureB, 'la fixture de B')
+    const otherFixture = required(fixtureA, 'la fixture de A')
+
+    const foreign = await client
+      .get(`/api/competency-descriptors/by-competency/${otherFixture.competency.competencyId}`)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
+    assertUniform404(assert, foreign, 'CMPT.NF.001')
+    assert.notInclude(JSON.stringify(foreign.body()), String(otherFixture.descriptor.competencyDescriptorId))
+
+    const nonexistent = await client
+      .get('/api/competency-descriptors/by-competency/999999999')
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
+    assertUniform404(assert, nonexistent, 'CMPT.NF.001')
+
+    const own = await client
+      .get(`/api/competency-descriptors/by-competency/${ownFixture.competency.competencyId}`)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
+    own.assertStatus(200)
+  })
+
+  test('by-descriptor con descriptor ajeno o inexistente responde 404 uniforme; con el propio, 200', async ({
+    client,
+    assert,
+  }) => {
+    const actor = required(companyB, 'la empresa B')
+    const ownFixture = required(fixtureB, 'la fixture de B')
+    const otherFixture = required(fixtureA, 'la fixture de A')
+
+    const foreign = await client
+      .get(`/api/competency-brackets/by-descriptor/${otherFixture.descriptor.competencyDescriptorId}`)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
+    assertUniform404(assert, foreign, 'CMPT.NF.002')
+    assert.notInclude(JSON.stringify(foreign.body()), String(otherFixture.bracket.competencyBracketId))
+
+    const nonexistent = await client
+      .get('/api/competency-brackets/by-descriptor/999999999')
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
+    assertUniform404(assert, nonexistent, 'CMPT.NF.002')
+
+    const own = await client
+      .get(`/api/competency-brackets/by-descriptor/${ownFixture.descriptor.competencyDescriptorId}`)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
+    own.assertStatus(200)
   })
 })
