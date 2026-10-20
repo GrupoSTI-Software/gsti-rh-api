@@ -40,7 +40,7 @@ import EmployeeOffboardingItem from './employee_offboarding_item.js'
  *         employeeOffboardingStatus:
  *           type: string
  *           enum: [open, closed, cancelled]
- *           description: El cierre lo escribe USRH1786568279596; cancelled lo escribe solo la reactivación (VLRH-H1790812613830)
+ *           description: El cierre lo escribe USRH1786568279596; cancelled lo escribe la reactivación (VLRH-H1790812613830) o la cancelación de RH (VLRH-H1792172886315)
  *         employeeOffboardingOrigin:
  *           type: string
  *           enum: [scheduled, termination]
@@ -65,11 +65,16 @@ import EmployeeOffboardingItem from './employee_offboarding_item.js'
  *           type: string
  *           format: date-time
  *           nullable: true
- *           description: Cuándo se canceló el expediente al deshacer la baja (VLRH-H1790812613830)
+ *           description: Cuándo se canceló el expediente, al deshacer la baja (VLRH-H1790812613830) o por decisión de RH (VLRH-H1792172886315)
  *         employeeOffboardingCancelledByUserId:
  *           type: number
  *           nullable: true
- *           description: Usuario que reactivó al colaborador y con ello canceló el expediente
+ *           description: Usuario que canceló el expediente, al reactivar al colaborador o al cancelar la baja programada
+ *         employeeOffboardingCancellationNote:
+ *           type: string
+ *           maxLength: 1000
+ *           nullable: true
+ *           description: Motivo escrito por RH al cancelar la baja programada (VLRH-H1792172886315); null en las cancelaciones por reactivación. Solo viaja en el DTO de la ficha
  */
 export default class EmployeeOffboarding extends compose(BaseModel, SoftDeletes) {
   /**
@@ -142,13 +147,23 @@ export default class EmployeeOffboarding extends compose(BaseModel, SoftDeletes)
   /**
    * Rastro de la cancelación (VLRH-H1790812613830, regla 4): separado del
    * cierre porque `reopen` limpia `closed_*` y son hechos distintos. Lo escribe
-   * una sola vez la reactivación; `null` en todo expediente no cancelado.
+   * una sola vez la reactivación o la cancelación de RH (VLRH-H1792172886315);
+   * `null` en todo expediente no cancelado.
    */
   @column.dateTime()
   declare employeeOffboardingCancelledAt: DateTime | null
 
   @column()
   declare employeeOffboardingCancelledByUserId: number | null
+
+  /**
+   * Motivo escrito por RH al cancelar la baja programada (VLRH-H1792172886315,
+   * regla 3). `null` en las cancelaciones por reactivación: una nota no nula
+   * distingue la cancelación de RH. Texto libre confidencial: solo viaja en el
+   * DTO de la ficha, nunca en el listado ni en logs.
+   */
+  @column()
+  declare employeeOffboardingCancellationNote: string | null
 
   @column.dateTime({ autoCreate: true })
   declare employeeOffboardingCreatedAt: DateTime

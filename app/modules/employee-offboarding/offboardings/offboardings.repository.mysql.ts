@@ -372,6 +372,20 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
       .first()
   }
 
+  async lockByIdInScope(
+    employeeOffboardingId: number,
+    businessUnitIds: number[],
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboarding | null> {
+    if (businessUnitIds.length === 0) return null
+    return await EmployeeOffboarding.query({ client: trx })
+      .where('employee_offboarding_id', employeeOffboardingId)
+      .whereIn('business_unit_id', businessUnitIds)
+      .whereNull('employee_offboarding_deleted_at')
+      .forUpdate()
+      .first()
+  }
+
   async findMostRecentByEmployee(employeeId: number): Promise<EmployeeOffboarding | null> {
     return await EmployeeOffboarding.query()
       .where('employee_id', employeeId)

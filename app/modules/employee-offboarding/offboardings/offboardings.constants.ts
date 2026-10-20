@@ -6,8 +6,9 @@
 
 /**
  * Estado del expediente. El cierre lo escribe USRH1786568279596; la
- * cancelación solo la escribe la reactivación (VLRH-H1790812613830) y es
- * terminal: el cancelado se conserva como historial de solo lectura.
+ * cancelación la escribe la reactivación (VLRH-H1790812613830) o la decisión
+ * de RH con nota de motivo (VLRH-H1792172886315) y es terminal: el cancelado
+ * se conserva como historial de solo lectura.
  */
 export const EMPLOYEE_OFFBOARDING_STATUS = {
   OPEN: 'open',

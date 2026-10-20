@@ -48,7 +48,7 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   CASE_NOT_CLOSED: 'OFFB.CASE.NOT_CLOSED',
   /** Escritura sobre pendientes o comprobantes de un expediente cerrado (regla 8, USRH1786568279596) — 409. */
   CASE_CLOSED_READ_ONLY: 'OFFB.CASE.CLOSED_READ_ONLY',
-  /** Escritura sobre un expediente cancelado al deshacer la baja (regla 3, VLRH-H1790812613830) — 409. */
+  /** Escritura sobre un expediente cancelado, por reactivación (regla 3, VLRH-H1790812613830) o por cancelación de RH (VLRH-H1792172886315) — 409. */
   CASE_CANCELLED_READ_ONLY: 'OFFB.CASE.CANCELLED_READ_ONLY',
   /** Modalidad fuera del catálogo o tipo de baja que no corresponde a la modalidad (VLRH-H1792172854107) — 422. */
   CASE_TERMINATION_REASON_INVALID: 'OFFB.CASE.TERMINATION_REASON_INVALID',
