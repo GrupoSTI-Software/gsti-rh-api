@@ -3,6 +3,7 @@ import logger from '@adonisjs/core/services/logger'
 import type { HttpContext } from '@adonisjs/core/http'
 import env from '#start/env'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
 import BusinessUnit from '#models/business_unit'
 import BillingSubscriptionChange from '#models/billing_subscription_change'
 import type BillingSubscription from '#models/billing_subscription'
@@ -87,7 +88,6 @@ export type NotifyProviderPaymentMisalignedParams = {
 }
 
 const DEFAULT_RECIPIENTS_FALLBACK = 'desarrollo-software@gruposti.com'
-const SENDER_TRADE_NAME = 'Valanserh'
 
 /**
  * Lista de desarrollo para pruebas — solo estos correos reciben avisos
@@ -235,7 +235,7 @@ export default class BillingInternalNotificationService {
         new SelfServiceSubscriptionCreatedMail({
           to: recipientsToSend,
           from,
-          tradeName: SENDER_TRADE_NAME,
+          tradeName: MAIL_BRAND_TRADE_NAME,
           subscription,
           businessUnitName,
           billingPlanName,
@@ -305,7 +305,7 @@ export default class BillingInternalNotificationService {
         new SubscriptionChangeRequestedMail({
           to: recipientsToSend,
           from,
-          tradeName: SENDER_TRADE_NAME,
+          tradeName: MAIL_BRAND_TRADE_NAME,
           businessUnitName,
           requestedByName,
           requestedByEmail,
@@ -516,7 +516,7 @@ export default class BillingInternalNotificationService {
         new SubscriptionChangeNotApplicableMail({
           to: recipients,
           from,
-          tradeName: SENDER_TRADE_NAME,
+          tradeName: MAIL_BRAND_TRADE_NAME,
           businessUnitName,
           billingPlanName,
           billingSubscriptionId: subscription.billingSubscriptionId,
@@ -593,7 +593,7 @@ export default class BillingInternalNotificationService {
         new BillingProviderPaymentUnsettledMail({
           to: recipientsToSend,
           from,
-          tradeName: SENDER_TRADE_NAME,
+          tradeName: MAIL_BRAND_TRADE_NAME,
           invoiceRef,
           subscriptionRef,
           eventRef,
@@ -650,7 +650,7 @@ export default class BillingInternalNotificationService {
       }
 
       const from = resolveMailSender()
-      await mail.send(new BillingProviderPaymentMisalignedMail({ to: recipientsToSend, from, tradeName: SENDER_TRADE_NAME, ...params }))
+      await mail.send(new BillingProviderPaymentMisalignedMail({ to: recipientsToSend, from, tradeName: MAIL_BRAND_TRADE_NAME, ...params }))
     } catch {
       const recipients = this.resolveRecipients()
       logger.error(
@@ -718,7 +718,7 @@ export default class BillingInternalNotificationService {
         new BillingProviderAccountIssueMail({
           to: recipientsToSend,
           from,
-          tradeName: SENDER_TRADE_NAME,
+          tradeName: MAIL_BRAND_TRADE_NAME,
           billingSubscriptionId,
           businessUnitTradeName,
           invoiceRef,
@@ -772,7 +772,7 @@ export default class BillingInternalNotificationService {
         new BillingProviderSubscriptionStateMail({
           to: recipientsToSend,
           from,
-          tradeName: SENDER_TRADE_NAME,
+          tradeName: MAIL_BRAND_TRADE_NAME,
           ...params,
         })
       )
@@ -802,7 +802,7 @@ export default class BillingInternalNotificationService {
         new BillingProviderInvoiceHeldMail({
           to: recipients,
           from,
-          tradeName: SENDER_TRADE_NAME,
+          tradeName: MAIL_BRAND_TRADE_NAME,
           invoiceRef,
           subscriptionRef,
           eventRef,
@@ -857,7 +857,7 @@ export default class BillingInternalNotificationService {
         new BillingProviderCompensationFailedMail({
           to: recipientsToSend,
           from,
-          tradeName: SENDER_TRADE_NAME,
+          tradeName: MAIL_BRAND_TRADE_NAME,
           signupDraftId,
           attempt,
           stripeCustomerId,

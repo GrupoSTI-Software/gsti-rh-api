@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import logger from '@adonisjs/core/services/logger'
 import { errors as vineErrors } from '@vinejs/vine'
+import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
 import {
   ASSET_ERROR_KEYS,
   MAX_ASSIGNATION_PHOTOS_PER_ASSIGNMENT,
@@ -281,6 +282,11 @@ export function respondAssetsModuleError(ctx: ErrorContext, error: unknown) {
       ASSET_ERROR_KEYS.INVALID_INPUT
     )
   }
+
+  // El rechazo de la entrada de archivos es 422 con su propio sobre: sin esta
+  // rama el resolver del módulo lo degrada a un 500 genérico y el usuario
+  // nunca sabe que su archivo fue rechazado ni por qué.
+  if (isFileIntakeError(error)) return respondFileIntakeError(ctx.response, error)
 
   logger.error({ err: error }, 'Activos: error inesperado')
   return sendError(

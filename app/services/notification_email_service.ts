@@ -9,6 +9,11 @@ import axios from 'axios'
 import env from '#start/env'
 import { buildDownloadFileName, formatDownloadFileDate } from '#helpers/download_file_name'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import {
+  MAIL_BRAND_HEADER_COLOR,
+  MAIL_BRAND_LOGO_URL,
+  MAIL_BRAND_TRADE_NAME,
+} from '#constants/mail_branding'
 import { indexSystemSettingsByBusinessUnitSlug } from '#helpers/system_settings_by_business_unit'
 
 /**
@@ -139,11 +144,9 @@ export default class NotificationEmailService {
           isLateArrival: exceptionType?.exceptionTypeSlug === 'late-arrival',
           isOvertime: exceptionType?.exceptionTypeSlug === 'overtime',
         },
-        systemSetting: {
-          tradeName: systemSetting.systemSettingTradeName,
-          logo: systemSetting.systemSettingLogo,
-          sidebarColor: systemSetting.systemSettingSidebarColor,
-        },
+        tradeName: MAIL_BRAND_TRADE_NAME,
+        headerColor: MAIL_BRAND_HEADER_COLOR,
+        backgroundImageLogo: MAIL_BRAND_LOGO_URL,
       }
 
       // Generate Excel file for the date
@@ -157,7 +160,7 @@ export default class NotificationEmailService {
           await mail.send((message) => {
             message
               .to(notificationEmail.email)
-              .from(resolveMailSender())
+              .from(resolveMailSender(), MAIL_BRAND_TRADE_NAME)
               .subject(`Notificación de Ausencia - ${emailData.employee.name}`)
               .htmlView('emails/vacation_permission_notification', emailData)
 
@@ -307,11 +310,9 @@ export default class NotificationEmailService {
           isLateArrival: exceptionType?.exceptionTypeSlug === 'late-arrival',
           isOvertime: exceptionType?.exceptionTypeSlug === 'overtime',
         },
-        systemSetting: {
-          tradeName: systemSetting.systemSettingTradeName,
-          logo: systemSetting.systemSettingLogo,
-          sidebarColor: systemSetting.systemSettingSidebarColor,
-        },
+        tradeName: MAIL_BRAND_TRADE_NAME,
+        headerColor: MAIL_BRAND_HEADER_COLOR,
+        backgroundImageLogo: MAIL_BRAND_LOGO_URL,
       }
 
       // Generate Excel file for the date
@@ -325,7 +326,7 @@ export default class NotificationEmailService {
           await mail.send((message) => {
             message
               .to(notificationEmail.email)
-              .from(resolveMailSender())
+              .from(resolveMailSender(), MAIL_BRAND_TRADE_NAME)
               .subject(`Notificación de Ausencia - ${emailData.employee.name}`)
               .htmlView('emails/vacation_permission_notification', emailData)
 

@@ -1,4 +1,5 @@
 import { BaseMail } from '@adonisjs/mail'
+import { MAIL_BRAND_HEADER_COLOR } from '#constants/mail_branding'
 import env from '#start/env'
 import type { ProviderSettlementPeriod } from '#services/billing_payment_service'
 
@@ -18,7 +19,6 @@ export interface BillingProviderPaymentMisalignedMailParams {
   providerPeriodApplied: boolean
 }
 
-const DEFAULT_SIDEBAR_COLOR = '#0a3057'
 
 /**
  * Aviso interno: pago con tarjeta asentado pero desalineado con la factura (USRH1790724549115).
@@ -61,7 +61,7 @@ export default class BillingProviderPaymentMisalignedMail extends BaseMail {
     this.message.htmlView('emails/billing_provider_payment_misaligned', {
       subject,
       tradeName,
-      sidebarColor: DEFAULT_SIDEBAR_COLOR,
+      sidebarColor: MAIL_BRAND_HEADER_COLOR,
       billingSubscriptionId,
       billingPaymentId,
       invoiceRef,
