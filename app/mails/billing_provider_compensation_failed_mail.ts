@@ -1,4 +1,5 @@
 import { BaseMail } from '@adonisjs/mail'
+import { MAIL_BRAND_HEADER_COLOR, MAIL_BRAND_LOGO_URL } from '#constants/mail_branding'
 import env from '#start/env'
 
 export interface BillingProviderCompensationFailedMailParams {
@@ -12,7 +13,6 @@ export interface BillingProviderCompensationFailedMailParams {
   errorCode: string
 }
 
-const DEFAULT_SIDEBAR_COLOR = '#0a3057'
 
 /**
  * Aviso interno cuando no se pudo cancelar una suscripción Stripe tras fallar el alta (USRH1790708507607).
@@ -47,7 +47,8 @@ export default class BillingProviderCompensationFailedMail extends BaseMail {
     this.message.htmlView('emails/billing_provider_compensation_failed', {
       subject,
       tradeName,
-      sidebarColor: DEFAULT_SIDEBAR_COLOR,
+      backgroundImageLogo: MAIL_BRAND_LOGO_URL,
+      sidebarColor: MAIL_BRAND_HEADER_COLOR,
       signupDraftId,
       attempt,
       stripeCustomerId,

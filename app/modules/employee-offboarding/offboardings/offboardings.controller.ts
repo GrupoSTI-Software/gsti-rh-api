@@ -47,16 +47,20 @@ export default class OffboardingsController {
    *         application/json:
    *           schema:
    *             type: object
-   *             required: [employeeId, plannedDate]
+   *             required: [employeeId, plannedDate, terminationModality, terminationType]
    *             properties:
    *               employeeId: { type: integer }
-   *               plannedDate: { type: string, format: date, description: 'YYYY-MM-DD' }
+   *               plannedDate: { type: string, format: date, description: 'Fecha de baja, YYYY-MM-DD; cualquier día real, pasado o futuro' }
+   *               terminationModality: { type: string, maxLength: 120, description: 'Modalidad del catálogo de bajas, etiqueta exacta' }
+   *               terminationType: { type: string, maxLength: 200, description: 'Tipo del catálogo compatible con la modalidad' }
    *               notes: { type: string, maxLength: 1000 }
    *     responses:
    *       201:
-   *         description: Expediente abierto en data.employeeOffboarding, con sus pendientes
+   *         description: Expediente abierto en data.employeeOffboarding, con sus pendientes y motivos programados
    *       400:
-   *         description: Cuerpo mal formado (key datos-invalidos)
+   *         description: Cuerpo mal formado, dato faltante o fecha inexistente (key datos-invalidos)
+   *       422:
+   *         description: Modalidad fuera del catálogo o tipo que no corresponde a la modalidad (key motivo-de-baja-invalido, code OFFB.CASE.TERMINATION_REASON_INVALID)
    *       404:
    *         description: Colaborador inexistente o fuera del alcance (key colaborador-no-encontrado, uniforme)
    *       409:
@@ -73,6 +77,8 @@ export default class OffboardingsController {
         {
           employeeId: data.employeeId,
           plannedDate: data.plannedDate,
+          terminationModality: data.terminationModality,
+          terminationType: data.terminationType,
           notes: data.notes ?? null,
         },
         businessUnitScope,
@@ -115,7 +121,7 @@ export default class OffboardingsController {
    *         schema: { type: integer }
    *     responses:
    *       200:
-   *         description: Expediente en data.employeeOffboarding, con avance, rastro de cierre y terminationSnapshot (baja deshecha; null sin registro)
+   *         description: Expediente en data.employeeOffboarding, con avance, rastro de cierre, terminationSnapshot (baja deshecha; null sin registro), motivos programados (employeeOffboardingPlannedModality/Type) y terminationReasonsPending
    *       404:
    *         description: Colaborador fuera del alcance (colaborador-no-encontrado) o que nunca tuvo expediente (expediente-no-encontrado)
    *       403:

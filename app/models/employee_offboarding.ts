@@ -26,7 +26,17 @@ import EmployeeOffboardingItem from './employee_offboarding_item.js'
  *           type: string
  *           format: date
  *           nullable: true
- *           description: Fecha tentativa de salida (solo referencia, no agenda nada)
+ *           description: Fecha de baja (VLRH-H1792172854107); no agenda nada por sí sola
+ *         employeeOffboardingPlannedModality:
+ *           type: string
+ *           maxLength: 120
+ *           nullable: true
+ *           description: Modalidad de la baja programada, etiqueta del catálogo; null = motivos por capturar
+ *         employeeOffboardingPlannedType:
+ *           type: string
+ *           maxLength: 200
+ *           nullable: true
+ *           description: Tipo de la baja programada, etiqueta del catálogo; null = motivos por capturar
  *         employeeOffboardingStatus:
  *           type: string
  *           enum: [open, closed, cancelled]
@@ -83,6 +93,16 @@ export default class EmployeeOffboarding extends compose(BaseModel, SoftDeletes)
 
   @column()
   declare employeeOffboardingPlannedDate: string | null
+
+  /**
+   * Motivos de la baja programada (VLRH-H1792172854107): etiqueta visible del
+   * catálogo `app/constants/employee_termination.ts`. Nulas = "motivos por capturar".
+   */
+  @column()
+  declare employeeOffboardingPlannedModality: string | null
+
+  @column()
+  declare employeeOffboardingPlannedType: string | null
 
   @column()
   declare employeeOffboardingStatus: string

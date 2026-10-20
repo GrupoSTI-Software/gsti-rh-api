@@ -35,7 +35,7 @@ export default class CompetencyService {
 
   async create(data: {
     competencyName: string
-    competencyType: 'technical' | 'transversal'
+    competencyType: 'technical' | 'functional'
   }) {
     const newCompetency = new Competency()
     newCompetency.competencyName = data.competencyName
@@ -55,7 +55,7 @@ export default class CompetencyService {
     current: Competency,
     data: {
       competencyName: string
-      competencyType: 'technical' | 'transversal'
+      competencyType: 'technical' | 'functional'
     }
   ) {
     current.competencyName = data.competencyName

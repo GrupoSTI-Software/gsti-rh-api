@@ -16,6 +16,7 @@ export type EmployeeOffboardingErrorKey =
   | 'expediente-no-cerrado'
   | 'expediente-cerrado'
   | 'expediente-cancelado'
+  | 'motivo-de-baja-invalido'
   | 'pendiente-no-encontrado'
   | 'pendiente-ya-cumplido'
   | 'pendiente-no-cumplido'
