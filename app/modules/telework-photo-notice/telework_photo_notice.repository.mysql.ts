@@ -159,7 +159,7 @@ export default class TeleworkPhotoNoticeRepositoryMysql implements TeleworkPhoto
   }
 
   async softDeleteDraft(teleworkPhotoNoticeId: number, businessUnitId: number): Promise<void> {
-    // Soft delete explícito (NO `.delete()`): descartar el borrador marca
+    // Soft delete explícito (sin borrado físico): descartar el borrador marca
     // `telework_photo_notice_deleted_at` y la fila sigue ahí, porque su
     // versión ya quedó consumida (CA-17, CA-10).
     const record = await TeleworkPhotoNotice.query()

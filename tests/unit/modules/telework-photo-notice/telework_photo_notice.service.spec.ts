@@ -419,13 +419,23 @@ test.group('TeleworkPhotoNoticeService.getState', () => {
   test('Objetivo: Review Focus 4 — el estado de una empresa sin aviso no consulta la plantilla', async ({
     assert,
   }) => {
-    const { repo, getCalls } = makeInMemoryRepo([], { template: makeTemplate() })
+    const { repo, getCalls, callsOf } = makeInMemoryRepo([], { template: makeTemplate() })
     const service = new TeleworkPhotoNoticeService(repo)
 
     const state = await service.getState(5)
 
     assert.isNull(state.current)
     assert.isNull(state.draft)
+    assert.lengthOf(
+      callsOf('findDraftByBusinessUnit'),
+      1,
+      'el estado sí consulta el borrador vivo de la empresa'
+    )
+    assert.lengthOf(
+      callsOf('findCurrentByBusinessUnit'),
+      1,
+      'el estado sí consulta la versión vigente de la empresa'
+    )
     assert.notInclude(
       getCalls().map((call) => call.method),
       'findTemplateCurrent',
@@ -640,7 +650,7 @@ test.group('TeleworkPhotoNoticeService.listVersions', () => {
   test('Objetivo: CA-05 y CA-12 — sin versiones publicadas la lista es vacía y no es 404', async ({
     assert,
   }) => {
-    const { repo, getCalls } = makeInMemoryRepo([makeRow({ teleworkPhotoNoticeId: 3 })], {
+    const { repo, getCalls, callsOf } = makeInMemoryRepo([makeRow({ teleworkPhotoNoticeId: 3 })], {
       template: makeTemplate(),
     })
     const service = new TeleworkPhotoNoticeService(repo)
@@ -648,6 +658,11 @@ test.group('TeleworkPhotoNoticeService.listVersions', () => {
     const versions = await service.listVersions(5)
 
     assert.deepEqual(versions, [])
+    assert.lengthOf(
+      callsOf('listPublishedVersions'),
+      1,
+      'la lista vacía sale de consultar las versiones publicadas, no de no consultar nada'
+    )
     assert.notInclude(getCalls().map((call) => call.method), 'findTemplateCurrent')
   })
 })
