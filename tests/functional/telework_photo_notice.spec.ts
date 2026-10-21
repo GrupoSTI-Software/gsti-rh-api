@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto'
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
+import type { ApiClient, ApiResponse } from '@japa/api-client'
 import db from '@adonisjs/lucid/services/db'
 import Person from '#models/person'
 import TeleworkPhotoNoticeTemplate from '#models/telework_photo_notice_template'
@@ -10,6 +12,7 @@ import { TenantContext } from '#utils/tenant_context'
 import {
   createTenantActor,
   cleanupTenantActor,
+  grantModulePermissions,
   type TenantActor,
 } from '#tests/helpers/tenant_actor'
 import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
@@ -19,9 +22,9 @@ import {
   cleanupOrgChartFixtures,
 } from '#tests/helpers/org_chart_fixtures'
 
-// `grantModulePermissions` (y los envoltorios HTTP por endpoint) entran con los
-// grupos de las Tareas 2-4: el proyecto compila con `noUnusedLocals`, así que un
-// import que todavía nadie usa rompe `tsc --noEmit`.
+// La superficie HTTP (Tarea 4) vive al final del archivo, con sus envoltorios
+// por endpoint: `grantModulePermissions` siembra en cada caso las concesiones
+// del módulo de teletrabajo, porque el rol del actor nace vacío.
 
 /**
  * Tests funcionales — aviso de privacidad de la evidencia fotográfica del
@@ -477,5 +480,873 @@ test.group('avisos de fotos — esquema, semilla y acuse cifrado', (group) => {
       acuses.map((acuse) => Number(acuse.telework_photo_notice_id)),
       [primerAviso, segundoAviso]
     )
+  })
+})
+
+// ─── Superficie HTTP del Backoffice (Tarea 4) ───────────────────────────────
+//
+// Los envoltorios resuelven la empresa por el header `X-Business-Unit-Id` (su
+// código público, nunca el id interno) y la sesión del actor del escenario, así
+// que el caso solo decide el verbo y el cuerpo. El rol del actor nace vacío: el
+// caso siembra sus concesiones del módulo `telework-policy` con
+// `grantModulePermissions` (el aviso reusa el permiso de la política, §8).
+
+/** Base del aviso de privacidad de la evidencia fotográfica del puesto. */
+const NOTICE_PATH = '/api/nom037/telework-photo-notice'
+/** Módulo cuyo permiso gobierna la superficie del aviso (no hay módulo nuevo). */
+const NOTICE_MODULE_SLUG = 'telework-policy'
+/** Las cuatro acciones del módulo, que juntas pasan los siete endpoints (CA-13). */
+const ALL_NOTICE_ACTIONS = ['read', 'create', 'update', 'delete'] as const
+
+function getState(client: ApiClient, actor: TenantActor) {
+  return client
+    .get(NOTICE_PATH)
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+}
+
+function getTemplate(client: ApiClient, actor: TenantActor) {
+  return client
+    .get(`${NOTICE_PATH}/template`)
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+}
+
+function createDraft(client: ApiClient, actor: TenantActor) {
+  return client
+    .post(`${NOTICE_PATH}/draft`)
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+}
+
+function updateDraft(client: ApiClient, actor: TenantActor, body: { title: string; content: string }) {
+  return client
+    .put(`${NOTICE_PATH}/draft`)
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+    .json(body)
+}
+
+function discardDraft(client: ApiClient, actor: TenantActor) {
+  return client
+    .delete(`${NOTICE_PATH}/draft`)
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+}
+
+function publish(client: ApiClient, actor: TenantActor) {
+  return client
+    .post(`${NOTICE_PATH}/publish`)
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+}
+
+function listVersions(client: ApiClient, actor: TenantActor) {
+  return client
+    .get(`${NOTICE_PATH}/versions`)
+    .loginAs(actor.user)
+    .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+}
+
+/** Reemplaza las concesiones del actor en el módulo de teletrabajo (el rol es suyo). */
+async function grantNoticePermissions(
+  actor: TenantActor,
+  actions: readonly string[]
+): Promise<void> {
+  await grantModulePermissions(actor, NOTICE_MODULE_SLUG, actions)
+}
+
+/** Fila cruda del aviso: lo que quedó en BD después de cada paso del ciclo. */
+interface NoticeRow {
+  telework_photo_notice_id: number
+  telework_photo_notice_template_id: number | null
+  telework_photo_notice_version: number
+  telework_photo_notice_title: string
+  telework_photo_notice_content: string
+  telework_photo_notice_rendered_content: string | null
+  telework_photo_notice_status: string
+  telework_photo_notice_is_current: number
+  telework_photo_notice_content_hash: string | null
+  created_by_user_id: number
+  published_by_user_id: number | null
+  published_at: Date | null
+  telework_photo_notice_deleted_at: Date | null
+}
+
+/** Lee la fila del aviso por tabla: el caso afirma lo que el servicio escribió. */
+async function findNoticeRow(noticeId: number): Promise<NoticeRow> {
+  const row = (await db
+    .from('telework_photo_notices')
+    .where('telework_photo_notice_id', noticeId)
+    .first()) as NoticeRow | undefined
+
+  if (!row) {
+    throw new Error(`Falta en BD la fila del aviso ${noticeId}`)
+  }
+
+  return row
+}
+
+/**
+ * Ciclo completo de una versión: abre el borrador, lo edita y lo publica.
+ * Devuelve el id de la fila y la respuesta de `publish` para que el caso afirme
+ * el contrato de la capa HTTP.
+ */
+async function publishNoticeVersion(
+  client: ApiClient,
+  actor: TenantActor,
+  input: { title: string; content: string }
+): Promise<{ noticeId: number; published: ApiResponse }> {
+  const created = await createDraft(client, actor)
+  const noticeId = Number(created.body().data.teleworkPhotoNoticeId)
+  await updateDraft(client, actor, input)
+  const published = await publish(client, actor)
+
+  return { noticeId, published }
+}
+
+test.group('avisos de fotos — 401 sin sesión y header de empresa ausente', (group) => {
+  useScenario(group, 'http401')
+
+  test('Objetivo: GET / sin sesión responde 401', async ({ client }) => {
+    const response = await client.get(NOTICE_PATH)
+    response.assertStatus(401)
+  })
+
+  test('Objetivo: GET /template sin sesión responde 401', async ({ client }) => {
+    const response = await client.get(`${NOTICE_PATH}/template`)
+    response.assertStatus(401)
+  })
+
+  test('Objetivo: POST /draft sin sesión responde 401', async ({ client }) => {
+    const response = await client.post(`${NOTICE_PATH}/draft`)
+    response.assertStatus(401)
+  })
+
+  test('Objetivo: PUT /draft sin sesión responde 401', async ({ client }) => {
+    const response = await client.put(`${NOTICE_PATH}/draft`).json({})
+    response.assertStatus(401)
+  })
+
+  test('Objetivo: DELETE /draft sin sesión responde 401', async ({ client }) => {
+    const response = await client.delete(`${NOTICE_PATH}/draft`)
+    response.assertStatus(401)
+  })
+
+  test('Objetivo: POST /publish sin sesión responde 401', async ({ client }) => {
+    const response = await client.post(`${NOTICE_PATH}/publish`)
+    response.assertStatus(401)
+  })
+
+  test('Objetivo: GET /versions sin sesión responde 401', async ({ client }) => {
+    const response = await client.get(`${NOTICE_PATH}/versions`)
+    response.assertStatus(401)
+  })
+
+  test('Objetivo: con sesión y sin X-Business-Unit-Id responde el 400 del middleware', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client.post(`${NOTICE_PATH}/draft`).loginAs(scenario.a.user)
+
+    response.assertStatus(400)
+    assert.equal(response.body().key, 'BU.VAL.000')
+    // El error del middleware corta antes del controller: no se creó nada.
+    assert.equal(await countNotices(scenario.a.businessUnit.businessUnitId), 0)
+  })
+})
+
+test.group('avisos de fotos — CA-01 estado sin aviso', (group) => {
+  useScenario(group, 'ca01')
+
+  test('Objetivo: CA-01 — una empresa sin aviso responde estado vacío y plantilla con marcador', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ['read'])
+
+    const state = await getState(client, scenario.a)
+    state.assertStatus(200)
+    assert.equal(state.body().type, 'success')
+    assert.equal(state.body().title, 'Aviso de privacidad de las fotos del puesto')
+    assert.equal(state.body().message, 'Estado del aviso de privacidad obtenido correctamente.')
+    assert.deepEqual(state.body().data, { current: null, draft: null })
+
+    const template = await getTemplate(client, scenario.a)
+    template.assertStatus(200)
+    assert.isAbove(Number(template.body().data.templateId), 0)
+    assert.equal(template.body().data.version, TEMPLATE_VERSION)
+    assert.include(template.body().data.content, '{{razon_social}}')
+    assert.deepEqual(template.body().data.placeholders, ['razon_social'])
+
+    // Lecturas puras: ni el estado ni la plantilla crean filas.
+    assert.equal(await countNotices(scenario.a.businessUnit.businessUnitId), 0)
+  })
+})
+
+test.group('avisos de fotos — CA-02 primer borrador', (group) => {
+  useScenario(group, 'ca02')
+
+  test('Objetivo: CA-02 — el primer POST /draft crea la v1 con la copia de la plantilla', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ['read', 'create'])
+
+    const response = await createDraft(client, scenario.a)
+    response.assertStatus(201)
+    assert.equal(response.body().type, 'success')
+    assert.equal(response.body().message, 'Borrador del aviso de privacidad creado correctamente.')
+
+    const data = response.body().data
+    assert.equal(data.status, 'draft')
+    assert.equal(data.version, 1)
+    assert.isAbove(Number(data.templateId), 0)
+
+    const template = await getTemplate(client, scenario.a)
+    template.assertStatus(200)
+    assert.equal(data.title, template.body().data.title)
+    assert.equal(data.content, template.body().data.content)
+    assert.include(data.content, '{{razon_social}}')
+
+    const row = await findNoticeRow(Number(data.teleworkPhotoNoticeId))
+    assert.equal(row.created_by_user_id, scenario.a.user.userId)
+    assert.equal(Number(row.telework_photo_notice_template_id), Number(data.templateId))
+    assert.equal(row.telework_photo_notice_status, 'draft')
+    assert.equal(row.telework_photo_notice_version, 1)
+    assert.equal(Number(row.telework_photo_notice_is_current), 0)
+    assert.isNull(row.telework_photo_notice_content_hash)
+    assert.equal(await countNotices(scenario.a.businessUnit.businessUnitId), 1)
+  })
+})
+
+test.group('avisos de fotos — CA-03 editar y publicar v1', (group) => {
+  useScenario(group, 'ca03')
+
+  test('Objetivo: CA-03 — editar y publicar sella el marcador escapado y su hash', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+
+    const created = await createDraft(client, scenario.a)
+    created.assertStatus(201)
+    const noticeId = Number(created.body().data.teleworkPhotoNoticeId)
+
+    const edited = await updateDraft(client, scenario.a, {
+      title: 'Aviso de privacidad v1',
+      content: 'La empresa {{razon_social}} informa.',
+    })
+    edited.assertStatus(200)
+    assert.equal(edited.body().data.status, 'draft')
+    assert.include(edited.body().data.content, '{{razon_social}}')
+
+    const published = await publish(client, scenario.a)
+    published.assertStatus(200)
+    assert.equal(published.body().message, 'Aviso de privacidad publicado correctamente.')
+
+    const data = published.body().data
+    assert.equal(data.status, 'published')
+    assert.equal(data.version, 1)
+    assert.isTrue(data.isCurrent)
+    assert.equal(data.title, 'Aviso de privacidad v1')
+    // El valor de la empresa viaja escapado (no inyecta HTML) y el marcador no
+    // sobrevive en el texto servido.
+    assert.equal(data.content, 'La empresa Acme &lt;b&gt;&amp; Hijos&lt;/b&gt; informa.')
+    assert.notInclude(data.content, '{{')
+    assert.isString(data.publishedByName)
+    assert.include(data.publishedByName, 'Gate Test')
+    assert.isAbove(data.publishedAt.length, 0)
+    assert.equal(data.acknowledgementsCount, 0)
+    assert.equal(data.publishedByUserId, scenario.a.user.userId)
+
+    const expectedHash = createHash('sha256')
+      .update(`${data.title}\n${data.content}`, 'utf8')
+      .digest('hex')
+    assert.equal(data.contentHash, expectedHash)
+
+    const row = await findNoticeRow(noticeId)
+    assert.equal(row.telework_photo_notice_content_hash, data.contentHash)
+    assert.equal(row.telework_photo_notice_rendered_content, data.content)
+    assert.include(row.telework_photo_notice_content, '{{razon_social}}')
+    assert.equal(row.telework_photo_notice_status, 'published')
+    assert.equal(Number(row.telework_photo_notice_is_current), 1)
+    assert.equal(row.published_by_user_id, scenario.a.user.userId)
+    assert.isNotNull(row.published_at)
+  })
+})
+
+test.group('avisos de fotos — CA-04 segunda versión', (group) => {
+  useScenario(group, 'ca04')
+
+  test('Objetivo: CA-04 — el borrador v2 nace de la v1 y publicarlo apaga la v1 sin tocarla', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+
+    const { noticeId: v1Id, published: publishedV1 } = await publishNoticeVersion(client, scenario.a, {
+      title: 'Aviso v1',
+      content: 'La empresa {{razon_social}} informa.',
+    })
+    publishedV1.assertStatus(200)
+    const v1Data = publishedV1.body().data
+
+    const v2 = await createDraft(client, scenario.a)
+    v2.assertStatus(201)
+    assert.equal(v2.body().data.version, 2)
+    assert.equal(v2.body().data.title, 'Aviso v1')
+    // Parte de la v1: el texto vuelve CON su marcador, listo para editarse.
+    assert.include(v2.body().data.content, '{{razon_social}}')
+
+    const edited = await updateDraft(client, scenario.a, {
+      title: 'Aviso v2',
+      content: 'La empresa {{razon_social}} informa por segunda vez.',
+    })
+    edited.assertStatus(200)
+
+    const publishedV2 = await publish(client, scenario.a)
+    publishedV2.assertStatus(200)
+    assert.equal(publishedV2.body().data.version, 2)
+    assert.isTrue(publishedV2.body().data.isCurrent)
+    assert.notEqual(publishedV2.body().data.contentHash, v1Data.contentHash)
+
+    // La v1 no se editó: mismo contenido, mismo texto resuelto y mismo hash.
+    const v1Row = await findNoticeRow(v1Id)
+    assert.equal(v1Row.telework_photo_notice_status, 'published')
+    assert.equal(v1Row.telework_photo_notice_content, 'La empresa {{razon_social}} informa.')
+    assert.equal(v1Row.telework_photo_notice_rendered_content, v1Data.content)
+    assert.equal(v1Row.telework_photo_notice_content_hash, v1Data.contentHash)
+    assert.equal(Number(v1Row.telework_photo_notice_is_current), 0)
+  })
+})
+
+test.group('avisos de fotos — CA-05 versiones con conteo', (group) => {
+  useScenario(group, 'ca05')
+
+  test('Objetivo: CA-05 — el historial baja por versión y cuenta los acuses de cada fila', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+
+    const { noticeId: v1Id, published: publishedV1 } = await publishNoticeVersion(client, scenario.a, {
+      title: 'Aviso v1',
+      content: 'La empresa {{razon_social}} informa.',
+    })
+    publishedV1.assertStatus(200)
+    await insertAcknowledgement(scenario.a.businessUnit.businessUnitId, v1Id, scenario.employeeAId)
+
+    const { published: publishedV2 } = await publishNoticeVersion(client, scenario.a, {
+      title: 'Aviso v2',
+      content: 'La empresa {{razon_social}} informa de nuevo.',
+    })
+    publishedV2.assertStatus(200)
+
+    const versions = await listVersions(client, scenario.a)
+    versions.assertStatus(200)
+    const listed = versions.body().data as { version: number; acknowledgementsCount: number }[]
+    assert.lengthOf(listed, 2)
+    assert.deepEqual(
+      listed.map((row) => row.version),
+      [2, 1]
+    )
+    assert.equal(listed[0].acknowledgementsCount, 0)
+    assert.equal(listed[1].acknowledgementsCount, 1)
+  })
+})
+
+test.group('avisos de fotos — CA-06 marcador fuera de la lista', (group) => {
+  useScenario(group, 'ca06')
+
+  test('Objetivo: CA-06 — publicar con un marcador desconocido responde 422 con los nombres sobrantes', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+
+    const created = await createDraft(client, scenario.a)
+    created.assertStatus(201)
+    const noticeId = Number(created.body().data.teleworkPhotoNoticeId)
+
+    const edited = await updateDraft(client, scenario.a, {
+      title: 'Aviso con marcador ajeno',
+      content: 'La empresa {{domicilio}} informa a {{ correo }}.',
+    })
+    edited.assertStatus(200)
+
+    const rejected = await publish(client, scenario.a)
+    rejected.assertStatus(422)
+    assert.deepEqual(rejected.body(), {
+      type: 'error',
+      title: 'Marcador no reconocido',
+      detail:
+        'El texto usa marcadores que no existen: {{domicilio}}, {{correo}}. Permitidos: {{razon_social}}.',
+      key: 'marcador-no-reconocido',
+      code: 'TWN.VAL.002',
+      data: { placeholders: ['domicilio', 'correo'] },
+    })
+
+    // Nada se escribió: la fila sigue siendo el borrador y nadie quedó vigente.
+    const row = await findNoticeRow(noticeId)
+    assert.equal(row.telework_photo_notice_status, 'draft')
+    assert.equal(Number(row.telework_photo_notice_is_current), 0)
+    assert.isNull(row.telework_photo_notice_content_hash)
+    assert.isNull(row.telework_photo_notice_rendered_content)
+
+    const currentRows = (await db
+      .from('telework_photo_notices')
+      .where('business_unit_id', scenario.a.businessUnit.businessUnitId)
+      .where('telework_photo_notice_is_current', true)
+      .select('telework_photo_notice_id')) as { telework_photo_notice_id: number }[]
+    assert.lengthOf(currentRows, 0)
+  })
+})
+
+test.group('avisos de fotos — CA-07 contenido vacío tras sanear', (group) => {
+  useScenario(group, 'ca07')
+
+  test('Objetivo: CA-07 — un texto que queda vacío al sanear no se publica', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+
+    const created = await createDraft(client, scenario.a)
+    created.assertStatus(201)
+    const noticeId = Number(created.body().data.teleworkPhotoNoticeId)
+
+    const edited = await updateDraft(client, scenario.a, {
+      title: 'Aviso sin texto',
+      content: '<script>alert(1)</script>',
+    })
+    edited.assertStatus(200)
+    assert.equal(edited.body().data.content, '')
+
+    const rejected = await publish(client, scenario.a)
+    rejected.assertStatus(422)
+    assert.equal(rejected.body().title, 'Contenido vacío')
+    assert.equal(rejected.body().key, 'contenido-vacio')
+    assert.equal(rejected.body().code, 'TWN.VAL.003')
+    // Sin `details` accionables, el sobre de error no lleva `data`.
+    assert.notProperty(rejected.body(), 'data')
+
+    const row = await findNoticeRow(noticeId)
+    assert.equal(row.telework_photo_notice_status, 'draft')
+    assert.isNull(row.telework_photo_notice_content_hash)
+  })
+})
+
+test.group('avisos de fotos — CA-08 saneado al guardar y al servir', (group) => {
+  useScenario(group, 'ca08')
+
+  test('Objetivo: CA-08 — el marcado peligroso se cae al guardar y al servir', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+
+    const created = await createDraft(client, scenario.a)
+    created.assertStatus(201)
+    const noticeId = Number(created.body().data.teleworkPhotoNoticeId)
+
+    const edited = await updateDraft(client, scenario.a, {
+      title: 'Aviso saneado',
+      content: '<p onclick="x()">Hola</p><iframe src="//e"></iframe>',
+    })
+    edited.assertStatus(200)
+    assert.equal(edited.body().data.content, '<p>Hola</p>')
+
+    const row = await findNoticeRow(noticeId)
+    assert.equal(row.telework_photo_notice_content, '<p>Hola</p>')
+
+    const state = await getState(client, scenario.a)
+    state.assertStatus(200)
+    assert.equal(state.body().data.draft.content, '<p>Hola</p>')
+
+    // Fila alterada por SQL, sin pasar por el servicio: se sirve saneada.
+    await db
+      .from('telework_photo_notices')
+      .where('telework_photo_notice_id', noticeId)
+      .update({ telework_photo_notice_content: '<p>Hola</p><script>alert(1)</script>' })
+
+    const served = await getState(client, scenario.a)
+    served.assertStatus(200)
+    assert.equal(served.body().data.draft.content, '<p>Hola</p>')
+    assert.notInclude(served.body().data.draft.content, '<script>')
+  })
+})
+
+test.group('avisos de fotos — Review Focus 2 saneado de la versión servida', (group) => {
+  useScenario(group, 'rf2')
+
+  test('Objetivo: Review Focus 2 — el `rendered_content` alterado por SQL se sirve saneado', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+
+    const { noticeId, published } = await publishNoticeVersion(client, scenario.a, {
+      title: 'Aviso publicado',
+      content: 'La empresa {{razon_social}} informa.',
+    })
+    published.assertStatus(200)
+
+    await db
+      .from('telework_photo_notices')
+      .where('telework_photo_notice_id', noticeId)
+      .update({
+        telework_photo_notice_rendered_content: '<p>Hola</p><script>alert(1)</script>',
+      })
+
+    const state = await getState(client, scenario.a)
+    state.assertStatus(200)
+    assert.equal(state.body().data.current.content, '<p>Hola</p>')
+    assert.notInclude(state.body().data.current.content, '<script>')
+
+    const versions = await listVersions(client, scenario.a)
+    versions.assertStatus(200)
+    const listed = versions.body().data as { content: string }[]
+    assert.lengthOf(listed, 1)
+    assert.equal(listed[0].content, '<p>Hola</p>')
+    assert.notInclude(listed[0].content, '<script>')
+  })
+})
+
+test.group('avisos de fotos — CA-09 un solo borrador', (group) => {
+  useScenario(group, 'ca09')
+
+  test('Objetivo: CA-09 — la carrera de dos POST /draft deja 201, 409 y un solo borrador', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ['read', 'create'])
+
+    // Sin borradores previos: el 409 (si sale) es por la carrera, no por herencia.
+    await clearNotices(scenario.a.businessUnit.businessUnitId)
+
+    const responses = await Promise.all([
+      createDraft(client, scenario.a),
+      createDraft(client, scenario.a),
+    ])
+    assert.deepEqual(
+      responses.map((response) => response.status()).sort((left, right) => left - right),
+      [201, 409]
+    )
+
+    const conflict = responses.find((response) => response.status() === 409)
+    assert.equal(conflict?.body().key, 'borrador-ya-existe')
+    assert.equal(conflict?.body().code, 'TWN.CONF.001')
+
+    // El UNIQUE traducido: nunca 500 y nunca dos borradores vivos.
+    assert.equal(
+      responses.filter((response) => response.status() >= 500).length,
+      0,
+      'la carrera no debe reventar en 500'
+    )
+    assert.equal(await countNotices(scenario.a.businessUnit.businessUnitId), 1)
+  })
+})
+
+test.group('avisos de fotos — CA-10 descartar', (group) => {
+  useScenario(group, 'ca10')
+
+  test('Objetivo: CA-10 — descartar deja la v1 vigente y la siguiente versión es la 3', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+
+    const { noticeId: v1Id, published } = await publishNoticeVersion(client, scenario.a, {
+      title: 'Aviso vigente',
+      content: 'La empresa {{razon_social}} informa.',
+    })
+    published.assertStatus(200)
+
+    const v2 = await createDraft(client, scenario.a)
+    v2.assertStatus(201)
+    assert.equal(v2.body().data.version, 2)
+    const v2Id = Number(v2.body().data.teleworkPhotoNoticeId)
+
+    const discarded = await discardDraft(client, scenario.a)
+    discarded.assertStatus(200)
+    assert.equal(discarded.body().message, 'Borrador del aviso de privacidad descartado correctamente.')
+    assert.isNull(discarded.body().data)
+
+    // Soft delete: la fila sigue, marcada; la v1 sigue vigente.
+    const v2Row = await findNoticeRow(v2Id)
+    assert.isNotNull(v2Row.telework_photo_notice_deleted_at)
+    const v1Row = await findNoticeRow(v1Id)
+    assert.equal(Number(v1Row.telework_photo_notice_is_current), 1)
+
+    // Sin borrador vivo: las tres escrituras responden el mismo 404 accionable.
+    const withoutDraft = [
+      await updateDraft(client, scenario.a, { title: 'Aviso', content: 'Texto.' }),
+      await discardDraft(client, scenario.a),
+      await publish(client, scenario.a),
+    ]
+    for (const response of withoutDraft) {
+      response.assertStatus(404)
+      assert.equal(response.body().key, 'borrador-no-encontrado')
+      assert.equal(response.body().code, 'TWN.NF.002')
+    }
+
+    const next = await createDraft(client, scenario.a)
+    next.assertStatus(201)
+    assert.equal(next.body().data.version, 3)
+    assert.equal(await countNotices(scenario.a.businessUnit.businessUnitId), 2)
+  })
+})
+
+test.group('avisos de fotos — Review Focus 5 el borrador descartado no reaparece', (group) => {
+  useScenario(group, 'rf5')
+
+  test('Objetivo: Review Focus 5 — tras descartar, el estado no expone borrador y el historial no lista la fila', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+
+    const { published } = await publishNoticeVersion(client, scenario.a, {
+      title: 'Aviso vigente',
+      content: 'La empresa {{razon_social}} informa.',
+    })
+    published.assertStatus(200)
+
+    const v2 = await createDraft(client, scenario.a)
+    v2.assertStatus(201)
+    const v2Id = Number(v2.body().data.teleworkPhotoNoticeId)
+    const v2RowBeforeDiscard = await findNoticeRow(v2Id)
+    assert.equal(Number(v2RowBeforeDiscard.telework_photo_notice_is_current), 0)
+
+    const discarded = await discardDraft(client, scenario.a)
+    discarded.assertStatus(200)
+
+    const state = await getState(client, scenario.a)
+    state.assertStatus(200)
+    assert.isNull(state.body().data.draft)
+    assert.equal(state.body().data.current.version, 1)
+    assert.isTrue(state.body().data.current.isCurrent)
+
+    const versions = await listVersions(client, scenario.a)
+    versions.assertStatus(200)
+    const listed = versions.body().data as { version: number; teleworkPhotoNoticeId: number }[]
+    assert.lengthOf(listed, 1)
+    assert.equal(listed[0].version, 1)
+    assert.notInclude(
+      listed.map((row) => row.teleworkPhotoNoticeId),
+      v2Id
+    )
+  })
+})
+
+test.group('avisos de fotos — CA-11 sin plantilla', (group) => {
+  useScenario(group, 'ca11')
+
+  test('Objetivo: CA-11 — sin plantilla vigente, la plantilla y el primer borrador responden 404', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+
+    // La plantilla es de plataforma y la comparten todos los grupos: se apaga
+    // dentro del caso y se restaura en su `finally` para no romper los demás.
+    const currentTemplates = (await db
+      .from('telework_photo_notice_templates')
+      .where('telework_photo_notice_template_is_current', true)
+      .select('telework_photo_notice_template_id')) as {
+      telework_photo_notice_template_id: number
+    }[]
+
+    try {
+      await db
+        .from('telework_photo_notice_templates')
+        .update({ telework_photo_notice_template_is_current: false })
+
+      const template = await getTemplate(client, scenario.a)
+      template.assertStatus(404)
+      assert.equal(template.body().key, 'plantilla-no-encontrada')
+      assert.equal(template.body().code, 'TWN.NF.004')
+
+      const draft = await createDraft(client, scenario.a)
+      draft.assertStatus(404)
+      assert.equal(draft.body().key, 'plantilla-no-encontrada')
+      assert.equal(draft.body().code, 'TWN.NF.004')
+
+      assert.equal(await countNotices(scenario.a.businessUnit.businessUnitId), 0)
+    } finally {
+      if (currentTemplates.length > 0) {
+        await db
+          .from('telework_photo_notice_templates')
+          .whereIn(
+            'telework_photo_notice_template_id',
+            currentTemplates.map((row) => Number(row.telework_photo_notice_template_id))
+          )
+          .update({ telework_photo_notice_template_is_current: true })
+      }
+    }
+  })
+})
+
+test.group('avisos de fotos — CA-12 aislamiento entre empresas', (group) => {
+  useScenario(group, 'ca12')
+
+  test('Objetivo: CA-12 — la empresa B ve su propio estado vacío y no alcanza nada de A', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+    await grantNoticePermissions(scenario.b, ALL_NOTICE_ACTIONS)
+
+    // A publica de verdad: su vigente no debe asomar en B.
+    const { noticeId: aNoticeId, published } = await publishNoticeVersion(client, scenario.a, {
+      title: 'Aviso de A',
+      content: 'La empresa {{razon_social}} informa.',
+    })
+    published.assertStatus(200)
+
+    const stateB = await getState(client, scenario.b)
+    stateB.assertStatus(200)
+    assert.deepEqual(stateB.body().data, { current: null, draft: null })
+
+    const versionsB = await listVersions(client, scenario.b)
+    versionsB.assertStatus(200)
+    assert.deepEqual(versionsB.body().data, [])
+
+    // Lo de otra empresa responde igual que lo inexistente (CA-12).
+    const writes = [
+      await updateDraft(client, scenario.b, { title: 'Aviso ajeno', content: 'Texto ajeno.' }),
+      await discardDraft(client, scenario.b),
+      await publish(client, scenario.b),
+    ]
+    for (const response of writes) {
+      response.assertStatus(404)
+      assert.equal(response.body().key, 'borrador-no-encontrado')
+      assert.equal(response.body().code, 'TWN.NF.002')
+    }
+
+    // Las filas de A siguen igual: su versión, su hash y su vigencia.
+    const aRow = await findNoticeRow(aNoticeId)
+    assert.equal(aRow.telework_photo_notice_status, 'published')
+    assert.equal(Number(aRow.telework_photo_notice_is_current), 1)
+    assert.equal(aRow.telework_photo_notice_content_hash, published.body().data.contentHash)
+    assert.equal(await countNotices(scenario.a.businessUnit.businessUnitId), 1)
+    assert.equal(await countNotices(scenario.b.businessUnit.businessUnitId), 0)
+  })
+})
+
+test.group('avisos de fotos — CA-13 permisos', (group) => {
+  useScenario(group, 'ca13')
+
+  test('Objetivo: CA-13 — con `read` pasan los tres GET y las cuatro escrituras responden 403 sin `detail`', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ['read'])
+
+    const reads = [
+      await getState(client, scenario.a),
+      await getTemplate(client, scenario.a),
+      await listVersions(client, scenario.a),
+    ]
+    for (const response of reads) {
+      response.assertStatus(200)
+    }
+
+    const writes = [
+      await createDraft(client, scenario.a),
+      await updateDraft(client, scenario.a, { title: 'Aviso ajeno', content: 'Texto ajeno.' }),
+      await discardDraft(client, scenario.a),
+      await publish(client, scenario.a),
+    ]
+    for (const response of writes) {
+      response.assertStatus(403)
+      assert.equal(response.body().type, 'error')
+      assert.equal(response.body().key, 'sin-permiso')
+      assert.equal(response.body().errorCode, 'TWN.AUTH.001')
+      assert.equal(response.body().data, null)
+      // El 403 lo escribe el helper RBAC: sin `detail`.
+      assert.notProperty(response.body(), 'detail')
+    }
+
+    assert.equal(await countNotices(scenario.a.businessUnit.businessUnitId), 0)
+  })
+
+  test('Objetivo: CA-13 — con las cuatro acciones el actor pasa las cuatro escrituras', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
+
+    const created = await createDraft(client, scenario.a)
+    created.assertStatus(201)
+
+    const edited = await updateDraft(client, scenario.a, {
+      title: 'Aviso editable',
+      content: 'La empresa {{razon_social}} informa.',
+    })
+    edited.assertStatus(200)
+
+    const discarded = await discardDraft(client, scenario.a)
+    discarded.assertStatus(200)
+
+    // Ya sin borrador, publicar responde el 404 del dominio (cruzó el permiso).
+    const published = await publish(client, scenario.a)
+    published.assertStatus(404)
+    assert.equal(published.body().key, 'borrador-no-encontrado')
+  })
+
+  test('Objetivo: CA-13 — un rol con `gestion` pasa los siete endpoints', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ['gestion'])
+
+    const responses = [
+      await getState(client, scenario.a),
+      await getTemplate(client, scenario.a),
+      await listVersions(client, scenario.a),
+      await createDraft(client, scenario.a),
+      await updateDraft(client, scenario.a, { title: 'Aviso editable', content: 'Texto válido.' }),
+      await discardDraft(client, scenario.a),
+      await publish(client, scenario.a),
+    ]
+    for (const response of responses) {
+      assert.notEqual(response.status(), 403)
+      assert.isBelow(response.status(), 500)
+    }
+  })
+})
+
+test.group('avisos de fotos — CA-14 validación de entrada', (group) => {
+  useScenario(group, 'ca14')
+
+  test('Objetivo: CA-14 — título corto y contenido excesivo responden el 422 de Vine', async ({
+    client,
+    assert,
+  }) => {
+    await grantNoticePermissions(scenario.a, ['read', 'update'])
+
+    const shortTitle = await updateDraft(client, scenario.a, {
+      title: 'ab',
+      content: 'Texto válido.',
+    })
+    shortTitle.assertStatus(422)
+    assert.equal(shortTitle.body().type, 'error')
+    assert.equal(shortTitle.body().key, 'entrada-invalida')
+    assert.equal(shortTitle.body().code, 'TWN.VAL.001')
+    assert.isAbove(shortTitle.body().data.errors.length, 0)
+
+    const longContent = await updateDraft(client, scenario.a, {
+      title: 'Aviso válido',
+      content: 'x'.repeat(100_001),
+    })
+    longContent.assertStatus(422)
+    assert.equal(longContent.body().key, 'entrada-invalida')
+    assert.equal(longContent.body().code, 'TWN.VAL.001')
+    assert.isAbove(longContent.body().data.errors.length, 0)
+
+    // La forma se valida antes de tocar nada: ninguna fila nació.
+    assert.equal(await countNotices(scenario.a.businessUnit.businessUnitId), 0)
   })
 })
