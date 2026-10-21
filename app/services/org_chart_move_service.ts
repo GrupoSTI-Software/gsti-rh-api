@@ -5,6 +5,8 @@ import Role from '#models/role'
 import RoleService from '#services/role_service'
 import { wouldCreateHierarchyCycleFetchingParent } from '#utils/tree_validator'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import logger from '@adonisjs/core/services/logger'
 import type { I18n } from '@adonisjs/i18n'
 
 export const SPECIAL_DEPARTMENT_ID = 999
@@ -25,6 +27,11 @@ export type OrgChartMoveErrorPayload = {
   detail?: string
   key?: string
 }
+
+/** El conteo solo existe cuando el movimiento se confirmó. */
+export type OrgChartRelocatePositionResult =
+  | { ok: true; position: Position; employeesRelocated: number }
+  | { ok: false; payload: OrgChartMoveErrorPayload }
 
 export default class OrgChartMoveService {
   private t: (key: string, params?: Record<string, string | number>) => string
@@ -77,14 +84,19 @@ export default class OrgChartMoveService {
     return row?.parentPositionId ?? null
   }
 
-  private async collectPositionSubtree(positionId: number): Promise<number[]> {
+  private async collectPositionSubtree(
+    positionId: number,
+    businessUnitId: number,
+    client: TransactionClientContract
+  ): Promise<number[]> {
     const gathered: number[] = [positionId]
     let frontier = [positionId]
 
     while (frontier.length > 0) {
       const nextFrontier: number[] = []
-      const children = await Position.query()
+      const children = await Position.query({ client })
         .whereNull('position_deleted_at')
+        .where('business_unit_id', businessUnitId)
         .whereIn('parent_position_id', frontier)
 
       for (const child of children) {
@@ -252,7 +264,7 @@ export default class OrgChartMoveService {
     positionId: number,
     parentPositionId: number | null,
     departmentId: number | null
-  ): Promise<{ ok: true; position: Position } | { ok: false; payload: OrgChartMoveErrorPayload }> {
+  ): Promise<OrgChartRelocatePositionResult> {
     const hierarchyTitle = this.t('org_chart_hierarchy_invalid_title')
 
     if (parentPositionId !== null && parentPositionId === positionId) {
@@ -529,9 +541,16 @@ export default class OrgChartMoveService {
       }
     }
 
-    const subtreeIds = await this.collectPositionSubtree(positionId)
+    const { employeesRelocated, linkedIds } = await db.transaction(async (trx) => {
+      const subtreeIds = await this.collectPositionSubtree(positionId, moving.businessUnitId, trx)
 
-    await db.transaction(async (trx) => {
+      await trx
+        .from('positions')
+        .whereIn('position_id', subtreeIds)
+        .orderBy('position_id', 'asc')
+        .forUpdate()
+        .select('position_id')
+
       moving.useTransaction(trx)
       moving.parentPositionId = resolvedParentPositionId
 
@@ -547,13 +566,71 @@ export default class OrgChartMoveService {
 
       await moving.save()
 
+      const linkedRows: { position_id: number }[] = await trx
+        .from('department_position')
+        .whereIn('position_id', subtreeIds)
+        .where('business_unit_id', moving.businessUnitId)
+        .whereNull('department_position_deleted_at')
+        .distinct('position_id')
+      const movedPositionIds = linkedRows.map((row) => Number(row.position_id))
+
       await DepartmentPosition.query({ client: trx })
         .whereNull('department_position_deleted_at')
         .whereIn('position_id', subtreeIds)
+        .where('business_unit_id', moving.businessUnitId)
         .update({ departmentId: resolvedDepartmentId })
+
+      const relocated = await this.relocateOccupants(trx, {
+        linkedIds: movedPositionIds,
+        businessUnitId: moving.businessUnitId,
+        departmentId: resolvedDepartmentId,
+      })
+      return { employeesRelocated: relocated, linkedIds: movedPositionIds }
     })
 
     await moving.refresh()
-    return { ok: true, position: moving }
+    logger.info(
+      {
+        positionId,
+        businessUnitId: moving.businessUnitId,
+        departmentId: resolvedDepartmentId,
+        movedPositionIds: linkedIds,
+        employeesRelocated,
+      },
+      'organigrama: puesto movido con arrastre de empleados'
+    )
+    return { ok: true, position: moving, employeesRelocated }
+  }
+
+  /**
+   * Pasa al departamento destino a los ocupantes vigentes de la empresa.
+   * El conteo sale de las filas seleccionadas, no de las filas que reporte el UPDATE.
+   */
+  protected async relocateOccupants(
+    trx: TransactionClientContract,
+    params: { linkedIds: number[]; businessUnitId: number; departmentId: number }
+  ): Promise<number> {
+    if (params.linkedIds.length === 0) return 0
+
+    const rows: { employee_id: number }[] = await trx
+      .from('employees')
+      .whereIn('position_id', params.linkedIds)
+      .where('business_unit_id', params.businessUnitId)
+      .whereNull('employee_deleted_at')
+      .where((query) => {
+        query.whereNot('department_id', params.departmentId).orWhereNull('department_id')
+      })
+      .orderBy('employee_id', 'asc')
+      .forUpdate()
+      .select('employee_id')
+
+    const ids = rows.map((row) => Number(row.employee_id))
+    if (ids.length > 0) {
+      await trx.from('employees').whereIn('employee_id', ids).update({
+        department_id: params.departmentId,
+        employee_updated_at: new Date(),
+      })
+    }
+    return ids.length
   }
 }

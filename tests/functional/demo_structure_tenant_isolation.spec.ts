@@ -20,6 +20,12 @@ import DemoFactoryService, {
 } from '#modules/demo/services/demo_factory_service'
 import { DEMO_SUPPORT_DEPARTMENT_KEY } from '#modules/demo/factories/department_factory'
 import { DEMO_SUPPORT_POSITION_KEY } from '#modules/demo/factories/position_factory'
+import {
+  createDepartmentFixture,
+  createPositionFixture,
+  linkDepartmentPositionFixture,
+} from '#tests/helpers/org_chart_fixtures'
+import { TenantContext } from '#utils/tenant_context'
 
 const FILLER_NAMES = ['Sin Departamento', 'Sin posición']
 
@@ -112,7 +118,9 @@ test.group('demo_structure_tenant_isolation — USRH1789328927671', (group) => {
     const buIdA = a.businessUnit.businessUnitId
     const result = emptyResult()
 
-    const maps = await new DemoFactoryService().seedStructure(buIdA, result)
+    const maps = await TenantContext.run([buIdA], () =>
+      new DemoFactoryService().seedStructure(buIdA, result)
+    )
 
     assert.equal(Object.keys(maps.departmentsMap).length, 13)
     assert.equal(Object.keys(maps.positionsMap).length, 25)
@@ -140,16 +148,19 @@ test.group('demo_structure_tenant_isolation — USRH1789328927671', (group) => {
     const b = required(actorB, 'actorB')
     const departmentB = required(deptB, 'deptB')
     const positionB = required(posB, 'posB')
-    const maps = await new DemoFactoryService().seedStructure(
-      a.businessUnit.businessUnitId,
-      emptyResult()
+    const maps = await TenantContext.run([a.businessUnit.businessUnitId], () =>
+      new DemoFactoryService().seedStructure(a.businessUnit.businessUnitId, emptyResult())
     )
 
     assert.notEqual(maps.departmentsMap['Recursos Humanos'].departmentId, departmentB.departmentId)
     assert.notEqual(maps.positionsMap['Reclutador'].positionId, positionB.positionId)
 
-    const departmentBAfter = await Department.findOrFail(departmentB.departmentId)
-    const positionBAfter = await Position.findOrFail(positionB.positionId)
+    const departmentBAfter = await TenantContext.run([b.businessUnit.businessUnitId], () =>
+      Department.findOrFail(departmentB.departmentId)
+    )
+    const positionBAfter = await TenantContext.run([b.businessUnit.businessUnitId], () =>
+      Position.findOrFail(positionB.positionId)
+    )
     assert.equal(departmentBAfter.departmentName, 'Recursos Humanos de B')
     assert.equal(departmentBAfter.departmentAlias, 'Recursos Humanos')
     assert.equal(departmentBAfter.businessUnitId, b.businessUnit.businessUnitId)
@@ -163,12 +174,12 @@ test.group('demo_structure_tenant_isolation — USRH1789328927671', (group) => {
     const buIdA = a.businessUnit.businessUnitId
     const service = new DemoFactoryService()
 
-    await service.seedStructure(buIdA, emptyResult())
+    await TenantContext.run([buIdA], () => service.seedStructure(buIdA, emptyResult()))
     const departmentsBefore = await countLive('departments', buIdA)
     const positionsBefore = await countLive('positions', buIdA)
 
     const second = emptyResult()
-    const maps = await service.seedStructure(buIdA, second)
+    const maps = await TenantContext.run([buIdA], () => service.seedStructure(buIdA, second))
 
     assert.equal(second.departments.created, 0)
     assert.equal(second.positions.created, 0)
@@ -178,13 +189,14 @@ test.group('demo_structure_tenant_isolation — USRH1789328927671', (group) => {
     assert.equal(await countLive('positions', buIdA), positionsBefore)
 
     const positionIds = Object.values(maps.positionsMap).map((position) => position.positionId)
-    const relations = await DepartmentPosition.query()
+    const relations = await db
+      .from('department_position')
       .whereIn('position_id', positionIds)
       .whereNull('department_position_deleted_at')
 
     assert.lengthOf(relations, 25)
     for (const relation of relations) {
-      assert.equal(relation.businessUnitId, buIdA)
+      assert.equal(Number(relation.business_unit_id), buIdA)
     }
   })
 
@@ -193,7 +205,9 @@ test.group('demo_structure_tenant_isolation — USRH1789328927671', (group) => {
   }) => {
     const a = required(actorA, 'actorA')
     const buIdA = a.businessUnit.businessUnitId
-    const maps = await new DemoFactoryService().seedStructure(buIdA, emptyResult())
+    const maps = await TenantContext.run([buIdA], () =>
+      new DemoFactoryService().seedStructure(buIdA, emptyResult())
+    )
     const { department, position } = requireDemoSupportStructure(maps)
 
     assert.equal(department.departmentAlias, DEMO_SUPPORT_DEPARTMENT_KEY)
@@ -201,14 +215,42 @@ test.group('demo_structure_tenant_isolation — USRH1789328927671', (group) => {
     assert.equal(department.businessUnitId, buIdA)
     assert.equal(position.businessUnitId, buIdA)
 
-    const relation = await DepartmentPosition.query()
-      .where('department_id', department.departmentId)
-      .where('position_id', position.positionId)
-      .whereNull('department_position_deleted_at')
-      .first()
+    const relation = await TenantContext.run([buIdA], () =>
+      DepartmentPosition.query()
+        .where('department_id', department.departmentId)
+        .where('position_id', position.positionId)
+        .whereNull('department_position_deleted_at')
+        .first()
+    )
 
     assert.exists(relation)
     assert.equal(relation!.businessUnitId, buIdA)
+  })
+
+  test('CA-13 — un puesto demo ya ligado a otro departamento conserva ese único vínculo', async ({
+    assert,
+  }) => {
+    const a = required(actorA, 'actorA')
+    const buIdA = a.businessUnit.businessUnitId
+    await wipeStructure(buIdA)
+
+    const position = await createPositionFixture(buIdA, 'reclutador-reutilizado')
+    await db.from('positions').where('position_id', position.positionId).update({
+      position_alias: 'Reclutador',
+    })
+    const previous = await createDepartmentFixture(buIdA, 'departamento-previo')
+    await linkDepartmentPositionFixture(previous.departmentId, position.positionId, buIdA)
+
+    await TenantContext.run([buIdA], () =>
+      new DemoFactoryService().seedStructure(buIdA, emptyResult())
+    )
+
+    const links = await db
+      .from('department_position')
+      .where('position_id', position.positionId)
+      .whereNull('department_position_deleted_at')
+    assert.lengthOf(links, 1)
+    assert.equal(Number(links[0].department_id), previous.departmentId)
   })
 
   test('CA4 — mapas sin soporte lanzan Error [demo_factory_service] sin datos personales ni SQL', ({

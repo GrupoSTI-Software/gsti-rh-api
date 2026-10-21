@@ -18,6 +18,8 @@ import {
   resolveEmployeeRoleScopeForUser,
 } from '#helpers/resolve_employee_role_scope'
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import type { DepartmentPositionLinkCheck } from '#services/department_position_service'
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
 import { resolveDepartmentParentFromBody } from '#utils/org_chart_parent_input'
@@ -162,22 +164,28 @@ export default class DepartmentController {
         .preload('position')
         .orderBy('position_id')
       const departmentPositionService = new DepartmentPositionService(i18n)
-      for await (const employee of employees) {
-        if (employee.positionId) {
-          await this.verifyRelatedPosition(
-            departmentId,
-            employee.positionId,
-            departmentPositionService
-          )
+      const omittedPositions: { positionId: number; reason: SyncOmittedReason }[] = []
+      for (const employee of employees) {
+        const positionId = employee.positionId
+        if (!positionId) continue
+        const result = await db.transaction((trx) =>
+          this.verifyRelatedPosition(departmentId, positionId, departmentPositionService, trx)
+        )
+        if (result.status === 'omitted') {
+          omittedPositions.push({ positionId, reason: result.reason })
         }
       }
       response.status(200)
       return {
         type: 'success',
         title: t('resource'),
-        message: t('the_positions_by_department_have_been_sync_successfully'),
+        message:
+          omittedPositions.length > 0
+            ? t('department_sync_positions_omitted_message', { count: omittedPositions.length })
+            : t('the_positions_by_department_have_been_sync_successfully'),
         data: {
           department,
+          omittedPositions,
         },
       }
     } catch (error) {
@@ -2288,14 +2296,46 @@ export default class DepartmentController {
   private async verifyRelatedPosition(
     departmentId: number,
     positionId: number,
-    departmentPositionService: DepartmentPositionService
-  ) {
-    const existDepartmentPosition = await DepartmentPosition.query()
+    departmentPositionService: DepartmentPositionService,
+    trx: TransactionClientContract
+  ): Promise<SyncPositionResult> {
+    const check = await departmentPositionService.verifySingleDepartmentLink(
+      { positionId, departmentId },
+      trx
+    )
+    if (!check.ok) {
+      return { status: 'omitted', reason: omittedReasonOf(check.reason) }
+    }
+
+    const samePair = await trx
+      .from('department_position')
       .where('department_id', departmentId)
       .where('position_id', positionId)
+      .whereNull('department_position_deleted_at')
       .first()
-    if (!existDepartmentPosition) {
-      await departmentPositionService.syncCreate(departmentId, positionId)
-    }
+    if (samePair) return { status: 'already-linked' }
+
+    await departmentPositionService.syncCreate(departmentId, positionId, {
+      trx,
+      businessUnitId: check.positionBusinessUnitId,
+    })
+    return { status: 'linked' }
   }
+}
+
+type SyncOmittedReason =
+  | 'puesto-ligado-a-otro-departamento'
+  | 'alcance-organizacional'
+  | 'puesto-no-encontrado'
+
+type SyncPositionResult =
+  | { status: 'linked' | 'already-linked' }
+  | { status: 'omitted'; reason: SyncOmittedReason }
+
+function omittedReasonOf(
+  reason: Exclude<DepartmentPositionLinkCheck, { ok: true }>['reason']
+): SyncOmittedReason {
+  if (reason === 'position-linked-to-other-department') return 'puesto-ligado-a-otro-departamento'
+  if (reason === 'position-not-found') return 'puesto-no-encontrado'
+  return 'alcance-organizacional'
 }

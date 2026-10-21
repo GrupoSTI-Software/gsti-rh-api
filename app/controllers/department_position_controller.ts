@@ -1,6 +1,9 @@
 import { HttpContext } from '@adonisjs/core/http'
+import db from '@adonisjs/lucid/services/db'
 import DepartmentPosition from '#models/department_position'
-import DepartmentPositionService from '#services/department_position_service'
+import DepartmentPositionService, {
+  type DepartmentPositionLinkCheck,
+} from '#services/department_position_service'
 import {
   createDepartmentPositionValidator,
   updateDepartmentPositionValidator,
@@ -147,15 +150,34 @@ export default class DepartmentPositionController {
           data: { ...data },
         }
       }
-      const newDepartmentPosition = await departmentPositionService.create(departmentPosition)
-      if (newDepartmentPosition) {
-        response.status(201)
-        return {
-          type: 'success',
-          title: t('resource'),
-          message: t('resource_was_created_successfully'),
-          data: { departmentPosition: newDepartmentPosition },
-        }
+      departmentPosition.departmentId = data.departmentId
+      departmentPosition.positionId = data.positionId
+      const outcome = await db.transaction(async (trx) => {
+        const check = await departmentPositionService.verifySingleDepartmentLink(
+          { positionId: data.positionId, departmentId: data.departmentId },
+          trx
+        )
+        if (!check.ok) return { ok: false as const, check }
+        const created = await departmentPositionService.create(departmentPosition, {
+          trx,
+          businessUnitId: check.positionBusinessUnitId,
+        })
+        return { ok: true as const, created }
+      })
+      if (!outcome.ok) {
+        const rejected = linkCheckResponse(outcome.check, t, {
+          departmentId: data.departmentId,
+          positionId: data.positionId,
+        })
+        response.status(rejected.status)
+        return rejected.body
+      }
+      response.status(201)
+      return {
+        type: 'success',
+        title: t('resource'),
+        message: t('resource_was_created_successfully'),
+        data: { departmentPosition: outcome.created },
       }
     } catch (error) {
       const messageError =
@@ -341,18 +363,44 @@ export default class DepartmentPositionController {
           data: { ...data },
         }
       }
-      const updateDepartmentPosition = await departmentPositionService.update(
-        currentDepartmentPosition,
-        departmentPosition
-      )
-      if (updateDepartmentPosition) {
-        response.status(201)
-        return {
-          type: 'success',
-          title: t('resource'),
-          message: t('resource_was_updated_successfully'),
-          data: { departmentPosition: updateDepartmentPosition },
-        }
+      departmentPosition.departmentId = data.departmentId
+      departmentPosition.positionId = data.positionId
+      const previousPositionId =
+        currentDepartmentPosition.positionId !== data.positionId
+          ? currentDepartmentPosition.positionId
+          : undefined
+      const outcome = await db.transaction(async (trx) => {
+        const check = await departmentPositionService.verifySingleDepartmentLink(
+          {
+            positionId: data.positionId,
+            departmentId: data.departmentId,
+            excludeDepartmentPositionId: currentDepartmentPosition.departmentPositionId,
+            previousPositionId,
+          },
+          trx
+        )
+        if (!check.ok) return { ok: false as const, check }
+        const updated = await departmentPositionService.update(
+          currentDepartmentPosition,
+          departmentPosition,
+          { trx, businessUnitId: check.positionBusinessUnitId }
+        )
+        return { ok: true as const, updated }
+      })
+      if (!outcome.ok) {
+        const rejected = linkCheckResponse(outcome.check, t, {
+          departmentId: data.departmentId,
+          positionId: data.positionId,
+        })
+        response.status(rejected.status)
+        return rejected.body
+      }
+      response.status(201)
+      return {
+        type: 'success',
+        title: t('resource'),
+        message: t('resource_was_updated_successfully'),
+        data: { departmentPosition: outcome.updated },
       }
     } catch (error) {
       const messageError =
@@ -828,5 +876,63 @@ export default class DepartmentPositionController {
         error: error.message,
       }
     }
+  }
+}
+
+type LinkTranslator = (
+  key: string,
+  params?: { [key: string]: string | number }
+) => string
+
+/** Cuerpo HTTP del rechazo de la pivote. Se responde fuera de la transacción. */
+function linkCheckResponse(
+  check: Exclude<DepartmentPositionLinkCheck, { ok: true }>,
+  t: LinkTranslator,
+  data: { departmentId: number; positionId: number }
+) {
+  if (check.reason === 'position-linked-to-other-department') {
+    return {
+      status: 422 as const,
+      body: {
+        type: 'warning' as const,
+        title: t('department_position_linked_other_department_title'),
+        message: check.linkedDepartmentName
+          ? t('department_position_linked_other_department_message', {
+              position: check.positionName,
+              department: check.linkedDepartmentName,
+            })
+          : t('department_position_linked_other_department_message_generic', {
+              position: check.positionName,
+            }),
+        detail: t('department_position_linked_other_department_detail'),
+        key: 'puesto-ligado-a-otro-departamento',
+        data,
+      },
+    }
+  }
+
+  if (check.reason === 'business-unit-mismatch') {
+    return {
+      status: 422 as const,
+      body: {
+        type: 'warning' as const,
+        title: t('org_chart_scope_mismatch_title'),
+        message: t('org_chart_move_position_business_unit_detail'),
+        detail: t('org_chart_department_company_mismatch_detail'),
+        key: 'alcance-organizacional',
+        data,
+      },
+    }
+  }
+
+  const entity = t(check.reason === 'position-not-found' ? 'position' : 'department')
+  return {
+    status: 400 as const,
+    body: {
+      type: 'warning' as const,
+      title: t('entity_was_not_found', { entity }),
+      message: t('entity_was_not_found_with_entered_id', { entity }),
+      data,
+    },
   }
 }

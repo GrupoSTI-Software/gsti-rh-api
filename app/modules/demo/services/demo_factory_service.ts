@@ -376,13 +376,22 @@ export default class DemoFactoryService {
 
       const dept = departmentsMap[posData.departmentKey]
       if (dept) {
-        const existsRel = await DepartmentPosition.query()
+        const linkedElsewhere = await db
+          .from('department_position')
           .where('position_id', pos.positionId)
-          .where('department_id', dept.departmentId)
+          .whereNot('department_id', dept.departmentId)
           .whereNull('department_position_deleted_at')
           .first()
 
-        if (!existsRel) {
+        const existsRel = linkedElsewhere
+          ? null
+          : await DepartmentPosition.query()
+              .where('position_id', pos.positionId)
+              .where('department_id', dept.departmentId)
+              .whereNull('department_position_deleted_at')
+              .first()
+
+        if (!linkedElsewhere && !existsRel) {
           const dp = new DepartmentPosition()
           dp.positionId = pos.positionId
           dp.departmentId = dept.departmentId
