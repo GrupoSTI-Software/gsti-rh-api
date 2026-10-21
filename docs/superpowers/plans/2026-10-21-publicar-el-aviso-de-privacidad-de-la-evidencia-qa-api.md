@@ -1119,28 +1119,30 @@ Objetivo: comprobar que se puede preguntar si un colaborador acusó la versión 
 
 **Checklist de los escenarios automatizados** (una casilla por escenario: se marca si su prueba pasó):
 
-- [ ] A.1 La otra empresa ve su estado y su historial vacíos y sus tres escrituras responden el mismo «borrador no encontrado», sin mover las filas de la empresa dueña
-- [ ] A.2 El marcador fuera de la lista se rechaza al publicar con sus nombres sobrantes y el borrador no queda vigente
-- [ ] A.3 El contenido que queda vacío al sanearlo se rechaza al publicar y la fila sigue en borrador
-- [ ] A.4 El marcado peligroso se cae al guardar y al servir, tanto en el borrador como en la versión publicada alterada por SQL
-- [ ] A.5 La carrera de dos borradores deja un solo borrador, con un 201 y un 409, sin error del servidor
-- [ ] A.6 Con solo consulta las escrituras se rechazan, con las cuatro acciones abrir, editar y descartar pasan y con solo gestión pasan los siete endpoints
-- [ ] A.7 Cada versión del historial trae su propio conteo de acuses: `0` en la última y `1` en la anterior, sin mezclarse
-- [ ] A.8 El nombre legal con marcado se publica escapado, sin etiquetas y sin que el marcador sobreviva
-- [ ] A.9 Sin plantilla vigente se responde el mismo «plantilla no encontrada» al ver el machote y al abrir el primer borrador, sin crear filas
-- [ ] A.10 `hasAcknowledgedCurrent` responde por la versión vigente de la empresa y solo por ella, y exige empresa y colaborador válidos
+- [x] A.1 La otra empresa ve su estado y su historial vacíos y sus tres escrituras responden el mismo «borrador no encontrado», sin mover las filas de la empresa dueña
+- [x] A.2 El marcador fuera de la lista se rechaza al publicar con sus nombres sobrantes y el borrador no queda vigente
+- [x] A.3 El contenido que queda vacío al sanearlo se rechaza al publicar y la fila sigue en borrador
+- [x] A.4 El marcado peligroso se cae al guardar y al servir, tanto en el borrador como en la versión publicada alterada por SQL
+- [x] A.5 La carrera de dos borradores deja un solo borrador, con un 201 y un 409, sin error del servidor
+- [x] A.6 Con solo consulta las escrituras se rechazan, con las cuatro acciones abrir, editar y descartar pasan y con solo gestión pasan los siete endpoints
+- [x] A.7 Cada versión del historial trae su propio conteo de acuses: `0` en la última y `1` en la anterior, sin mezclarse
+- [x] A.8 El nombre legal con marcado se publica escapado, sin etiquetas y sin que el marcador sobreviva
+- [x] A.9 Sin plantilla vigente se responde el mismo «plantilla no encontrada» al ver el machote y al abrir el primer borrador, sin crear filas
+- [x] A.10 `hasAcknowledgedCurrent` responde por la versión vigente de la empresa y solo por ella, y exige empresa y colaborador válidos
 
 ## Checklist
 
 Cada casilla se marca **contra el objetivo de su escenario**, no contra «se hicieron los pasos»:
 
-- [ ] **Escenario 1** — una empresa sin aviso responde `current` y `draft` en `null`, y la plantilla base llega con su marcador y su lista de marcadores permitidos
-- [ ] **Escenario 2** — el primer borrador queda como versión 1 con la copia de la plantilla, y al publicarlo es la vigente con su fecha, su autor y el texto ya sin marcadores (ahí aparece `QA Aviso Evidencia SA de CV`)
-- [ ] **Escenario 3** — la segunda vuelta nace como versión 2 con el texto de la vigente y, al publicarla, la 2 queda vigente sin tocar la 1
-- [ ] **Escenario 4** — el historial lista las versiones de la más nueva a la más vieja, cada una con su texto resuelto, su fecha y su conteo de acuses (en cero en este recorrido), y la versión 1 sigue consultable
-- [ ] **Escenario 5** — descartar el borrador responde `200` con `data` en `null`, deja la versión 2 vigente, el estado sin borrador y la fila descartada marcada (no borrada); sin borrador vivo, editar, descartar y publicar responden `404` `borrador-no-encontrado` con `TWN.NF.002`; y el borrador siguiente es el 4
-- [ ] **Escenario 6** — la cuenta que solo consulta ve el estado, la plantilla y el historial igual, y sus cuatro escrituras responden `403` `sin-permiso` con `TWN.AUTH.001`, sin cambios en el aviso
-- [ ] **Escenario 7** — un título de 2 caracteres y un texto de 100 001 responden `422` `entrada-invalida` con `TWN.VAL.001` y el desglose de lo que falló, sin tocar el borrador vivo
+Recorrido manual cerrado el 2026-10-21, y las suites automatizadas corridas ese mismo día sobre esta rama: la funcional del aviso en 31 de 31 y la unitaria del servicio en 23 de 23, ambas en verde.
+
+- [x] **Escenario 1** — una empresa sin aviso responde `current` y `draft` en `null`, y la plantilla base llega con su marcador y su lista de marcadores permitidos
+- [x] **Escenario 2** — el primer borrador queda como versión 1 con la copia de la plantilla, y al publicarlo es la vigente con su fecha, su autor y el texto ya sin marcadores (ahí aparece `QA Aviso Evidencia SA de CV`)
+- [x] **Escenario 3** — la segunda vuelta nace como versión 2 con el texto de la vigente y, al publicarla, la 2 queda vigente sin tocar la 1
+- [x] **Escenario 4** — el historial lista las versiones de la más nueva a la más vieja, cada una con su texto resuelto, su fecha y su conteo de acuses (en cero en este recorrido), y la versión 1 sigue consultable
+- [x] **Escenario 5** — descartar el borrador responde `200` con `data` en `null`, deja la versión 2 vigente, el estado sin borrador y la fila descartada marcada (no borrada); sin borrador vivo, editar, descartar y publicar responden `404` `borrador-no-encontrado` con `TWN.NF.002`; y el borrador siguiente es el 4
+- [x] **Escenario 6** — la cuenta que solo consulta ve el estado, la plantilla y el historial igual, y sus cuatro escrituras responden `403` `sin-permiso` con `TWN.AUTH.001`, sin cambios en el aviso
+- [x] **Escenario 7** — un título de 2 caracteres y un texto de 100 001 responden `422` `entrada-invalida` con `TWN.VAL.001` y el desglose de lo que falló, sin tocar el borrador vivo
 
 ## Hallazgos de otras historias
 
