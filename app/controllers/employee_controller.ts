@@ -97,9 +97,15 @@ import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { getBusinessTimeZone, toCalendarIsoDate } from '#utils/business_date'
 import { EMPLOYEE_WORK_SCHEDULE, type EmployeeWorkSchedule } from '#constants/employee_work_schedule'
 import {
-  isEmployeeTerminationRecordChanged,
+  normalizeEmployeeTerminatedDate,
   parseEmployeeTerminatedDate,
+  resolveTerminationRecordUpdate,
+  type EmployeeTerminatedDateParseResult,
+  type TerminationRecordPresence,
+  type TerminationRecordUpdateDecision,
 } from '#helpers/employee_termination_record'
+import { EmployeeTerminationRecordError } from '#exceptions/employee_termination_record_error'
+import { resolveEmployeeTerminationRecordApiError } from '#helpers/employee_termination_record_api_error'
 import type { PersonReleaseContext } from '#helpers/person_release_guard'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { EMPLOYEES_TERMINATION_RECORD_PERMISSION } from '#constants/employees_write_permission_declarations'
@@ -275,6 +281,66 @@ export default class EmployeeController {
       detail: i18n.t('employee_terminated_date_invalid_message'),
       key: 'fecha-de-baja-invalida',
     }
+  }
+
+  /**
+   * 400 del registro de baja en la ficha (VLRH-H1792172889566): poner, cambiar
+   * o vaciar el trío de un activo, o vaciar la fecha de un dado de baja. Texto
+   * fijo traducido, sin `data`: nunca ecoa modalidad ni tipo.
+   */
+  private terminationRecordErrorResponse(error: EmployeeTerminationRecordError, i18n: I18n) {
+    const resolved = resolveEmployeeTerminationRecordApiError(error, i18n)
+    return {
+      type: 'warning',
+      title: resolved.title,
+      message: resolved.message,
+      detail: resolved.detail,
+      key: resolved.key,
+      code: resolved.errorCode,
+    }
+  }
+
+  /**
+   * Decisión del guardado sobre fecha, modalidad y tipo de baja
+   * (VLRH-H1792172889566). Presencia por llave: ausente = valor guardado;
+   * fecha vacía deja modalidad y tipo en `null`; modalidad o tipo vacíos caen
+   * al guardado (fallback vigente). Se evalúa sobre la fila leída y otra vez
+   * sobre la fila bloqueada dentro de la transacción (regla 5).
+   */
+  private resolveTerminationRecordDecision(
+    row: Employee,
+    presence: TerminationRecordPresence,
+    dateInput: EmployeeTerminatedDateParseResult,
+    inputs: { modality: unknown; type: unknown }
+  ): TerminationRecordUpdateDecision {
+    const currentModality = this.normalizeTerminationInput(row.employeeTerminationModality)
+    const currentType = this.normalizeTerminationInput(row.employeeTerminationType)
+    const nextDate = presence.date
+      ? dateInput.kind === 'valid'
+        ? dateInput.sqlValue
+        : null
+      : normalizeEmployeeTerminatedDate(row.employeeTerminatedDate)
+    const next =
+      nextDate === null
+        ? { employeeTerminatedDate: null, employeeTerminationModality: null, employeeTerminationType: null }
+        : {
+            employeeTerminatedDate: nextDate,
+            employeeTerminationModality:
+              (presence.modality ? this.normalizeTerminationInput(inputs.modality) : null) ??
+              currentModality,
+            employeeTerminationType:
+              (presence.type ? this.normalizeTerminationInput(inputs.type) : null) ?? currentType,
+          }
+    return resolveTerminationRecordUpdate({
+      employeeIsDeleted: row.deletedAt !== null && row.deletedAt !== undefined,
+      current: {
+        employeeTerminatedDate: row.employeeTerminatedDate,
+        employeeTerminationModality: currentModality,
+        employeeTerminationType: currentType,
+      },
+      next,
+      presence,
+    })
   }
 
   /**
@@ -1289,16 +1355,19 @@ export default class EmployeeController {
    *               employeeTerminatedDate:
    *                 type: string
    *                 format: date
-   *                 description: Employee terminated date (YYYY-MM-DD)
+   *                 description: >-
+   *                   Fecha de baja (YYYY-MM-DD). Opcional; llave ausente = no se toca (VLRH-H1792172889566).
+   *                   En un colaborador activo solo se acepta el valor guardado (se ignora): poner, cambiar o
+   *                   vaciar la baja se hace en el expediente de salida. En un dado de baja se corrige con
+   *                   employees:delete; vaciar la fecha se rechaza.
    *                 required: false
-   *                 default: ''
    *               employeeTerminationModality:
    *                 type: string
-   *                 description: Modalidad de baja (obligatoria si hay fecha de baja). Ver GET /api/employees/termination-catalog
+   *                 description: Modalidad de baja. Opcional; llave ausente = no se toca. Mismas reglas que employeeTerminatedDate. Ver GET /api/employees/termination-catalog
    *                 required: false
    *               employeeTerminationType:
    *                 type: string
-   *                 description: Tipo de baja (obligatoria si hay fecha de baja). Debe ser coherente con la modalidad
+   *                 description: Tipo de baja, coherente con la modalidad. Opcional; llave ausente = no se toca. Mismas reglas que employeeTerminatedDate
    *                 required: false
    *     responses:
    *       '201':
@@ -1347,6 +1416,11 @@ export default class EmployeeController {
    *           También responde 400 con key `fecha-de-baja-invalida` cuando `employeeTerminatedDate`
    *           viene presente y no es un día real del calendario (VLRH-H1790812613821): no se lee ni
    *           se escribe nada y el registro de baja queda como estaba.
+   *           Registro de baja (VLRH-H1792172889566), siempre antes del permiso y sin `data`:
+   *           key `baja-solo-desde-el-expediente` / code `EMP.TERMINATION.ACTIVE_CHANGE_FORBIDDEN`
+   *           cuando se intenta poner, cambiar o vaciar la baja de un colaborador activo; key
+   *           `la-baja-no-se-puede-quitar-desde-la-ficha` / code `EMP.TERMINATION.CLEAR_FORBIDDEN`
+   *           cuando se intenta dejar sin fecha a un dado de baja. El guardado completo se rechaza.
    *         content:
    *           application/json:
    *             schema:
@@ -1366,14 +1440,18 @@ export default class EmployeeController {
    *                   description: Mismo texto que message; presente en el rechazo de fecha de baja
    *                 key:
    *                   type: string
-   *                   description: Clave estable del rechazo (p. ej. fecha-de-baja-invalida)
+   *                   description: Clave estable del rechazo (fecha-de-baja-invalida, baja-solo-desde-el-expediente, la-baja-no-se-puede-quitar-desde-la-ficha)
+   *                 code:
+   *                   type: string
+   *                   description: Código estable del registro de baja (EMP.TERMINATION.ACTIVE_CHANGE_FORBIDDEN, EMP.TERMINATION.CLEAR_FORBIDDEN); ausente en los demás 400
    *                 data:
    *                   type: object
-   *                   description: List of parameters set by the client
+   *                   description: List of parameters set by the client (ausente en los rechazos del registro de baja)
    *       '403':
    *         description: |
    *           La cuenta de acceso del empleado no pertenece a las empresas del actor (USR.MAIL.005). Nada se guardó.
    *           Si el correo cambia la credencial y falta el permiso propio, responde {"title":"Sin permiso","detail":"No tienes permiso para realizar esta operación.","key":"PERM.DENIED"}.
+   *           Corregir la baja de un colaborador dado de baja sin `employees:delete` responde el mismo PERM.DENIED (VLRH-H1792172889566).
    *       '422':
    *         description: Nivel de puesto rechazado — no pertenece a los niveles configurados del puesto del payload, o está inactivo para una asignación nueva
    *         content:
@@ -1466,9 +1544,21 @@ export default class EmployeeController {
       const employeeIgnoreConsecutiveAbsences = request.input('employeeIgnoreConsecutiveAbsences')
       const employeeAuthorizeAnyZones = request.input('employeeAuthorizeAnyZones')
 
+      // Registro de baja (VLRH-H1792172889566): la presencia es por llave.
+      // `request.input` no distingue ausente de `null`, y `convertEmptyStrings`
+      // deja `''` como `null` con la llave presente: ausente = no tocar.
+      const requestBody = request.all()
+      const terminationPresence: TerminationRecordPresence = {
+        date: Object.prototype.hasOwnProperty.call(requestBody, 'employeeTerminatedDate'),
+        modality: Object.prototype.hasOwnProperty.call(requestBody, 'employeeTerminationModality'),
+        type: Object.prototype.hasOwnProperty.call(requestBody, 'employeeTerminationType'),
+      }
+      const terminationInputs = {
+        modality: request.input('employeeTerminationModality'),
+        type: request.input('employeeTerminationType'),
+      }
       // Fecha de baja (VLRH-H1790812613821): se interpreta antes de leer o
-      // escribir nada. No interpretable = 400; vacía = quita el registro de
-      // baja, como siempre (regla 4).
+      // escribir nada. No interpretable = 400 (R2 de VLRH-C0038).
       const terminatedDateInput = parseEmployeeTerminatedDate(
         request.input('employeeTerminatedDate')
       )
@@ -1476,8 +1566,6 @@ export default class EmployeeController {
         response.status(400)
         return this.invalidTerminatedDateResponse(i18n)
       }
-      const employeeTerminatedDate =
-        terminatedDateInput.kind === 'valid' ? terminatedDateInput.sqlValue : null
 
       const employee = {
         employeeId: employeeId,
@@ -1502,7 +1590,8 @@ export default class EmployeeController {
         employeeTypeOfContract: employeeTypeOfContract,
         employeeIgnoreConsecutiveAbsences: employeeIgnoreConsecutiveAbsences,
         employeeAuthorizeAnyZones: employeeAuthorizeAnyZones,
-        employeeTerminatedDate: employeeTerminatedDate,
+        // Sin `employeeTerminatedDate`: el trío solo se fija dentro de la
+        // transacción cuando la decisión es corregir la baja de un dado de baja
       } as Employee
 
       if (!employeeId) {
@@ -1538,19 +1627,33 @@ export default class EmployeeController {
       })
       if (!credentialChangeAllowed) return
 
-      const inputTerminationModality = this.normalizeTerminationInput(
-        request.input('employeeTerminationModality')
+      // Trío de baja (VLRH-H1792172889566): la decisión previa se toma con la
+      // fila leída. Activo que pone, cambia o vacía, o dado de baja que vacía:
+      // 400 ANTES del permiso (regla 1). Corregir la baja de un dado de baja
+      // sigue exigiendo `employees:delete` (regla 4). Igual o ausente: nada.
+      const terminationDecision = this.resolveTerminationRecordDecision(
+        currentEmployee,
+        terminationPresence,
+        terminatedDateInput,
+        terminationInputs
       )
-      const inputTerminationType = this.normalizeTerminationInput(
-        request.input('employeeTerminationType')
-      )
-
-      if (employeeTerminatedDate) {
-        const modality =
-          inputTerminationModality ??
-          this.normalizeTerminationInput(currentEmployee.employeeTerminationModality)
-        const terminationType =
-          inputTerminationType ?? this.normalizeTerminationInput(currentEmployee.employeeTerminationType)
+      if (terminationDecision.action === 'reject-active') {
+        response.status(400)
+        return this.terminationRecordErrorResponse(
+          EmployeeTerminationRecordError.activeChangeForbidden(),
+          i18n
+        )
+      }
+      if (terminationDecision.action === 'reject-clear-deleted') {
+        response.status(400)
+        return this.terminationRecordErrorResponse(
+          EmployeeTerminationRecordError.clearForbidden(),
+          i18n
+        )
+      }
+      if (terminationDecision.action === 'correct-deleted') {
+        const { employeeTerminationModality: modality, employeeTerminationType: terminationType } =
+          terminationDecision.record
         if (!modality || !terminationType) {
           response.status(400)
           return {
@@ -1571,33 +1674,6 @@ export default class EmployeeController {
             data: catalogError.data,
           }
         }
-        employee.employeeTerminationModality = modality
-        employee.employeeTerminationType = terminationType
-      } else {
-        employee.employeeTerminationModality = null
-        employee.employeeTerminationType = null
-      }
-
-      if (
-        isEmployeeTerminationRecordChanged(
-          {
-            employeeTerminatedDate: currentEmployee.employeeTerminatedDate,
-            employeeTerminationModality: this.normalizeTerminationInput(
-              currentEmployee.employeeTerminationModality
-            ),
-            employeeTerminationType: this.normalizeTerminationInput(
-              currentEmployee.employeeTerminationType
-            ),
-          },
-          {
-            employeeTerminatedDate: employee.employeeTerminatedDate
-              ? String(employee.employeeTerminatedDate)
-              : null,
-            employeeTerminationModality: employee.employeeTerminationModality ?? null,
-            employeeTerminationType: employee.employeeTerminationType ?? null,
-          }
-        )
-      ) {
         const allowed = await ensureSecondaryPermission(
           ctx,
           EMPLOYEES_TERMINATION_RECORD_PERMISSION
@@ -1606,6 +1682,8 @@ export default class EmployeeController {
           return
         }
       }
+      const terminationKeysPresent =
+        terminationPresence.date || terminationPresence.modality || terminationPresence.type
 
       const employeeService = new EmployeeService(i18n)
       const data = await request.validateUsing(updateEmployeeValidator, {
@@ -1709,6 +1787,42 @@ export default class EmployeeController {
 
       const actor = emailMirrorActorFromContext(ctx)
       const { updateEmployee, emailMirror } = await db.transaction(async (trx) => {
+        // Regla 5 (VLRH-H1792172889566): activo o dado de baja se decide con la
+        // fila bloqueada, no con la leída fuera de la transacción. Un rechazo
+        // aquí se lanza para que el guardado completo haga rollback; el trío
+        // solo se escribe si la decisión previa (con el permiso ya verificado)
+        // y la bloqueada coinciden en corregir la baja de un dado de baja.
+        if (terminationKeysPresent) {
+          const lockedForTermination = await Employee.query({ client: trx })
+            .withTrashed()
+            .where('employee_id', currentEmployee.employeeId)
+            .where('business_unit_id', currentEmployee.businessUnitId)
+            .forUpdate()
+            .first()
+          if (!lockedForTermination) {
+            throw EmployeeTerminationRecordError.activeChangeForbidden()
+          }
+          const lockedDecision = this.resolveTerminationRecordDecision(
+            lockedForTermination,
+            terminationPresence,
+            terminatedDateInput,
+            terminationInputs
+          )
+          if (lockedDecision.action === 'reject-active') {
+            throw EmployeeTerminationRecordError.activeChangeForbidden()
+          }
+          if (lockedDecision.action === 'reject-clear-deleted') {
+            throw EmployeeTerminationRecordError.clearForbidden()
+          }
+          if (
+            lockedDecision.action === 'correct-deleted' &&
+            terminationDecision.action === 'correct-deleted'
+          ) {
+            employee.employeeTerminatedDate = lockedDecision.record.employeeTerminatedDate
+            employee.employeeTerminationModality = lockedDecision.record.employeeTerminationModality
+            employee.employeeTerminationType = lockedDecision.record.employeeTerminationType
+          }
+        }
         const before = await Employee.query({ client: trx })
           .where('employee_id', currentEmployee.employeeId)
           .whereNull('employee_deleted_at')
@@ -1776,6 +1890,11 @@ export default class EmployeeController {
       if (isEmailMirrorConflictError(error)) return respondEmailMirrorConflict(ctx, error)
       if (isEmailMirrorRefusedError(error)) return respondEmailMirrorRefused(ctx, error)
       if (isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
+      // Rechazo del trío decidido sobre la fila bloqueada (VLRH-H1792172889566): rollback hecho
+      if (error instanceof EmployeeTerminationRecordError) {
+        response.status(error.httpStatus)
+        return this.terminationRecordErrorResponse(error, i18n)
+      }
       if (error instanceof EmployeePositionLevelError) {
         const resolved = resolveEmployeePositionLevelApiError(error, error.httpStatus, i18n)
         response.status(resolved.status)

@@ -4,6 +4,8 @@ import {
   normalizeEmployeeTerminatedDate,
   normalizeToken,
   parseEmployeeTerminatedDate,
+  resolveTerminationRecordUpdate,
+  type TerminationRecordPresence,
 } from '#helpers/employee_termination_record'
 
 const base = {
@@ -224,5 +226,135 @@ test.group('normalizeToken', () => {
   test('valores no vacíos se convierten a string', ({ assert }) => {
     assert.equal(normalizeToken('abc'), 'abc')
     assert.equal(normalizeToken(123), '123')
+  })
+})
+
+/**
+ * VLRH-H1792172889566 — tabla de decisión del guardado de la ficha sobre el
+ * trío de baja: ausente conserva, igual se ignora, activo rechaza (también al
+ * vaciar), dado de baja no se vacía y, si no, se corrige.
+ */
+test.group('resolveTerminationRecordUpdate (VLRH-H1792172889566)', () => {
+  const none: TerminationRecordPresence = { date: false, modality: false, type: false }
+  const all: TerminationRecordPresence = { date: true, modality: true, type: true }
+  const noRecord = {
+    employeeTerminatedDate: null,
+    employeeTerminationModality: null,
+    employeeTerminationType: null,
+  }
+  const changedDate = { ...base, employeeTerminatedDate: '2024-02-15 00:00:00' }
+
+  test('sin ninguna llave presente conserva, aunque next difiera (regla 3)', ({ assert }) => {
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: false,
+        current: base,
+        next: noRecord,
+        presence: none,
+      }),
+      { action: 'keep' }
+    )
+  })
+
+  test('igual a lo guardado se ignora, en activo y en dado de baja (regla 2)', ({ assert }) => {
+    for (const employeeIsDeleted of [false, true]) {
+      assert.deepEqual(
+        resolveTerminationRecordUpdate({
+          employeeIsDeleted,
+          current: base,
+          next: { ...base, employeeTerminatedDate: '2024-01-15T06:00:00.000Z' },
+          presence: all,
+        }),
+        { action: 'keep' }
+      )
+    }
+  })
+
+  test('activo: poner, cambiar o vaciar se rechaza (regla 1)', ({ assert }) => {
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: false,
+        current: noRecord,
+        next: base,
+        presence: all,
+      }),
+      { action: 'reject-active' }
+    )
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: false,
+        current: base,
+        next: changedDate,
+        presence: { date: true, modality: false, type: false },
+      }),
+      { action: 'reject-active' }
+    )
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: false,
+        current: base,
+        next: noRecord,
+        presence: { date: true, modality: false, type: false },
+      }),
+      { action: 'reject-active' }
+    )
+  })
+
+  test('presencia parcial: solo la modalidad distinta ya es cambio', ({ assert }) => {
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: false,
+        current: base,
+        next: { ...base, employeeTerminationModality: 'Retiro' },
+        presence: { date: false, modality: true, type: false },
+      }),
+      { action: 'reject-active' }
+    )
+  })
+
+  test('dado de baja: vaciar la fecha se rechaza; corregir devuelve el registro a escribir (regla 4)', ({
+    assert,
+  }) => {
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: true,
+        current: base,
+        next: noRecord,
+        presence: { date: true, modality: false, type: false },
+      }),
+      { action: 'reject-clear-deleted' }
+    )
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: true,
+        current: base,
+        next: changedDate,
+        presence: all,
+      }),
+      { action: 'correct-deleted', record: changedDate }
+    )
+  })
+
+  test('guardado nulo en un dado de baja: una fecha válida se corrige, ninguna se rechaza', ({
+    assert,
+  }) => {
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: true,
+        current: noRecord,
+        next: base,
+        presence: all,
+      }),
+      { action: 'correct-deleted', record: base }
+    )
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: true,
+        current: noRecord,
+        next: { ...noRecord, employeeTerminationModality: 'Renuncia' },
+        presence: { date: false, modality: true, type: false },
+      }),
+      { action: 'reject-clear-deleted' }
+    )
   })
 })

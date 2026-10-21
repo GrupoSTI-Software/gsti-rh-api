@@ -735,7 +735,8 @@ test.group(
         )
         actors.push(actor)
 
-        // Colaborador ACTIVO con fecha de baja programada: quitarla desde la ficha sigue exigiendo delete
+        // Colaborador ACTIVO con fecha de baja antigua: quitarla desde la ficha se
+        // rechaza antes del permiso (VLRH-H1792172889566, regla 1): 400, nunca 403
         const scheduled = await track(() =>
           createEmployee(unit, 'Programada', `PR-${stamp()}`, {
             date: '2026-12-31',
@@ -755,8 +756,8 @@ test.group(
               employeeTerminationType: null,
             })
           )
-        denied.assertStatus(403)
-        assert.equal(denied.body().key, 'PERM.DENIED')
+        denied.assertStatus(400)
+        assert.equal(denied.body().key, 'baja-solo-desde-el-expediente')
         assert.deepEqual(await employeeRow(scheduled.employee.employeeId), before)
 
         // Con el mismo rol, reactivar a otro colaborador dado de baja sí pasa

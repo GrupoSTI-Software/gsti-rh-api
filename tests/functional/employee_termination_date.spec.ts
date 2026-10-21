@@ -600,45 +600,65 @@ test.group(
       }
     })
 
-    test('CA-8: la edición con la fecha que manda el BO guarda el día capturado', async ({
+    test('CA-8: en un activo la edición no asienta la baja (400); en un dado de baja guarda el día capturado', async ({
       client,
       assert,
     }) => {
-      const fixture = await track(() => createEmployee(unit, 'EdicionValida'))
-      const response = await put(client, root, fixture, validTermination(`${D}T06:00:00.000Z`))
+      // VLRH-H1792172889566: la baja de un activo solo se programa en el expediente
+      const active = await track(() => createEmployee(unit, 'EdicionActivo'))
+      const rejected = await put(client, root, active, validTermination(`${D}T06:00:00.000Z`))
+      rejected.assertStatus(400)
+      assert.equal(rejected.body().key, 'baja-solo-desde-el-expediente')
+      const activeRow = await employeeRow(active.employee.employeeId)
+      assert.isNull(activeRow.terminated_date)
+
+      const terminated = await track(() =>
+        createEmployee(unit, 'EdicionValida', {
+          date: '2024-01-15',
+          modality: MODALITY,
+          type: TERMINATION_TYPE,
+        })
+      )
+      await db
+        .from('employees')
+        .where('employee_id', terminated.employee.employeeId)
+        .update({ employee_deleted_at: new Date() })
+      const response = await put(client, root, terminated, validTermination(`${D}T06:00:00.000Z`))
       response.assertStatus(201)
 
-      const row = await employeeRow(fixture.employee.employeeId)
+      const row = await employeeRow(terminated.employee.employeeId)
       assert.equal(row.terminated_date, `${D} 00:00:00`)
       assert.equal(row.employee_termination_modality, MODALITY)
       assert.equal(row.employee_termination_type, TERMINATION_TYPE)
     })
 
-    test('CA-9: la edición con la fecha vacía sigue quitando el registro de baja', async ({
+    test('CA-9: la edición con la fecha vacía ya no quita el registro de baja de un activo (400)', async ({
       client,
       assert,
     }) => {
+      // VLRH-H1792172889566, regla 1: vaciar la fecha de un activo se rechaza igual que cambiarla
       const fixture = await track(() => createEmployee(unit, 'EdicionVacia'))
+      await setTermination(fixture.employee.employeeId, {
+        date: D,
+        modality: MODALITY,
+        type: TERMINATION_TYPE,
+      })
       for (const value of [null, '', '   ']) {
-        await setTermination(fixture.employee.employeeId, {
-          date: D,
-          modality: MODALITY,
-          type: TERMINATION_TYPE,
-        })
         const response = await put(client, root, fixture, {
           employeeTerminatedDate: value,
           employeeTerminationModality: null,
           employeeTerminationType: null,
         })
-        response.assertStatus(201)
+        response.assertStatus(400)
+        assert.equal(response.body().key, 'baja-solo-desde-el-expediente')
         const row = await employeeRow(fixture.employee.employeeId)
-        assert.isNull(row.terminated_date)
-        assert.isNull(row.employee_termination_modality)
-        assert.isNull(row.employee_termination_type)
+        assert.equal(row.terminated_date, `${D} 00:00:00`)
+        assert.equal(row.employee_termination_modality, MODALITY)
+        assert.equal(row.employee_termination_type, TERMINATION_TYPE)
       }
     })
 
-    test('CA-10: sin permiso de registro de baja, la fecha inválida es 400 (no 403) y la misma fecha no exige el permiso', async ({
+    test('CA-10: sin permiso de registro de baja, la fecha inválida es 400 (no 403), la misma fecha no exige el permiso y el cambio en un activo es 400', async ({
       client,
       assert,
     }) => {
@@ -675,13 +695,15 @@ test.group(
         same.assertStatus(201)
         assert.deepEqual(await employeeRow(fixture.employee.employeeId), before)
 
-        // Y una fecha válida distinta sigue exigiendo el permiso, como hoy
+        // Y una fecha válida distinta en un activo se rechaza antes del permiso
+        // (VLRH-H1792172889566, regla 1): 400, nunca 403
         const changed = await put(client, actor, fixture, {
           employeeTerminatedDate: '2024-02-15',
           employeeTerminationModality: recorded.modality,
           employeeTerminationType: recorded.type,
         })
-        changed.assertStatus(403)
+        changed.assertStatus(400)
+        assert.equal(changed.body().key, 'baja-solo-desde-el-expediente')
         assert.deepEqual(await employeeRow(fixture.employee.employeeId), before)
       } finally {
         employeesModule.systemModulePermissionEnforcementActive = originalEnforcement

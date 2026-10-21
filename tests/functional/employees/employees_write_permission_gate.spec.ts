@@ -433,6 +433,9 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
     }
   })
 
+  // VLRH-H1792172889566, regla 1: en un activo (con o sin baja antigua) poner,
+  // cambiar o vaciar el trío se rechaza con 400 ANTES del permiso. El 403 del
+  // gate queda para corregir la baja de un dado de baja (casos C5 y C6).
   for (const [name, terminated, changes] of [
     [
       'C1: impide asentar una baja',
@@ -484,14 +487,70 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
           .loginAs(actor!.user)
           .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
           .json(employeePayload(fixture, { dailySalary: 999, ...changes }))
-        response.assertStatus(403)
-        assert.equal(response.body()?.key, 'PERM.DENIED')
+        response.assertStatus(400)
+        assert.equal(response.body()?.key, 'baja-solo-desde-el-expediente')
+        assert.equal(response.body()?.code, 'EMP.TERMINATION.ACTIVE_CHANGE_FORBIDDEN')
         assert.deepEqual(await terminationSnapshot(fixture.employee.employeeId), before)
       } finally {
         await cleanupEmployeeFixture(fixture)
       }
     })
   }
+
+  test('C5: corregir la baja de un dado de baja sin delete sigue siendo PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
+    const fixture = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'C5', true)
+    try {
+      await db
+        .from('employees')
+        .where('employee_id', fixture.employee.employeeId)
+        .update({ employee_deleted_at: new Date() })
+      const before = await terminationSnapshot(fixture.employee.employeeId)
+      const response = await client
+        .put(`/api/employees/${fixture.employee.employeeId}`)
+        .loginAs(actor!.user)
+        .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+        .json(
+          employeePayload(fixture, {
+            employeeTerminatedDate: '2024-02-15',
+            employeeTerminationModality: 'Renuncia',
+            employeeTerminationType: 'Jubilación',
+          })
+        )
+      response.assertStatus(403)
+      assert.equal(response.body()?.key, 'PERM.DENIED')
+      assert.deepEqual(await terminationSnapshot(fixture.employee.employeeId), before)
+    } finally {
+      await cleanupEmployeeFixture(fixture)
+    }
+  })
+
+  test('C6: vaciar la fecha de un dado de baja es 400 propio, antes del permiso', async ({
+    client,
+    assert,
+  }) => {
+    const fixture = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'C6', true)
+    try {
+      await db
+        .from('employees')
+        .where('employee_id', fixture.employee.employeeId)
+        .update({ employee_deleted_at: new Date() })
+      const before = await terminationSnapshot(fixture.employee.employeeId)
+      const response = await client
+        .put(`/api/employees/${fixture.employee.employeeId}`)
+        .loginAs(actor!.user)
+        .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
+        .json(employeePayload(fixture, { employeeTerminatedDate: null }))
+      response.assertStatus(400)
+      assert.equal(response.body()?.key, 'la-baja-no-se-puede-quitar-desde-la-ficha')
+      assert.equal(response.body()?.code, 'EMP.TERMINATION.CLEAR_FORBIDDEN')
+      assert.deepEqual(await terminationSnapshot(fixture.employee.employeeId), before)
+    } finally {
+      await cleanupEmployeeFixture(fixture)
+    }
+  })
 
   test('D: impide baja operativa sin delete', async ({ client, assert }) => {
     const fixture = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'delete')
