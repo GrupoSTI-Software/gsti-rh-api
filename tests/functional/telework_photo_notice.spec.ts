@@ -39,7 +39,9 @@ import {
  * Convenciones:
  *  - Actores propios por grupo con `createTenantActor`: su rol arranca SIN
  *    concesiones y cada caso siembra las suyas (nunca en el `setup`, para que
- *    el caso de 403 vea el rol vacío).
+ *    el caso de 403 vea el rol vacío). El grupo que comparte rol entre casos
+ *    con juegos de permisos distintos —CA-13— lo vacía en su `each.setup`, así
+ *    que ningún caso depende del juego que dejó el anterior.
  *  - Lecturas por MODELO dentro de `TenantContext.run([businessUnitId], …)`: el
  *    mixin `withBusinessUnitScope()` lanza `TenantContextMissingException`
  *    fuera de una petición HTTP (dentro la pone el middleware). Las escrituras
@@ -843,16 +845,47 @@ test.group('avisos de fotos — CA-05 versiones con conteo', (group) => {
     })
     publishedV2.assertStatus(200)
 
+    // Un borrador VIVO de la empresa (la versión siguiente, todavía sin
+    // publicar): el invariante que CA-05 exige y ningún caso ejercitaba —un
+    // borrador vivo NO es versión, así que la lista no debe traerlo.
+    const draftId = await insertNotice(
+      scenario.a.businessUnit.businessUnitId,
+      scenario.a.user.userId,
+      {
+        teleworkPhotoNoticeVersion: 3,
+        teleworkPhotoNoticeStatus: 'draft',
+        teleworkPhotoNoticeIsCurrent: false,
+      }
+    )
+
     const versions = await listVersions(client, scenario.a)
     versions.assertStatus(200)
-    const listed = versions.body().data as { version: number; acknowledgementsCount: number }[]
+    const listed = versions.body().data as {
+      status: string
+      teleworkPhotoNoticeId: number
+      version: number
+      acknowledgementsCount: number
+    }[]
+    // Solo las publicadas: las dos, descendentes, con su conteo.
     assert.lengthOf(listed, 2)
     assert.deepEqual(
       listed.map((row) => row.version),
       [2, 1]
     )
+    assert.deepEqual(
+      listed.map((row) => row.status),
+      ['published', 'published']
+    )
+    // Y el borrador vivo no está en la lista, aunque su fila exista.
+    assert.notInclude(
+      listed.map((row) => row.teleworkPhotoNoticeId),
+      draftId
+    )
     assert.equal(listed[0].acknowledgementsCount, 0)
     assert.equal(listed[1].acknowledgementsCount, 1)
+
+    // El borrador de fixture se limpia al terminar el caso.
+    await db.from('telework_photo_notices').where('telework_photo_notice_id', draftId).delete()
   })
 })
 
@@ -1238,10 +1271,20 @@ test.group('avisos de fotos — CA-12 aislamiento entre empresas', (group) => {
 test.group('avisos de fotos — CA-13 permisos', (group) => {
   useScenario(group, 'ca13')
 
+  // Los tres casos comparten el rol del escenario y prueban juegos de permisos
+  // distintos, así que el grupo lo vacía antes de cada uno: cada caso siembra
+  // el suyo y ninguno hereda el que dejó el anterior. El rol es del escenario
+  // y `useScenario` lo borra con él al terminar, así que sus concesiones
+  // tampoco alcanzan a los grupos siguientes.
+  group.each.setup(async () => {
+    await grantNoticePermissions(scenario.a, [])
+  })
+
   test('Objetivo: CA-13 — con `read` pasan los tres GET y las cuatro escrituras responden 403 sin `detail`', async ({
     client,
     assert,
   }) => {
+    // Concesiones propias del caso: solo `read`, así que las escrituras caen.
     await grantNoticePermissions(scenario.a, ['read'])
 
     const reads = [
@@ -1276,6 +1319,8 @@ test.group('avisos de fotos — CA-13 permisos', (group) => {
     client,
     assert,
   }) => {
+    // Concesiones propias del caso: las cuatro acciones, sin depender del
+    // `gestion` del caso siguiente.
     await grantNoticePermissions(scenario.a, ALL_NOTICE_ACTIONS)
 
     const created = await createDraft(client, scenario.a)
@@ -1300,21 +1345,47 @@ test.group('avisos de fotos — CA-13 permisos', (group) => {
     client,
     assert,
   }) => {
+    // Concesiones propias del caso: solo el atajo `gestion`, ninguna acción
+    // granular, así que cada status exacto de abajo es evidencia de que el
+    // atajo alcanza por sí solo los siete endpoints (§6).
     await grantNoticePermissions(scenario.a, ['gestion'])
 
-    const responses = [
-      await getState(client, scenario.a),
-      await getTemplate(client, scenario.a),
-      await listVersions(client, scenario.a),
-      await createDraft(client, scenario.a),
-      await updateDraft(client, scenario.a, { title: 'Aviso editable', content: 'Texto válido.' }),
-      await discardDraft(client, scenario.a),
-      await publish(client, scenario.a),
-    ]
-    for (const response of responses) {
-      assert.notEqual(response.status(), 403)
-      assert.isBelow(response.status(), 500)
-    }
+    // Lecturas: los tres GET en 200.
+    const state = await getState(client, scenario.a)
+    state.assertStatus(200)
+
+    const template = await getTemplate(client, scenario.a)
+    template.assertStatus(200)
+
+    const versions = await listVersions(client, scenario.a)
+    versions.assertStatus(200)
+
+    // Escrituras: 201 al abrir el borrador y 200 al editarlo y publicarlo.
+    const created = await createDraft(client, scenario.a)
+    created.assertStatus(201)
+
+    const edited = await updateDraft(client, scenario.a, {
+      title: 'Aviso editable',
+      content: 'La empresa {{razon_social}} informa.',
+    })
+    edited.assertStatus(200)
+
+    const published = await publish(client, scenario.a)
+    published.assertStatus(200)
+
+    // Publicar consumió el borrador y descartar exige uno vivo, así que el caso
+    // abre el siguiente —la versión 2, la que no reutiliza la publicada— y lo
+    // descarta.
+    const nextDraft = await createDraft(client, scenario.a)
+    nextDraft.assertStatus(201)
+    assert.equal(nextDraft.body().data.version, 2)
+
+    const discarded = await discardDraft(client, scenario.a)
+    discarded.assertStatus(200)
+
+    // Sin residuos dentro del grupo: las filas del caso —la versión publicada y
+    // su borrador descartado— salen antes del teardown.
+    await clearNotices(scenario.a.businessUnit.businessUnitId)
   })
 })
 
