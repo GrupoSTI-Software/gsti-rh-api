@@ -345,6 +345,35 @@ test.group('avisos de fotos — esquema, semilla y acuse cifrado', (group) => {
     assert.include(plantillas[0].teleworkPhotoNoticeTemplateContent, PROVISIONAL_LEGEND)
   })
 
+  test('Objetivo: dos plantillas con la misma versión no pueden coexistir', async ({ assert }) => {
+    // El seeder es idempotente (caso anterior): correrlo deja exactamente la
+    // fila de `2026.1` que la llave única tiene que defender, sin duplicarla.
+    await new TeleworkPhotoNoticeTemplatesSeeder(db.connection()).run()
+
+    const duplicada = await captureRejection(() =>
+      db.table('telework_photo_notice_templates').insert({
+        telework_photo_notice_template_version: TEMPLATE_VERSION,
+        telework_photo_notice_template_title: 'Plantilla duplicada',
+        telework_photo_notice_template_content: '<p>Otra copia de {{razon_social}}.</p>',
+        telework_photo_notice_template_is_current: true,
+        telework_photo_notice_template_created_at: new Date(),
+      })
+    )
+    assert.equal(duplicada.code, 'ER_DUP_ENTRY')
+
+    // El rechazo no dejó fila nueva: sigue habiendo UNA sola `2026.1` y UNA sola
+    // vigente (el intento no desplazó a la plantilla sembrada).
+    const plantillas = await TeleworkPhotoNoticeTemplate.query().where(
+      'telework_photo_notice_template_version',
+      TEMPLATE_VERSION
+    )
+    assert.lengthOf(plantillas, 1)
+    assert.lengthOf(
+      plantillas.filter((plantilla) => plantilla.teleworkPhotoNoticeTemplateIsCurrent),
+      1
+    )
+  })
+
   test('Objetivo: la IP y el user-agent del acuse viajan cifrados y nunca se serializan', async ({
     assert,
   }) => {
@@ -404,5 +433,49 @@ test.group('avisos de fotos — esquema, semilla y acuse cifrado', (group) => {
       db.from('telework_photo_notices').where('telework_photo_notice_id', noticeId).delete()
     )
     assert.match(borradoBloqueado.code ?? '', /^ER_ROW_IS_REFERENCED/)
+  })
+
+  test('Objetivo: el acuse es único por aviso y colaborador y un colaborador acusa varios avisos', async ({
+    assert,
+  }) => {
+    const businessUnitId = scenario.a.businessUnit.businessUnitId
+    const actorUserId = scenario.a.user.userId
+    const primerAviso = await insertNotice(businessUnitId, actorUserId, {
+      teleworkPhotoNoticeVersion: 1,
+    })
+    const segundoAviso = await insertNotice(businessUnitId, actorUserId, {
+      teleworkPhotoNoticeVersion: 2,
+      teleworkPhotoNoticeIsCurrent: false,
+    })
+
+    await insertAcknowledgement(businessUnitId, primerAviso, scenario.employeeAId)
+
+    // El mismo par (aviso, colaborador) dos veces: lo rechaza la llave única
+    // `uq_twpna_notice_employee` (red contra el doble-tap de acuse).
+    const duplicado = await captureRejection(() =>
+      insertAcknowledgement(businessUnitId, primerAviso, scenario.employeeAId)
+    )
+    assert.equal(duplicado.code, 'ER_DUP_ENTRY')
+
+    // El mismo colaborador SÍ acusa otro aviso de la misma empresa: la llave es
+    // del par, no del colaborador.
+    const segundoAcuse = await insertAcknowledgement(
+      businessUnitId,
+      segundoAviso,
+      scenario.employeeAId
+    )
+    assert.isAbove(segundoAcuse, 0)
+
+    // Ni el rechazo ni el segundo acuse dejan más de dos filas: una por aviso.
+    const acuses = (await db
+      .from('telework_photo_notice_acknowledgements')
+      .where('business_unit_id', businessUnitId)
+      .where('employee_id', scenario.employeeAId)
+      .select('telework_photo_notice_id')
+      .orderBy('telework_photo_notice_id')) as { telework_photo_notice_id: number }[]
+    assert.deepEqual(
+      acuses.map((acuse) => Number(acuse.telework_photo_notice_id)),
+      [primerAviso, segundoAviso]
+    )
   })
 })
