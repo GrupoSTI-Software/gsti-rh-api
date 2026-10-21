@@ -28,6 +28,15 @@ import type { TeleworkPhotoNoticeUpdateInput } from './validators/telework_photo
 const PLACEHOLDER_PATTERN = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g
 
 /**
+ * Patrón LAXO de marcador sobrante: `{{cualquier cosa}}` con espaciado interno
+ * opcional y sin restringir el nombre. Es el guard del fallo cerrado: lo que
+ * `PLACEHOLDER_PATTERN` no reconoce ni sustituye —un acento, un punto, una
+ * barra— sobrevive a la sustitución y aquí se detecta para nombrarlo y
+ * rechazar la publicación en vez de servir el `{{` crudo.
+ */
+const LEFTOVER_PLACEHOLDER_PATTERN = /\{\{\s*([^}]*?)\s*\}\}/g
+
+/**
  * Dominio del aviso de privacidad de la evidencia fotográfica del puesto de
  * trabajo (VLRH-H1791306079310): plantilla, estado, ciclo del borrador,
  * historial de versiones con su conteo de acuses, `hasAcknowledgedCurrent` y
@@ -248,8 +257,11 @@ export default class TeleworkPhotoNoticeService {
    *    (422) y `details.placeholders` —sin repetir, en orden de aparición— y
    *    **nada se ha escrito todavía** (CA-06).
    * 2. Cada marcador se sustituye por el valor de la empresa **escapado**
-   *    (nunca viaja como HTML) y el texto se sanea por segunda vez; si tras
-   *    sanear no queda texto, rechaza con `contenido-vacio` (CA-07).
+   *    (nunca viaja como HTML) y el texto se sanea por segunda vez; un `{{` que
+   *    sobreviva a la sustitución —un marcador con forma no reconocida, como un
+   *    acento, un punto o una barra— rechaza con `marcador-no-reconocido` y
+   *    `details.placeholders` (misma clave de CA-06) en vez de servirse crudo;
+   *    si tras sanear no queda texto, rechaza con `contenido-vacio` (CA-07).
    * 3. La huella SHA-256 se calcula sobre el título guardado y el texto
    *    resuelto (`computeContentHash`); el hash que se guarda es el que sale en
    *    el DTO.
@@ -289,6 +301,17 @@ export default class TeleworkPhotoNoticeService {
       const renderedContent = sanitizeTeleworkPolicyHtml(
         this.renderPlaceholders(draftContent, businessUnitLegalName)
       )
+
+      // Fallo cerrado: un `{{` que sobreviva a la sustitución es un marcador con
+      // forma no reconocida (acento, punto, barra) que la lista cerrada no
+      // cubre; se rechaza con los nombres sobrantes en vez de publicar el `{{`
+      // crudo hacia el acuse del colaborador (R4/R11, CA-06).
+      if (renderedContent.includes('{{')) {
+        throw new TeleworkPhotoNoticeError('marcador-no-reconocido', undefined, {
+          placeholders: this.extractLeftoverPlaceholders(renderedContent),
+        })
+      }
+
       if (this.plainText(renderedContent) === '') {
         throw new TeleworkPhotoNoticeError('contenido-vacio')
       }
@@ -333,6 +356,19 @@ export default class TeleworkPhotoNoticeService {
   private extractPlaceholders(content: string): string[] {
     const found = new Set<string>()
     for (const match of content.matchAll(PLACEHOLDER_PATTERN)) found.add(match[1])
+    return [...found]
+  }
+
+  /**
+   * Marcadores que sobrevivieron a la sustitución, detectados con el patrón
+   * laxo: sin repetir, recortados y en orden de aparición, para nombrarlos en
+   * `details.placeholders` igual que los desconocidos de CA-06.
+   */
+  private extractLeftoverPlaceholders(content: string): string[] {
+    const found = new Set<string>()
+    for (const match of content.matchAll(LEFTOVER_PLACEHOLDER_PATTERN)) {
+      found.add(match[1].trim())
+    }
     return [...found]
   }
 

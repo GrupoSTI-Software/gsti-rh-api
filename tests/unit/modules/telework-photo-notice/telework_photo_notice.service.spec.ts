@@ -837,6 +837,69 @@ test.group('TeleworkPhotoNoticeService.publish', () => {
     assert.notInclude(getRows()[0].teleworkPhotoNoticeRenderedContent ?? '', '{{')
   })
 
+  test('Objetivo: Review Focus 1 (ronda 1) — un `{{` que sobrevive a la sustitución rechaza con sus nombres sobrantes y no escribe nada', async ({
+    assert,
+  }) => {
+    // Marcadores con forma NO reconocida por la lista cerrada: acento, punto y
+    // barra. El patrón de sustitución no los toca, así que sin este guard se
+    // publicarían crudos hacia el acuse del colaborador.
+    const draftContent =
+      '<p>{{razón_social}} y {{ foo.bar }} luego {{razon_social|upper}} y otra vez {{ foo.bar }}</p>'
+    const publishedAt = DateTime.fromISO('2026-05-01T10:00:00')
+    const { repo, getRows, callsOf } = makeInMemoryRepo(
+      [
+        makeRow({
+          teleworkPhotoNoticeId: 110,
+          teleworkPhotoNoticeVersion: 1,
+          teleworkPhotoNoticeStatus: 'published',
+          teleworkPhotoNoticeIsCurrent: true,
+          teleworkPhotoNoticeContent: '<p>La empresa {{razon_social}}</p>',
+          teleworkPhotoNoticeRenderedContent: '<p>La empresa Empresa Cinco SA de CV</p>',
+          teleworkPhotoNoticeContentHash: 'hash-v1',
+          publishedByUserId: 9,
+          publishedAt,
+        }),
+        makeRow({
+          teleworkPhotoNoticeId: 111,
+          teleworkPhotoNoticeVersion: 2,
+          teleworkPhotoNoticeContent: draftContent,
+        }),
+      ],
+      { template: makeTemplate(), businessUnitLegalNames: { 5: RICH_LEGAL_NAME } }
+    )
+    const service = new TeleworkPhotoNoticeService(repo)
+
+    const thrown = await captureRejection(service.publish(5, 9))
+
+    assert.instanceOf(thrown, TeleworkPhotoNoticeError)
+    assert.equal((thrown as TeleworkPhotoNoticeError).key, 'marcador-no-reconocido')
+    assert.deepEqual(
+      (thrown as TeleworkPhotoNoticeError).details?.placeholders,
+      ['razón_social', 'foo.bar', 'razon_social|upper'],
+      'los sobrantes salen recortados, sin repetir y en orden de aparición'
+    )
+
+    // Nada se escribe antes del rechazo (misma garantía que CA-06).
+    assert.lengthOf(callsOf('clearCurrentFlag'), 0, 'nada se ha escrito todavía')
+    assert.lengthOf(callsOf('markAsPublished'), 0)
+
+    const v1 = getRows().find((row) => row.teleworkPhotoNoticeId === 110)!
+    assert.isTrue(v1.teleworkPhotoNoticeIsCurrent, 'la vigente anterior sigue vigente')
+    assert.equal(v1.teleworkPhotoNoticeStatus, 'published')
+    assert.equal(v1.teleworkPhotoNoticeContent, '<p>La empresa {{razon_social}}</p>')
+    assert.equal(v1.teleworkPhotoNoticeRenderedContent, '<p>La empresa Empresa Cinco SA de CV</p>')
+    assert.equal(v1.teleworkPhotoNoticeContentHash, 'hash-v1')
+    assert.equal(v1.publishedAt?.toISO(), publishedAt.toISO())
+    assert.equal(v1.publishedByUserId, 9)
+
+    const draft = getRows().find((row) => row.teleworkPhotoNoticeId === 111)!
+    assert.equal(draft.teleworkPhotoNoticeStatus, 'draft', 'el borrador sigue en draft')
+    assert.equal(draft.teleworkPhotoNoticeContent, draftContent, 'el texto crudo no se toca')
+    assert.isNull(draft.teleworkPhotoNoticeRenderedContent, 'nada resuelto se guardó')
+    assert.isNull(draft.teleworkPhotoNoticeContentHash)
+    assert.isNull(draft.publishedAt)
+  })
+
   test('Objetivo: CA-06 — un marcador fuera de la lista rechaza la publicación y no toca la vigente', async ({
     assert,
   }) => {
