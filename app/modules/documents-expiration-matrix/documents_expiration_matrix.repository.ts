@@ -33,8 +33,9 @@ export interface ExpirationMatrixFilter {
   businessUnitIds: readonly number[]
   /**
    * Departamentos visibles para el rol. Acota las fuentes con dueño empleado
-   * (`employee-file`, `employee-contract`, `certification` y `supply`) por el
-   * departamento del empleado. Vacío = esas fuentes sin resultados.
+   * (`employee-file`, `employee-contract`, `certification`, `supply` y
+   * `employee-offboarding`) por el departamento del empleado. Vacío = esas
+   * fuentes sin resultados.
    */
   departmentIds: readonly number[]
   /** Acota a un solo registro (descarga por llave). */
@@ -53,4 +54,9 @@ export interface ExpirationMatrixRepository {
   findRepseFolios(filter: ExpirationMatrixFilter): Promise<ExpirationMatrixRecord[]>
   findProviderFolios(filter: ExpirationMatrixFilter): Promise<ExpirationMatrixRecord[]>
   findSupplies(filter: ExpirationMatrixFilter): Promise<ExpirationMatrixRecord[]>
+  /**
+   * Bajas programadas (VLRH-H1792172894406): expedientes `open` de colaboradores
+   * activos con departamento, cuya fecha de baja cae en la ventana. Sin archivo.
+   */
+  findEmployeeOffboardings(filter: ExpirationMatrixFilter): Promise<ExpirationMatrixRecord[]>
 }

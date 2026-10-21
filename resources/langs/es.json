@@ -3458,6 +3458,7 @@
   "expiration_matrix_document_repse_folio": "Folio REPSE",
   "expiration_matrix_document_provider_folio": "Folio REPSE del proveedor",
   "expiration_matrix_document_supply": "Insumo",
+  "expiration_matrix_document_employee_offboarding": "Baja programada",
   "expiration_matrix_item_not_found_title": "Vencimiento no encontrado",
   "expiration_matrix_item_not_found_detail": "El vencimiento no existe o no está disponible para tu cuenta.",
   "expiration_matrix_file_not_found_title": "Archivo no encontrado",

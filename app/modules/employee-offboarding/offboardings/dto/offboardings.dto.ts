@@ -7,6 +7,7 @@ import {
   EMPLOYEE_OFFBOARDING_ITEM_STATUS,
   EMPLOYEE_OFFBOARDING_STATUS,
   isOffboardingCaseWritable,
+  resolveOffboardingReferenceDate,
 } from '../offboardings.constants.js'
 import { SUPPLY_OUTCOME, type SupplyOutcome } from '../../items/items.constants.js'
 
@@ -360,10 +361,13 @@ export function toOffboardingDto(
 ): EmployeeOffboardingDto {
   const plannedDate = toCalendarIsoDate(offboarding.employeeOffboardingPlannedDate)
   const terminationSnapshot = toTerminationSnapshotDto(offboarding)
-  // Regla 2 de VLRH-H1791055795208: la baja deshecha manda; luego la baja en vivo; luego la tentativa
-  const terminatedDate =
-    terminationSnapshot?.date ?? toCalendarIsoDate(params.employeeTerminatedDate)
-  const referenceDate = terminatedDate ?? plannedDate ?? null
+  // Regla 2 de VLRH-H1791055795208: la baja deshecha manda; luego la baja en vivo; luego la tentativa.
+  // Misma regla que la Matriz de vencimientos (VLRH-H1792172894406, regla 5).
+  const referenceDate = resolveOffboardingReferenceDate({
+    snapshotDate: terminationSnapshot?.date ?? null,
+    liveTerminatedDate: toCalendarIsoDate(params.employeeTerminatedDate),
+    plannedDate,
+  })
 
   const orderedItems = sortItems(offboarding.items ?? [])
   const context: ItemDtoContext = {

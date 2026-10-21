@@ -1,6 +1,10 @@
 import db from '@adonisjs/lucid/services/db'
 import type { DatabaseQueryBuilderContract } from '@adonisjs/lucid/types/querybuilder'
 import { DateTime } from 'luxon'
+import {
+  EMPLOYEE_OFFBOARDING_REFERENCE_DATE_SQL,
+  EMPLOYEE_OFFBOARDING_STATUS,
+} from '#modules/employee-offboarding/offboardings/offboardings.constants'
 import type {
   ExpirationMatrixFilter,
   ExpirationMatrixRecord,
@@ -83,6 +87,11 @@ interface SupplyRow extends EmployeeOwnerRow {
   expires_at: string
 }
 
+interface EmployeeOffboardingRow extends EmployeeOwnerRow {
+  employee_offboarding_id: number
+  expires_at: string
+}
+
 type QueryBuilder = DatabaseQueryBuilderContract
 
 /** Columnas del empleado dueño con puesto y departamento por nombre. */
@@ -101,8 +110,7 @@ const EMPLOYEE_OWNER_COLUMNS = [
  * Fecha de calendario de una columna DATE o TIMESTAMP. La conexión está en
  * UTC, así que coincide con lo que `toCalendarIsoDate` lee de esas columnas.
  */
-const calendarDate = (column: string) =>
-  db.raw(`DATE_FORMAT(${column}, '%Y-%m-%d') as expires_at`)
+const calendarDate = (column: string) => db.raw(`DATE_FORMAT(${column}, '%Y-%m-%d') as expires_at`)
 
 /**
  * Límite superior exclusivo de la ventana: el día siguiente al horizonte.
@@ -152,7 +160,9 @@ function joinEmployeeOrgChart(
 ): QueryBuilder {
   return query
     .leftJoin('positions as p', (join) => {
-      join.on('p.position_id', '=', db.knexRawQuery(positionIdColumn)).andOnNull('p.position_deleted_at')
+      join
+        .on('p.position_id', '=', db.knexRawQuery(positionIdColumn))
+        .andOnNull('p.position_deleted_at')
     })
     .leftJoin('departments as d', (join) => {
       join
@@ -203,7 +213,11 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
     const query = db
       .from('employee_proceeding_files as epf')
       .join('proceeding_files as pf', 'pf.proceeding_file_id', 'epf.proceeding_file_id')
-      .join('proceeding_file_types as pft', 'pft.proceeding_file_type_id', 'pf.proceeding_file_type_id')
+      .join(
+        'proceeding_file_types as pft',
+        'pft.proceeding_file_type_id',
+        'pf.proceeding_file_type_id'
+      )
       .join('employees as e', 'e.employee_id', 'epf.employee_id')
       .whereNull('epf.employee_proceeding_file_deleted_at')
       .whereNull('pf.proceeding_file_deleted_at')
@@ -218,7 +232,11 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       .whereNotExists((newer) => {
         newer
           .from('employee_proceeding_files as epf_new')
-          .join('proceeding_files as pf_new', 'pf_new.proceeding_file_id', 'epf_new.proceeding_file_id')
+          .join(
+            'proceeding_files as pf_new',
+            'pf_new.proceeding_file_id',
+            'epf_new.proceeding_file_id'
+          )
           .whereColumn('epf_new.employee_id', 'epf.employee_id')
           .whereColumn('pf_new.proceeding_file_type_id', 'pf.proceeding_file_type_id')
           .whereNull('epf_new.employee_proceeding_file_deleted_at')
@@ -337,7 +355,11 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       .from('system_setting_proceeding_files as sspf')
       .join('system_settings as ss', 'ss.system_setting_id', 'sspf.system_setting_id')
       .join('proceeding_files as pf', 'pf.proceeding_file_id', 'sspf.proceeding_file_id')
-      .join('proceeding_file_types as pft', 'pft.proceeding_file_type_id', 'pf.proceeding_file_type_id')
+      .join(
+        'proceeding_file_types as pft',
+        'pft.proceeding_file_type_id',
+        'pf.proceeding_file_type_id'
+      )
       .leftJoin('business_units as bu', 'bu.business_unit_id', 'ss.business_unit_id')
       .whereNull('sspf.system_setting_proceeding_file_deleted_at')
       .whereNull('ss.system_setting_deleted_at')
@@ -351,7 +373,11 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       .whereNotExists((newer) => {
         newer
           .from('system_setting_proceeding_files as sspf_new')
-          .join('proceeding_files as pf_new', 'pf_new.proceeding_file_id', 'sspf_new.proceeding_file_id')
+          .join(
+            'proceeding_files as pf_new',
+            'pf_new.proceeding_file_id',
+            'sspf_new.proceeding_file_id'
+          )
           .whereColumn('sspf_new.system_setting_id', 'sspf.system_setting_id')
           .whereColumn('pf_new.proceeding_file_type_id', 'pf.proceeding_file_type_id')
           .whereNull('sspf_new.system_setting_proceeding_file_deleted_at')
@@ -524,6 +550,53 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
         name: textOrNull(row.proveedor_repse_razon_social) ?? '',
         detail: textOrNull(row.proveedor_repse_objeto_registrado),
       },
+      storedPath: null,
+      storedFileName: null,
+    }))
+  }
+
+  /**
+   * Bajas programadas (VLRH-H1792172894406, reglas 1, 3, 4 y 8): expedientes
+   * `open`, no borrados, de colaboradores activos con departamento del rol, cuya
+   * fecha de baja (`EMPLOYEE_OFFBOARDING_REFERENCE_DATE_SQL`, la misma regla que
+   * la ficha) no es nula y cae en la ventana. Empresa del expediente Y del
+   * colaborador dentro del alcance. Sin archivo, sin motivos ni notas:
+   * `documentName` nulo para que el service ponga la etiqueta genérica.
+   */
+  async findEmployeeOffboardings(
+    filter: ExpirationMatrixFilter
+  ): Promise<ExpirationMatrixRecord[]> {
+    if (filter.businessUnitIds.length === 0 || filter.departmentIds.length === 0) return []
+
+    const query = db
+      .from('employee_offboardings as eo')
+      .join('employees as e', 'e.employee_id', 'eo.employee_id')
+      .whereNull('eo.employee_offboarding_deleted_at')
+      .where('eo.employee_offboarding_status', EMPLOYEE_OFFBOARDING_STATUS.OPEN)
+      .whereNull('e.employee_deleted_at')
+      .whereIn('eo.business_unit_id', [...filter.businessUnitIds])
+      .whereIn('e.business_unit_id', [...filter.businessUnitIds])
+      .whereIn('e.department_id', [...filter.departmentIds])
+      .whereRaw(`${EMPLOYEE_OFFBOARDING_REFERENCE_DATE_SQL} IS NOT NULL`)
+      .whereRaw(`${EMPLOYEE_OFFBOARDING_REFERENCE_DATE_SQL} < ?`, [dayAfter(filter.horizon)])
+    joinEmployeeOrgChart(query, 'e.position_id', 'e.department_id')
+    if (filter.id !== undefined) {
+      query.where('eo.employee_offboarding_id', filter.id)
+    }
+
+    const rows: EmployeeOffboardingRow[] = await query.select(
+      'eo.employee_offboarding_id',
+      ...EMPLOYEE_OWNER_COLUMNS,
+      calendarDate(EMPLOYEE_OFFBOARDING_REFERENCE_DATE_SQL)
+    )
+
+    return rows.map((row) => ({
+      source: 'employee-offboarding',
+      id: row.employee_offboarding_id,
+      documentName: null,
+      reference: null,
+      expiresAt: row.expires_at,
+      owner: toEmployeeOwner(row),
       storedPath: null,
       storedFileName: null,
     }))
