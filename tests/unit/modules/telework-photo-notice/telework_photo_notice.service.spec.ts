@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import TeleworkPhotoNoticeError from '#modules/telework-photo-notice/telework_photo_notice.error'
@@ -13,12 +14,15 @@ import type TeleworkPhotoNoticeTemplate from '#models/telework_photo_notice_temp
 import { TELEWORK_PHOTO_NOTICE_PLACEHOLDERS } from '#constants/telework_photo_notice'
 
 /**
- * Unit — `TeleworkPhotoNoticeService` (VLRH-H1791306079310), parte 1:
- * plantilla vigente, estado, ciclo del borrador, historial de versiones y
- * `hasAcknowledgedCurrent`. Mismo patrón que
+ * Unit — `TeleworkPhotoNoticeService` (VLRH-H1791306079310).
+ *
+ * Parte 1: plantilla vigente, estado, ciclo del borrador, historial de
+ * versiones y `hasAcknowledgedCurrent`. Parte 2: `publish` (marcadores,
+ * saneado, huella y transacción). Mismo patrón que
  * `tests/unit/modules/telework-policy/telework_policy.service.spec.ts`:
- * repositorio falso en memoria con bitácora de llamadas, sin BD real para las
- * entidades de negocio.
+ * repositorio falso en memoria con bitácora de llamadas y `db.transaction`
+ * real (sin mockear), sin BD real para las entidades de negocio. Los métodos
+ * falsos del camino de publicación ignoran el `trx` que reciben.
  */
 
 type FakePublisher = {
@@ -114,6 +118,8 @@ function makeInMemoryRepo(
     template?: FakeTemplateRow | null
     acknowledgements?: FakeAcknowledgement[]
     createDraftErrorCode?: string
+    /** Razón social por empresa; ausente ⇒ el repositorio responde `null` (empresa inexistente). */
+    businessUnitLegalNames?: Record<number, string>
   } = {}
 ) {
   const rows: FakeRow[] = seed.map((row) => ({ ...row }))
@@ -121,6 +127,9 @@ function makeInMemoryRepo(
     ...ack,
   }))
   const template = options.template ?? null
+  const legalNames: Record<number, string> = options.businessUnitLegalNames ?? {
+    5: 'Empresa Cinco SA de CV',
+  }
   let nextId = rows.length ? Math.max(...rows.map((row) => row.teleworkPhotoNoticeId)) + 1 : 1
   const calls: Array<{ method: string; args: unknown[] }> = []
 
@@ -208,7 +217,7 @@ function makeInMemoryRepo(
     },
     async findBusinessUnitLegalName(businessUnitId: number) {
       record('findBusinessUnitLegalName', [businessUnitId])
-      return businessUnitId === 5 ? 'Empresa Cinco SA de CV' : null
+      return legalNames[businessUnitId] ?? null
     },
     async createDraft(data: CreateDraftData) {
       record('createDraft', [data])
@@ -749,5 +758,279 @@ test.group('TeleworkPhotoNoticeService.hasAcknowledgedCurrent', () => {
     for (const method of NOTICE_LIMIT_METHODS) {
       assert.notInclude(recordedMethods, method, `${method} no debe consultarse`)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// publish — parte 2: marcadores, saneado, huella y transacción (CA-03, CA-04,
+// CA-06, CA-07, CA-10 y Review Focus 1)
+// ---------------------------------------------------------------------------
+
+/** Empresa con marcado en su razón social: el valor debe viajar escapado, nunca como HTML. */
+const RICH_LEGAL_NAME = 'Acme <b>& Hijos</b>'
+const ESCAPED_LEGAL_NAME = 'Acme &lt;b&gt;&amp; Hijos&lt;/b&gt;'
+
+test.group('TeleworkPhotoNoticeService.publish', () => {
+  test('Objetivo: CA-03 — publicar resuelve el marcador con el valor escapado y sella la versión', async ({
+    assert,
+  }) => {
+    const draftContent = 'La empresa {{razon_social}} informa.'
+    const { repo, getRows, callsOf } = makeInMemoryRepo(
+      [makeRow({ teleworkPhotoNoticeId: 50, teleworkPhotoNoticeContent: draftContent })],
+      { template: makeTemplate(), businessUnitLegalNames: { 5: RICH_LEGAL_NAME } }
+    )
+    const service = new TeleworkPhotoNoticeService(repo)
+
+    const dto = await service.publish(5, 9)
+
+    assert.equal(dto.status, 'published')
+    assert.equal(dto.version, 1)
+    assert.isTrue(dto.isCurrent)
+    assert.equal(dto.publishedByUserId, 9)
+    assert.isString(dto.publishedAt)
+    assert.isNotEmpty(dto.publishedAt, 'la versión queda sellada con su fecha')
+    assert.equal(dto.content, `La empresa ${ESCAPED_LEGAL_NAME} informa.`)
+    assert.equal(dto.acknowledgementsCount, 0, 'la versión recién nacida no tiene acuses')
+
+    const row = getRows()[0]
+    assert.equal(
+      row.teleworkPhotoNoticeContent,
+      draftContent,
+      'la fila guardada conserva el texto CON el marcador'
+    )
+    assert.equal(row.teleworkPhotoNoticeRenderedContent, `La empresa ${ESCAPED_LEGAL_NAME} informa.`)
+    assert.equal(row.teleworkPhotoNoticeStatus, 'published')
+    assert.isTrue(row.teleworkPhotoNoticeIsCurrent)
+    assert.isNotNull(row.publishedAt)
+    assert.equal(row.publishedByUserId, 9)
+    assert.deepEqual(callsOf('markAsPublished')[0].args[0], 50)
+
+    assert.equal(
+      dto.contentHash,
+      createHash('sha256').update(`${dto.title}\n${dto.content}`, 'utf8').digest('hex'),
+      'la huella se recalcula con el título y el texto resuelto del DTO'
+    )
+  })
+
+  test('Objetivo: Review Focus 1 — un marcador con espacios internos se resuelve y todas sus apariciones se sustituyen', async ({
+    assert,
+  }) => {
+    const { repo, getRows } = makeInMemoryRepo(
+      [
+        makeRow({
+          teleworkPhotoNoticeId: 51,
+          teleworkPhotoNoticeContent: '{{ razon_social }} y otra vez {{razon_social}}',
+        }),
+      ],
+      { template: makeTemplate(), businessUnitLegalNames: { 5: RICH_LEGAL_NAME } }
+    )
+    const service = new TeleworkPhotoNoticeService(repo)
+
+    const dto = await service.publish(5, 9)
+
+    assert.equal(
+      dto.content,
+      `${ESCAPED_LEGAL_NAME} y otra vez ${ESCAPED_LEGAL_NAME}`,
+      'la detección es tolerante al espaciado y la sustitución reemplaza todas las apariciones'
+    )
+    assert.notInclude(dto.content, '{{', 'el texto publicado no contiene marcadores')
+    assert.notInclude(getRows()[0].teleworkPhotoNoticeRenderedContent ?? '', '{{')
+  })
+
+  test('Objetivo: CA-06 — un marcador fuera de la lista rechaza la publicación y no toca la vigente', async ({
+    assert,
+  }) => {
+    const publishedAt = DateTime.fromISO('2026-05-01T10:00:00')
+    const { repo, getRows, callsOf } = makeInMemoryRepo(
+      [
+        makeRow({
+          teleworkPhotoNoticeId: 60,
+          teleworkPhotoNoticeVersion: 1,
+          teleworkPhotoNoticeStatus: 'published',
+          teleworkPhotoNoticeIsCurrent: true,
+          teleworkPhotoNoticeRenderedContent: '<p>Aviso vigente</p>',
+          teleworkPhotoNoticeContentHash: 'hash-v1',
+          publishedByUserId: 9,
+          publishedAt,
+        }),
+        makeRow({
+          teleworkPhotoNoticeId: 61,
+          teleworkPhotoNoticeVersion: 2,
+          teleworkPhotoNoticeContent: '{{domicilio}} y {{ correo }}',
+        }),
+      ],
+      { template: makeTemplate() }
+    )
+    const service = new TeleworkPhotoNoticeService(repo)
+
+    const thrown = await captureRejection(service.publish(5, 9))
+
+    assert.instanceOf(thrown, TeleworkPhotoNoticeError)
+    assert.equal((thrown as TeleworkPhotoNoticeError).key, 'marcador-no-reconocido')
+    assert.deepEqual((thrown as TeleworkPhotoNoticeError).details?.placeholders, [
+      'domicilio',
+      'correo',
+    ], 'los marcadores desconocidos salen sin repetir y en orden de aparición')
+
+    assert.lengthOf(callsOf('clearCurrentFlag'), 0, 'nada se ha escrito todavía')
+    assert.lengthOf(callsOf('markAsPublished'), 0)
+
+    const rows = getRows()
+    assert.isTrue(
+      rows.find((row) => row.teleworkPhotoNoticeId === 60)!.teleworkPhotoNoticeIsCurrent,
+      'la vigente anterior sigue vigente'
+    )
+    assert.equal(
+      rows.find((row) => row.teleworkPhotoNoticeId === 61)!.teleworkPhotoNoticeStatus,
+      'draft',
+      'el borrador sigue en draft'
+    )
+  })
+
+  test('Objetivo: CA-07 — un contenido que queda vacío tras sanear rechaza la publicación', async ({
+    assert,
+  }) => {
+    const { repo, getRows, callsOf } = makeInMemoryRepo(
+      [makeRow({ teleworkPhotoNoticeId: 70, teleworkPhotoNoticeContent: '<script>alert(1)</script>' })],
+      { template: makeTemplate() }
+    )
+    const service = new TeleworkPhotoNoticeService(repo)
+
+    const thrown = await captureRejection(service.publish(5, 9))
+
+    assert.instanceOf(thrown, TeleworkPhotoNoticeError)
+    assert.equal((thrown as TeleworkPhotoNoticeError).key, 'contenido-vacio')
+    assert.lengthOf(callsOf('markAsPublished'), 0)
+    assert.lengthOf(callsOf('clearCurrentFlag'), 0)
+    assert.equal(getRows()[0].teleworkPhotoNoticeStatus, 'draft')
+  })
+
+  test('Objetivo: CA-04 — la v1 publicada no cambia y la v2 queda vigente', async ({ assert }) => {
+    const v1PublishedAt = DateTime.fromISO('2026-05-01T10:00:00')
+    const { repo, getRows, callsOf } = makeInMemoryRepo(
+      [
+        makeRow({
+          teleworkPhotoNoticeId: 80,
+          teleworkPhotoNoticeVersion: 1,
+          teleworkPhotoNoticeStatus: 'published',
+          teleworkPhotoNoticeIsCurrent: true,
+          teleworkPhotoNoticeContent: '<p>La empresa {{razon_social}}</p>',
+          teleworkPhotoNoticeRenderedContent: '<p>La empresa Empresa Cinco SA de CV</p>',
+          teleworkPhotoNoticeContentHash: 'hash-v1',
+          publishedByUserId: 9,
+          publishedAt: v1PublishedAt,
+        }),
+        makeRow({
+          teleworkPhotoNoticeId: 81,
+          teleworkPhotoNoticeVersion: 2,
+          teleworkPhotoNoticeContent: '<p>La empresa {{razon_social}} (v2)</p>',
+        }),
+      ],
+      { template: makeTemplate() }
+    )
+    const service = new TeleworkPhotoNoticeService(repo)
+
+    const dto = await service.publish(5, 9)
+
+    assert.equal(dto.version, 2)
+    assert.isTrue(dto.isCurrent)
+    assert.deepEqual(callsOf('clearCurrentFlag')[0].args[0], 80, 'se apaga la v1, no la nueva')
+
+    const v1 = getRows().find((row) => row.teleworkPhotoNoticeId === 80)!
+    assert.isFalse(v1.teleworkPhotoNoticeIsCurrent, 'la v1 deja de ser vigente')
+    assert.equal(v1.teleworkPhotoNoticeStatus, 'published')
+    assert.equal(v1.teleworkPhotoNoticeContent, '<p>La empresa {{razon_social}}</p>')
+    assert.equal(v1.teleworkPhotoNoticeRenderedContent, '<p>La empresa Empresa Cinco SA de CV</p>')
+    assert.equal(v1.teleworkPhotoNoticeContentHash, 'hash-v1')
+    assert.equal(v1.publishedAt?.toISO(), v1PublishedAt.toISO())
+    assert.equal(v1.publishedByUserId, 9)
+
+    const v2 = getRows().find((row) => row.teleworkPhotoNoticeId === 81)!
+    assert.isTrue(v2.teleworkPhotoNoticeIsCurrent)
+    assert.equal(v2.teleworkPhotoNoticeStatus, 'published')
+    assert.equal(
+      v2.teleworkPhotoNoticeRenderedContent,
+      '<p>La empresa Empresa Cinco SA de CV (v2)</p>'
+    )
+  })
+
+  test('Objetivo: CA-10 — publicar sin borrador es borrador-no-encontrado y no escribe nada', async ({
+    assert,
+  }) => {
+    const { repo, getCalls, callsOf } = makeInMemoryRepo(
+      [
+        makeRow({
+          teleworkPhotoNoticeId: 90,
+          teleworkPhotoNoticeVersion: 1,
+          teleworkPhotoNoticeStatus: 'published',
+          teleworkPhotoNoticeIsCurrent: true,
+        }),
+      ],
+      { template: makeTemplate() }
+    )
+    const service = new TeleworkPhotoNoticeService(repo)
+
+    const thrown = await captureRejection(service.publish(5, 9))
+
+    assert.instanceOf(thrown, TeleworkPhotoNoticeError)
+    assert.equal((thrown as TeleworkPhotoNoticeError).key, 'borrador-no-encontrado')
+    assert.lengthOf(callsOf('markAsPublished'), 0)
+    assert.lengthOf(callsOf('clearCurrentFlag'), 0)
+    assert.deepEqual(
+      getCalls().map((call) => call.method),
+      ['findDraftByBusinessUnitForUpdate'],
+      'la transacción se corta en la primera lectura: ni razón social ni vigente ni escrituras'
+    )
+  })
+
+  test('Objetivo: el alcance no resuelto o la empresa inexistente rechazan la publicación sin escribir', async ({
+    assert,
+  }) => {
+    // (a) businessUnitId inválido ⇒ falla cerrado ANTES de abrir transacción.
+    const unresolved = makeInMemoryRepo([makeRow({ teleworkPhotoNoticeId: 91 })], {
+      template: makeTemplate(),
+    })
+    const unresolvedThrown = await captureRejection(
+      new TeleworkPhotoNoticeService(unresolved.repo).publish(0, 9)
+    )
+    assert.instanceOf(unresolvedThrown, TeleworkPhotoNoticeError)
+    assert.equal((unresolvedThrown as TeleworkPhotoNoticeError).key, 'aviso-no-publicado')
+    assert.lengthOf(unresolved.getCalls(), 0, 'cero llamadas al repositorio')
+
+    // (b) empresa inexistente (razón social `null`) ⇒ falla cerrado sin publicar.
+    const missingBusinessUnit = makeInMemoryRepo([makeRow({ teleworkPhotoNoticeId: 92 })], {
+      template: makeTemplate(),
+      businessUnitLegalNames: {},
+    })
+    const missingThrown = await captureRejection(
+      new TeleworkPhotoNoticeService(missingBusinessUnit.repo).publish(5, 9)
+    )
+    assert.instanceOf(missingThrown, TeleworkPhotoNoticeError)
+    assert.equal((missingThrown as TeleworkPhotoNoticeError).key, 'aviso-no-publicado')
+    assert.lengthOf(missingBusinessUnit.callsOf('markAsPublished'), 0)
+    assert.lengthOf(missingBusinessUnit.callsOf('clearCurrentFlag'), 0)
+    assert.equal(missingBusinessUnit.getRows()[0].teleworkPhotoNoticeStatus, 'draft')
+  })
+
+  test('Objetivo: la huella del texto es la misma para el mismo título y texto resuelto, y distinta si cambia el texto', async ({
+    assert,
+  }) => {
+    function publishContent(content: string) {
+      const { repo } = makeInMemoryRepo(
+        [makeRow({ teleworkPhotoNoticeId: 95, teleworkPhotoNoticeContent: content })],
+        { template: makeTemplate() }
+      )
+      return new TeleworkPhotoNoticeService(repo).publish(5, 9)
+    }
+
+    const first = await publishContent('<p>La empresa {{razon_social}} informa.</p>')
+    const second = await publishContent('<p>La empresa {{razon_social}} informa.</p>')
+    const changed = await publishContent('<p>La empresa {{razon_social}} avisa.</p>')
+
+    assert.equal(first.content, second.content)
+    assert.equal(first.title, second.title)
+    assert.equal(first.contentHash, second.contentHash, 'mismo título y texto ⇒ misma huella')
+    assert.notEqual(first.contentHash, changed.contentHash, 'cambia el texto ⇒ cambia la huella')
+    assert.match(first.contentHash, /^[0-9a-f]{64}$/, 'la huella es un SHA-256 en hex')
   })
 })

@@ -1,5 +1,11 @@
+import { createHash } from 'node:crypto'
+import db from '@adonisjs/lucid/services/db'
 import { sanitizeTeleworkPolicyHtml } from '#helpers/sanitize_telework_policy_content'
-import { TELEWORK_PHOTO_NOTICE_PLACEHOLDERS } from '#constants/telework_photo_notice'
+import {
+  TELEWORK_PHOTO_NOTICE_PLACEHOLDERS,
+  TELEWORK_PHOTO_NOTICE_PLACEHOLDER_MARKERS,
+} from '#constants/telework_photo_notice'
+import type { TeleworkPhotoNoticePlaceholder } from '#constants/telework_photo_notice'
 import type TeleworkPhotoNotice from '#models/telework_photo_notice'
 import TeleworkPhotoNoticeError from './telework_photo_notice.error.js'
 import TeleworkPhotoNoticeRepositoryMysql from './telework_photo_notice.repository.mysql.js'
@@ -13,20 +19,30 @@ import type {
 import type { TeleworkPhotoNoticeUpdateInput } from './validators/telework_photo_notice_update.validator.js'
 
 /**
- * Dominio de lectura del aviso de privacidad de la evidencia fotográfica del
- * puesto de trabajo (VLRH-H1791306079310): plantilla, estado, ciclo del
- * borrador, historial de versiones con su conteo de acuses y
- * `hasAcknowledgedCurrent`. `publish` llega en la Tarea 3.
+ * Detección de marcadores de la plantilla: `{{clave}}` con espaciado interno
+ * opcional. Único patrón del módulo, compartido por la detección y la
+ * sustitución. Con bandera `g` se consume con `matchAll` (que clona la
+ * expresión y no arrastra `lastIndex`) o con `String.replace` (que reemplaza
+ * todas las apariciones y reinicia el índice).
+ */
+const PLACEHOLDER_PATTERN = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g
+
+/**
+ * Dominio del aviso de privacidad de la evidencia fotográfica del puesto de
+ * trabajo (VLRH-H1791306079310): plantilla, estado, ciclo del borrador,
+ * historial de versiones con su conteo de acuses, `hasAcknowledgedCurrent` y
+ * `publish`, que convierte el borrador en una versión inmutable y vigente.
  *
  * Misma regla de seguridad que `telework-policy`: `businessUnitId` sale
  * siempre del scope resuelto de la sesión, nunca del payload; si no es un
  * entero positivo, el servicio falla cerrado (`aviso-no-publicado`, 404) sin
  * tocar el repositorio (Review Focus 3). Y nada se borra (C0129 R3, CA-17):
- * lo único descartable es el borrador, por soft delete.
+ * lo único descartable es el borrador, por soft delete; una versión publicada
+ * solo se apaga (`is_current`) al publicar la siguiente.
  *
- * Todo texto se sanea con `sanitizeTeleworkPolicyHtml` al guardar y al servir:
- * la plantilla y el borrador viajan CON marcadores; la versión publicada sirve
- * su `rendered_content` ya resuelto.
+ * Todo texto se sanea con `sanitizeTeleworkPolicyHtml` al guardar, al publicar
+ * y al servir: la plantilla y el borrador viajan CON marcadores; la versión
+ * publicada sirve su `rendered_content` ya resuelto.
  */
 export default class TeleworkPhotoNoticeService {
   private readonly repository: TeleworkPhotoNoticeRepository
@@ -223,6 +239,85 @@ export default class TeleworkPhotoNoticeService {
     )
   }
 
+  /**
+   * Publica el borrador vivo y lo convierte en la versión inmutable y vigente
+   * (CA-03, CA-04, CA-06, CA-07, CA-10):
+   *
+   * 1. El texto del borrador se sanea y sus marcadores se validan contra la
+   *    lista cerrada: uno fuera de ella rechaza con `marcador-no-reconocido`
+   *    (422) y `details.placeholders` —sin repetir, en orden de aparición— y
+   *    **nada se ha escrito todavía** (CA-06).
+   * 2. Cada marcador se sustituye por el valor de la empresa **escapado**
+   *    (nunca viaja como HTML) y el texto se sanea por segunda vez; si tras
+   *    sanear no queda texto, rechaza con `contenido-vacio` (CA-07).
+   * 3. La huella SHA-256 se calcula sobre el título guardado y el texto
+   *    resuelto (`computeContentHash`); el hash que se guarda es el que sale en
+   *    el DTO.
+   * 4. Dentro de una transacción: se apaga la vigente anterior (si la hay) y se
+   *    sella el borrador como publicado (CA-04). La versión nueva nace `is_current`.
+   *
+   * El `content` del borrador conserva los marcadores en la fila (es lo que se
+   * edita); `rendered_content` guarda el texto resuelto. Falla cerrado
+   * (`aviso-no-publicado`) si el scope no está resuelto o si la empresa no
+   * existe, sin tocar el repositorio en el primer caso.
+   */
+  async publish(businessUnitId: number, actorUserId: number): Promise<NoticeVersionDto> {
+    this.assertScopeResolved(businessUnitId)
+
+    return db.transaction(async (trx) => {
+      const draft = await this.repository.findDraftByBusinessUnitForUpdate(businessUnitId, trx)
+      if (!draft) {
+        throw new TeleworkPhotoNoticeError('borrador-no-encontrado')
+      }
+
+      const businessUnitLegalName = await this.repository.findBusinessUnitLegalName(businessUnitId)
+      if (businessUnitLegalName === null) {
+        throw new TeleworkPhotoNoticeError('aviso-no-publicado')
+      }
+
+      const draftContent = sanitizeTeleworkPolicyHtml(draft.teleworkPhotoNoticeContent)
+
+      const unknownPlaceholders = this.extractPlaceholders(draftContent).filter(
+        (placeholder) => !this.isKnownPlaceholder(placeholder)
+      )
+      if (unknownPlaceholders.length > 0) {
+        throw new TeleworkPhotoNoticeError('marcador-no-reconocido', undefined, {
+          placeholders: unknownPlaceholders,
+        })
+      }
+
+      const renderedContent = sanitizeTeleworkPolicyHtml(
+        this.renderPlaceholders(draftContent, businessUnitLegalName)
+      )
+      if (this.plainText(renderedContent) === '') {
+        throw new TeleworkPhotoNoticeError('contenido-vacio')
+      }
+
+      const contentHash = this.computeContentHash(
+        draft.teleworkPhotoNoticeTitle,
+        renderedContent
+      )
+
+      const current = await this.repository.findCurrentByBusinessUnitForUpdate(businessUnitId, trx)
+      if (current) {
+        await this.repository.clearCurrentFlag(
+          current.teleworkPhotoNoticeId,
+          businessUnitId,
+          trx
+        )
+      }
+
+      const published = await this.repository.markAsPublished(
+        draft.teleworkPhotoNoticeId,
+        businessUnitId,
+        { publishedByUserId: actorUserId, renderedContent, contentHash },
+        trx
+      )
+
+      return this.buildVersionDto(published, 0)
+    })
+  }
+
   /** Falla cerrado si el scope no está resuelto (cross-tenant / scope vacío). */
   private assertScopeResolved(businessUnitId: number): void {
     if (!this.isPositiveInteger(businessUnitId)) {
@@ -232,6 +327,51 @@ export default class TeleworkPhotoNoticeService {
 
   private isPositiveInteger(value: number): boolean {
     return Number.isInteger(value) && value > 0
+  }
+
+  /** Marcadores presentes en el texto, sin repetir y en orden de aparición. */
+  private extractPlaceholders(content: string): string[] {
+    const found = new Set<string>()
+    for (const match of content.matchAll(PLACEHOLDER_PATTERN)) found.add(match[1])
+    return [...found]
+  }
+
+  /** ¿El marcador está en la lista cerrada? Un `{{marcador}}` fuera de ella rechaza la publicación. */
+  private isKnownPlaceholder(placeholder: string): placeholder is TeleworkPhotoNoticePlaceholder {
+    return (TELEWORK_PHOTO_NOTICE_PLACEHOLDERS as readonly string[]).includes(placeholder)
+  }
+
+  /**
+   * `& < > " '` escapados, en ese orden: el valor de la empresa nunca viaja
+   * como HTML. Escapar ANTES del segundo saneado es lo que conserva el valor
+   * como texto (`Acme &lt;b&gt;&amp; Hijos&lt;/b&gt;`), sin ejecutar su marcado.
+   */
+  private escapePlaceholderValue(value: string): string {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;')
+  }
+
+  /** Sustituye cada marcador (todas sus apariciones, con o sin espaciado interno) por su valor escapado. */
+  private renderPlaceholders(content: string, businessUnitLegalName: string): string {
+    return content.replace(PLACEHOLDER_PATTERN, (_match, key: string) => {
+      const resolve =
+        TELEWORK_PHOTO_NOTICE_PLACEHOLDER_MARKERS[key as TeleworkPhotoNoticePlaceholder]
+      return this.escapePlaceholderValue(resolve({ businessUnitLegalName }))
+    })
+  }
+
+  /** Texto sin etiquetas: decide si el aviso quedó vacío tras sanear (CA-07). */
+  private plainText(html: string): string {
+    return html.replace(/<[^>]*>/g, '').trim()
+  }
+
+  /** Huella de la versión publicada: SHA-256 del título guardado y el texto resuelto. */
+  private computeContentHash(title: string, renderedContent: string): string {
+    return createHash('sha256').update(`${title}\n${renderedContent}`, 'utf8').digest('hex')
   }
 
   /** Acuses de una versión concreta, con 0 si el mapa no la trae (versión sin acuses). */

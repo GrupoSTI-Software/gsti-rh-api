@@ -20,6 +20,8 @@ export type TeleworkPhotoNoticeErrorKey =
   | 'borrador-ya-existe'
   | 'borrador-no-encontrado'
   | 'plantilla-no-encontrada'
+  | 'marcador-no-reconocido'
+  | 'contenido-vacio'
 
 export default class TeleworkPhotoNoticeError extends Error {
   readonly key: TeleworkPhotoNoticeErrorKey
