@@ -19,6 +19,7 @@ export const EXPIRATION_MATRIX_SOURCES = [
   'repse-folio',
   'provider-folio',
   'supply',
+  'employee-offboarding',
 ] as const
 
 export type ExpirationMatrixSource = (typeof EXPIRATION_MATRIX_SOURCES)[number]
@@ -28,7 +29,7 @@ export type ExpirationMatrixSource = (typeof EXPIRATION_MATRIX_SOURCES)[number]
  * que el id es el último segmento numérico.
  */
 export const EXPIRATION_MATRIX_KEY_PATTERN =
-  /^(employee-file|employee-contract|company-file|certification|repse-folio|provider-folio|supply)-([1-9]\d{0,9})$/
+  /^(employee-file|employee-contract|company-file|certification|repse-folio|provider-folio|supply|employee-offboarding)-([1-9]\d{0,9})$/
 
 /** Arma la llave única y estable de un vencimiento. */
 export function buildExpirationMatrixKey(source: ExpirationMatrixSource, id: number): string {
@@ -53,15 +54,18 @@ export function parseExpirationMatrixKey(
  * Primer segmento del nombre del archivo descargado, por fuente. Nunca lleva
  * datos del empleado (regla de `#helpers/download_file_name`).
  */
-export const EXPIRATION_MATRIX_FILE_NAME_PREFIX: Readonly<Record<ExpirationMatrixSource, string>> = {
-  'employee-file': 'expediente',
-  'employee-contract': 'contrato',
-  'company-file': 'expediente-empresa',
-  'certification': 'certificacion',
-  'repse-folio': 'constancia-repse',
-  'provider-folio': 'folio-proveedor-repse',
-  'supply': 'resguardo-insumo',
-}
+export const EXPIRATION_MATRIX_FILE_NAME_PREFIX: Readonly<Record<ExpirationMatrixSource, string>> =
+  {
+    'employee-file': 'expediente',
+    'employee-contract': 'contrato',
+    'company-file': 'expediente-empresa',
+    'certification': 'certificacion',
+    'repse-folio': 'constancia-repse',
+    'provider-folio': 'folio-proveedor-repse',
+    'supply': 'resguardo-insumo',
+    /** La baja no tiene archivo (VLRH-H1792172894406, regla 10): lo exige el `Record`, nunca se usa. */
+    'employee-offboarding': 'baja-programada',
+  }
 
 /** Keys semánticas de error del módulo (contrato título/detalle/key). */
 export const EXPIRATION_MATRIX_ERROR_KEYS = {

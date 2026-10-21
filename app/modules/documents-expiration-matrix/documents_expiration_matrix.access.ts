@@ -6,7 +6,10 @@ import {
   EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS,
 } from '#constants/employees_download_permission_declarations'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
-import { evaluateSecondaryPermission } from '#helpers/permission_gate_secondary'
+import {
+  evaluateSecondaryEnforcedDecision,
+  evaluateSecondaryPermission,
+} from '#helpers/permission_gate_secondary'
 import UserService from '#services/user_service'
 import { TenantContext } from '#utils/tenant_context'
 import type { ExpirationMatrixAccess } from './documents_expiration_matrix.service.js'
@@ -36,6 +39,10 @@ async function allowsAll(
  * - `certification`: ver y abrir `employees:tab-certificaciones-read`.
  * - `repse-folio` (abrir constancia): `repse-registrations` read o gestion.
  * - `provider-folio`: `repse-providers` read o gestion (no tiene archivo).
+ * - `employee-offboarding`: `employee-offboardings:read` evaluado SIN consultar
+ *   la exigencia del módulo (`evaluateSecondaryEnforcedDecision`, fail-closed:
+ *   apagarla en BD no abre "quién se va" a toda la matriz), acotado a los
+ *   departamentos del rol. No tiene archivo (VLRH-H1792172894406, regla 7).
  */
 export async function resolveExpirationMatrixAccess(
   ctx: HttpContext
@@ -48,6 +55,7 @@ export async function resolveExpirationMatrixAccess(
     readCertifications,
     downloadRepseConstancia,
     readProviderFolios,
+    readEmployeeOffboardings,
   ] = await Promise.all([
     allowsAll(ctx, [EMPLOYEES_READ_PERMISSION_DECLARATIONS.getExpiredExpiringProceedingFiles]),
     allowsAll(ctx, [EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.downloadProceedingFile]),
@@ -58,6 +66,9 @@ export async function resolveExpirationMatrixAccess(
     allowsAll(ctx, [EMPLOYEES_READ_PERMISSION_DECLARATIONS.getExpiredExpiringCertifications]),
     allowsAll(ctx, [sourcePermissions.downloadRepseConstancia]),
     allowsAll(ctx, [sourcePermissions.readProviderFolios]),
+    evaluateSecondaryEnforcedDecision(ctx, sourcePermissions.readEmployeeOffboardings).then(
+      (decision) => decision.allowed
+    ),
   ])
 
   // Departamentos del rol: acotan todas las fuentes con dueño empleado. Insumos
@@ -76,6 +87,10 @@ export async function resolveExpirationMatrixAccess(
       'repse-folio': { read: true, download: downloadRepseConstancia },
       'provider-folio': { read: readProviderFolios, download: readProviderFolios },
       'supply': { read: true, download: true },
+      'employee-offboarding': {
+        read: readEmployeeOffboardings,
+        download: readEmployeeOffboardings,
+      },
     },
   }
 }

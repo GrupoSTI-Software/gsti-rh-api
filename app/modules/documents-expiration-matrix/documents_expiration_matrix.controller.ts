@@ -25,8 +25,16 @@ function resolveLabels(i18n: I18n): ExpirationMatrixLabels {
 function resolveSourceLabels(i18n: I18n): ExpirationMatrixLabels['bySource'] {
   return {
     'employee-file': i18n.t('expiration_matrix_document_employee_file', undefined, 'Expediente'),
-    'employee-contract': i18n.t('expiration_matrix_document_employee_contract', undefined, 'Contrato'),
-    'company-file': i18n.t('expiration_matrix_document_company_file', undefined, 'Expediente de la empresa'),
+    'employee-contract': i18n.t(
+      'expiration_matrix_document_employee_contract',
+      undefined,
+      'Contrato'
+    ),
+    'company-file': i18n.t(
+      'expiration_matrix_document_company_file',
+      undefined,
+      'Expediente de la empresa'
+    ),
     'certification': i18n.t('expiration_matrix_document_certification', undefined, 'Certificación'),
     'repse-folio': i18n.t('expiration_matrix_document_repse_folio', undefined, 'Folio REPSE'),
     'provider-folio': i18n.t(
@@ -35,6 +43,11 @@ function resolveSourceLabels(i18n: I18n): ExpirationMatrixLabels['bySource'] {
       'Folio REPSE del proveedor'
     ),
     'supply': i18n.t('expiration_matrix_document_supply', undefined, 'Insumo'),
+    'employee-offboarding': i18n.t(
+      'expiration_matrix_document_employee_offboarding',
+      undefined,
+      'Baja programada'
+    ),
   }
 }
 
@@ -75,6 +88,12 @@ export default class DocumentsExpirationMatrixController {
    *       - `provider-folio`: `repse-providers` read o gestion. Sin archivo.
    *       - `supply`: insumos asignados activos, acotado a los departamentos
    *         del rol; archivo = resguardo más reciente.
+   *       - `employee-offboarding`: `employee-offboardings:read` (evaluado sin la
+   *         exigencia del módulo: fail-closed), acotado a los departamentos del
+   *         rol. Expedientes de salida en curso de colaboradores activos cuya
+   *         fecha de baja venció o cae en la ventana; `documentName` = "Baja
+   *         programada", `reference` y `targetId` nulos. Sin archivo
+   *         (`hasFile: false`; su descarga responde `archivo-no-encontrado`).
    *
    *       `hasFile` es `true` solo si hay archivo y la sesión puede abrirlo.
    *     tags: [DocumentsExpirationMatrix]
@@ -129,6 +148,21 @@ export default class DocumentsExpirationMatrixController {
    *                       providerId: 12
    *                       name: "Servicios Especializados Acme S.A. de C.V."
    *                       detail: "Servicios de limpieza industrial"
+   *                     hasFile: false
+   *                   - key: "employee-offboarding-61"
+   *                     source: employee-offboarding
+   *                     documentName: "Baja programada"
+   *                     reference: null
+   *                     expiresAt: "2026-09-22"
+   *                     daysToExpire: -1
+   *                     owner:
+   *                       kind: employee
+   *                       employeeId: 82
+   *                       name: "Carlos Pérez Díaz"
+   *                       positionName: "Vendedor"
+   *                       departmentName: "Ventas"
+   *                       employeeCode: "1082"
+   *                     targetId: null
    *                     hasFile: false
    *       '403':
    *         description: Sin `documents-expiration-matrix:read` (gate).

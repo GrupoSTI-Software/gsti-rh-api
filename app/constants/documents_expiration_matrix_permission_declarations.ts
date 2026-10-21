@@ -50,4 +50,14 @@ export const DOCUMENTS_EXPIRATION_MATRIX_SOURCE_PERMISSION_DECLARATIONS = {
   readProviderFolios: complianceRepseRead('repse-providers'),
   /** Constancia del folio REPSE propio: misma regla que `GET /repse-registrations/:id/constancia`. */
   downloadRepseConstancia: complianceRepseRead('repse-registrations'),
+  /**
+   * Bajas programadas (VLRH-H1792172894406, regla 7): "Acceder a bajas de
+   * personal". Se evalúa con `evaluateSecondaryEnforcedDecision`, nunca con la
+   * exigencia del módulo: fail-closed.
+   */
+  readEmployeeOffboardings: {
+    module: 'employee-offboardings',
+    action: 'read',
+    bypass: 'standard',
+  },
 } as const satisfies Record<string, PermissionGateOptions>

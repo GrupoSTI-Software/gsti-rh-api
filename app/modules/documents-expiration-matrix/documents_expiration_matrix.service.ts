@@ -51,7 +51,10 @@ export interface ExpirationMatrixLabels {
 }
 
 /** Lo único que el service necesita del almacenamiento. */
-export type ExpirationMatrixFileStorage = Pick<UploadService, 'streamStoredFile' | 'canStreamStoredFile'>
+export type ExpirationMatrixFileStorage = Pick<
+  UploadService,
+  'streamStoredFile' | 'canStreamStoredFile'
+>
 
 type StoredObject = NonNullable<Awaited<ReturnType<UploadService['streamStoredFile']>>>
 
@@ -89,7 +92,7 @@ function hasStoredFile(storedPath: string | null): storedPath is string {
 }
 
 /**
- * Matriz de vencimientos agregada: junta las siete fuentes en una respuesta
+ * Matriz de vencimientos agregada: junta las ocho fuentes en una respuesta
  * con ventana única (vencidos + próximos 30 días naturales) y resuelve el
  * archivo de un vencimiento por su llave.
  */
@@ -119,6 +122,8 @@ export default class DocumentsExpirationMatrixService {
         return this.repository.findProviderFolios(filter)
       case 'supply':
         return this.repository.findSupplies(filter)
+      case 'employee-offboarding':
+        return this.repository.findEmployeeOffboardings(filter)
     }
   }
 
@@ -211,7 +216,10 @@ export default class DocumentsExpirationMatrixService {
   }
 
   /** Nombre propio de la fila (el contrato lleva su tipo) o el genérico de la fuente. */
-  private resolveDocumentName(record: ExpirationMatrixRecord, labels: ExpirationMatrixLabels): string {
+  private resolveDocumentName(
+    record: ExpirationMatrixRecord,
+    labels: ExpirationMatrixLabels
+  ): string {
     if (record.documentName === null) return labels.bySource[record.source]
     if (record.source === 'employee-contract') {
       return buildContractDocumentName(record.documentName, labels.contractOfType)
