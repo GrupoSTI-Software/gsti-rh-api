@@ -71,7 +71,7 @@ ORDER BY employee_id, employee_telework_location_id;
 
 Resultado: 4 filas. De Pedro: `Calle QA TWC Pedro Vivo` (la única con la marca de fijo pactado en 1 y `active` en 1), `Calle QA TWC Pedro Secundaria` (`active` en 1, sin la marca de fijo) y `Calle QA TWC Pedro Baja` (`active` en 0). De Rosa: `Calle QA TWC Rosa Viva`.
 
-Lugar de teletrabajo de la empresa B (el del Escenario 9):
+Lugar de teletrabajo de la empresa B (el que edita el Escenario 9, Paso 1):
 
 ```sql
 SELECT employee_id,
@@ -730,7 +730,7 @@ Qué significa lo nuevo aquí:
 
 Objetivo: comprobar que cuando la lista vigente no quedó ligada a ningún lugar la referencia es el fijo pactado: cambiar su domicilio, quitarle la marca de fijo, darlo de baja o marcar otro lugar con otro domicilio como fijo anula la lista, mientras que dejar el primer fijo cuando no había ninguno no anula nada.
 
-Paso 1 — deja como fijo pactado al lugar verificado del Escenario 1: `PUT /api/nom037/telework-locations/<id del lugar vivo de Pedro>` con el cuerpo del Escenario 1, Paso 2, tal cual (mismo lugar, misma calle) → `200`, con `"teleworkChecklistInvalidated": false` (el domicilio no cambió) y `"employeeTeleworkLocationIsFixedAgreed": true`.
+Paso 1 — deja como fijo pactado al lugar donde el Escenario 1, Paso 1, registró la visita (el lugar vivo de Pedro): `PUT /api/nom037/telework-locations/<id del lugar vivo de Pedro>` con el cuerpo del Escenario 1, Paso 2, tal cual (mismo lugar, misma calle) → `200`, con `"teleworkChecklistInvalidated": false` (el domicilio no cambió) y `"employeeTeleworkLocationIsFixedAgreed": true`.
 
 Paso 2 — registra la visita **sin lugar**: repite el cuerpo del Escenario 1, Paso 1, quitando solo `teleworkLocationId` → `201`, con `"teleworkLocationId": null` y `"status": "vigente"`.
 
@@ -756,9 +756,9 @@ Paso 10 — da de baja al fijo pactado: `DELETE /api/nom037/telework-locations/<
 
 Comprueba la lista: `GET /api/nom037/telework-checklists/employees/<id de Pedro>` → `200`, con `current` en `null` y la lista del Paso 9 en `"status": "invalidada"` con motivo `"cambio_de_domicilio"`.
 
-Paso 11 — deja como fijo pactado a otro lugar vivo, el del Escenario 4 (`Calle QA TWC Pedro Coworking`):
+Paso 11 — deja como fijo pactado a otro lugar vivo, el creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`):
 
-**Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar del Escenario 4>`
+**Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar creado en el Escenario 4, Paso 2>`
 
 Cuerpo (el del Escenario 1, Paso 2, con la calle de ese lugar y la marca de fijo pactado):
 
@@ -856,7 +856,7 @@ Qué significa lo nuevo aquí:
 
 Objetivo: comprobar que los lugares que no son la referencia de la lista —ni el verificado ni el fijo pactado— no la anulan ni al darlos de alta, ni al editarlos, ni al darlos de baja.
 
-Paso 1 — registra la visita sobre el lugar nuevo del Escenario 4 (`Calle QA TWC Pedro Coworking`): repite el cuerpo del Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → `201`, con `"status": "vigente"`.
+Paso 1 — registra la visita sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`): repite el cuerpo del Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → `201`, con `"status": "vigente"`.
 
 Paso 2 — registra un lugar secundario, sin la marca de fijo pactado:
 
@@ -1005,7 +1005,7 @@ WHERE business_unit_id = <id interno de la empresa A>
 
 Resultado: `0`: nunca tuvo lista (Rosa es presencial y el sistema no le admite listas de verificación).
 
-Paso 3 — registra una visita de Pedro sobre el lugar nuevo del Escenario 4 (`Calle QA TWC Pedro Coworking`): repite el cuerpo del Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → `201`, con `"status": "vigente"`. Guarda ese `applicationId`.
+Paso 3 — registra una visita de Pedro sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`): repite el cuerpo del Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → `201`, con `"status": "vigente"`. Guarda ese `applicationId`.
 
 Paso 4 — adelanta por la base el vencimiento de esa lista a ayer:
 
@@ -1046,7 +1046,7 @@ Qué significa lo nuevo aquí:
 
 Objetivo: comprobar que, una vez anulada la lista, otro cambio del mismo lugar se guarda sin volver a anularla y sin mover la fecha ni el autor de la primera anulación.
 
-Paso 1 — registra la visita sobre el lugar nuevo del Escenario 4 (`Calle QA TWC Pedro Coworking`): repite el cuerpo del Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → `201`, con `"status": "vigente"`.
+Paso 1 — registra la visita sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`): repite el cuerpo del Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → `201`, con `"status": "vigente"`.
 
 Paso 2 — cambia la calle de ese lugar (`PUT` con el cuerpo del Escenario 1, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Coworking 3` y `"employeeTeleworkLocationIsFixedAgreed": true`) → `200`, con `"teleworkChecklistInvalidated": true`.
 
@@ -1103,7 +1103,7 @@ Paso 3 — registra un lugar para el colaborador de la empresa B:
 
 **Endpoint:** `POST /api/nom037/telework-locations`
 
-Cuerpo: el del Escenario 4 (Paso 2) cambiando `employeeId` por `<id de Bruno>`.
+Cuerpo: el del Escenario 4, Paso 2, cambiando solo `employeeId` por `<id de Bruno>`.
 
 **Response exacto:** `404`
 
@@ -1118,11 +1118,11 @@ Cuerpo: el del Escenario 4 (Paso 2) cambiando `employeeId` por `<id de Bruno>`.
 }
 ```
 
-Paso 4 — registra una visita de Pedro sobre su lugar de coworking (el del Escenario 4): repite el cuerpo del Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → `201`, con `"status": "vigente"`.
+Paso 4 — registra una visita de Pedro sobre su lugar de coworking (el creado en el Escenario 4, Paso 2): repite el cuerpo del Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → `201`, con `"status": "vigente"`.
 
 Paso 5 — edita ese lugar de la empresa A mandando el número de la empresa B en el cuerpo:
 
-**Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar de coworking del Escenario 4>`
+**Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar creado en el Escenario 4, Paso 2>`
 
 Cuerpo (la calle cambia a propósito —para que la petición anule la lista de A— y el último campo es el número de la empresa B, mandado a propósito: el número de empresa solo lo fija el header):
 
@@ -1154,7 +1154,7 @@ Cuerpo (la calle cambia a propósito —para que la petición anule la lista de 
   "message": "El lugar de teletrabajo se actualizó correctamente.",
   "data": {
     "teleworkLocation": {
-      "employeeTeleworkLocationId": <id del lugar de coworking del Escenario 4>,
+      "employeeTeleworkLocationId": <id del lugar creado en el Escenario 4, Paso 2>,
       "employeeId": <id de Pedro>,
       "businessUnitId": <id interno de la empresa A>,
       "employeeTeleworkLocationType": "home",
