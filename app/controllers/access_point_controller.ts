@@ -8,10 +8,8 @@ import EmployeeService from '#services/employee_service'
 import { AdmsError } from '#exceptions/adms_error'
 import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { rejectSharedGuest } from '#modules/access-point/access_point_authorization'
-import {
-  redactForViewer,
-  sharingViewOf,
-} from '#modules/access-point/sharing/access_point_sharing_view'
+import { sharingViewOf } from '#modules/access-point/sharing/access_point_sharing_view'
+import { redactCatalogForGuest } from '#modules/access-point/sharing/access_point_guest_redaction'
 
 export default class AccessPointController {
   /**
@@ -584,7 +582,7 @@ export default class AccessPointController {
         type: 'success',
         title: t('access_point'),
         message: t('resource_was_found_successfully'),
-        data: { accessPoint: { ...redactForViewer(accessPoint.serialize(), sharing), ...sharing } },
+        data: { accessPoint: { ...redactCatalogForGuest(accessPoint.serialize(), sharing), ...sharing } },
       }
     } catch (error) {
       response.status(500)

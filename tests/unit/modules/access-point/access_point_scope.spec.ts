@@ -37,6 +37,26 @@ test.group('AccessPointScope', (group) => {
     assert.deepEqual(await scopeRepository.sharedWith(fx.outsiderBu), [])
   })
 
+  test('sharedWithAny junta los compartidos de varias empresas sin duplicados', async ({
+    assert,
+  }) => {
+    assert.deepEqual(
+      await scopeRepository.sharedWithAny([fx.guestBu, fx.outsiderBu, fx.ownerBu, fx.guestBu]),
+      [fx.accessPoint.accessPointId]
+    )
+    assert.deepEqual(await scopeRepository.sharedWithAny([fx.outsiderBu]), [])
+    assert.deepEqual(await scopeRepository.sharedWithAny([]), [])
+  })
+
+  test('sharedWithAny deja fuera las invitaciones revocadas', async ({ assert }) => {
+    await fx.share.merge({ accessPointShareRevokedAt: DateTime.utc() }).save()
+    try {
+      assert.deepEqual(await scopeRepository.sharedWithAny([fx.guestBu]), [])
+    } finally {
+      await fx.share.merge({ accessPointShareRevokedAt: null }).save()
+    }
+  })
+
   /**
    * Cuenta las consultas que salen por el servicio de base de datos durante
    * `fn`. Al terminar deja `db` exactamente como estaba: si el metodo era

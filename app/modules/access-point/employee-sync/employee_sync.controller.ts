@@ -16,6 +16,10 @@ import {
 import { requireEmployeeBusinessUnitId } from '#modules/access-point/employee_business_unit'
 import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import {
+  ownsAccessPoint,
+  whereVisibleTo,
+} from '#modules/access-point/sharing/access_point_visibility'
 import Employee from '#models/employee'
 import AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
@@ -636,10 +640,7 @@ async function availableFor(
    * incluye a sus responsables.
    */
   const sharedIds = await sharing.sharedWith(employeeBusinessUnitId)
-  const accessPoints = await AccessPoint.query()
-    .where((scope) => {
-      scope.whereIn('business_unit_id', businessUnitIds).orWhereIn('access_point_id', sharedIds)
-    })
+  const accessPoints = await whereVisibleTo(AccessPoint.query(), businessUnitIds, sharedIds)
     .where('access_point_active', 1)
     .orderBy('access_point_name', 'asc')
 
@@ -649,8 +650,8 @@ async function availableFor(
   const models = await modelsOf(candidates)
   const owners = await roster.businessUnitNames(
     candidates
-      .filter((row) => !businessUnitIds.includes(row.businessUnitId as number))
-      .map((row) => row.businessUnitId as number)
+      .filter((row) => !ownsAccessPoint(row.businessUnitId, businessUnitIds))
+      .map((row) => row.businessUnitId)
   )
 
   return candidates.map((accessPoint) => ({
@@ -660,7 +661,7 @@ async function availableFor(
     serialNumber: accessPoint.accessPointSerialNumber,
     connection: statusOf(accessPoint.accessPointLastConnection, now),
     model: models.get(accessPoint.accessPointId) ?? null,
-    sharedBy: owners.get(accessPoint.businessUnitId as number) ?? null,
+    sharedBy: owners.get(accessPoint.businessUnitId) ?? null,
   }))
 }
 
