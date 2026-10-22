@@ -81,3 +81,14 @@ export interface EmployeeApplicationsDto {
   current: ApplicationSummaryDto | null
   history: ApplicationSummaryDto[]
 }
+
+/**
+ * Referencia mínima de la vigente efectiva: su id y el lugar de teletrabajo que
+ * verificó (o `null`). La consume el servicio de lugares dentro de su propia
+ * transacción (VLRH-H1791306078668) para decidir la invalidación sin exponer
+ * fechas ni el resto de la lista.
+ */
+export interface CurrentApplicationLocationRef {
+  applicationId: number
+  teleworkLocationId: number | null
+}

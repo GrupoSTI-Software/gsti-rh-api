@@ -743,4 +743,61 @@ test.group('TeleworkChecklistService — núcleo de la lista de verificación de
     assert.equal(current?.applicationId, visit.applicationId)
     assert.equal(current?.status, 'vigente')
   })
+
+  test('Objetivo: findCurrentEffective — devuelve la vigente con el lugar que verificó', async ({
+    assert,
+  }) => {
+    const visit = await service.registerVisit(
+      buA,
+      await buildVisit({ teleworkLocationId: liveLocationId }),
+      actor.user.userId
+    )
+
+    let ref = null as Awaited<ReturnType<TeleworkChecklistService['findCurrentEffective']>>
+    await db.transaction(async (trx) => {
+      ref = await service.findCurrentEffective(buA, pedroId, trx)
+    })
+
+    assert.isNotNull(ref)
+    assert.equal(ref?.applicationId, visit.applicationId)
+    assert.equal(ref?.teleworkLocationId, liveLocationId)
+  })
+
+  test('Objetivo: findCurrentEffective — refleja la vigente sin lugar', async ({ assert }) => {
+    const visit = await service.registerVisit(buA, await buildVisit(), actor.user.userId)
+
+    let ref = null as Awaited<ReturnType<TeleworkChecklistService['findCurrentEffective']>>
+    await db.transaction(async (trx) => {
+      ref = await service.findCurrentEffective(buA, pedroId, trx)
+    })
+
+    assert.isNotNull(ref)
+    assert.equal(ref?.applicationId, visit.applicationId)
+    assert.isNull(ref?.teleworkLocationId)
+  })
+
+  test('Objetivo: findCurrentEffective — la vigente ya vencida devuelve null sin materializar vencida', async ({
+    assert,
+  }) => {
+    const visit = await service.registerVisit(buA, await buildVisit(), actor.user.userId)
+    await forceExpiresAt(visit.applicationId, YESTERDAY_ISO)
+
+    let ref = null as Awaited<ReturnType<TeleworkChecklistService['findCurrentEffective']>>
+    await db.transaction(async (trx) => {
+      ref = await service.findCurrentEffective(buA, pedroId, trx)
+    })
+
+    assert.isNull(ref)
+    const stillCurrent = await readApplication(visit.applicationId)
+    assert.equal(stillCurrent?.telework_checklist_application_status, 'vigente')
+  })
+
+  test('Objetivo: findCurrentEffective — sin lista devuelve null', async ({ assert }) => {
+    let ref = null as Awaited<ReturnType<TeleworkChecklistService['findCurrentEffective']>>
+    await db.transaction(async (trx) => {
+      ref = await service.findCurrentEffective(buA, pedroId, trx)
+    })
+
+    assert.isNull(ref)
+  })
 })
