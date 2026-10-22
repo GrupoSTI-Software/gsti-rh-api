@@ -773,7 +773,7 @@
     },
     {
       "codigo": "servicios-integrales-a-instalaciones",
-      "nombre": "Servicios integrales a instalaciones (limpieza, seguridad y mantenimiento)",
+      "nombre": "Servicios integrales a instalaciones",
       "codigo_scian": "561210",
       "es_demo": false,
       "tiene_estructura": false,
