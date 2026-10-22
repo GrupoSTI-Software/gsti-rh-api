@@ -11,8 +11,9 @@ import {
 } from '#modules/access-point/access_point_authorization'
 import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import { redactHealthForGuest } from '#modules/access-point/sharing/access_point_guest_redaction'
 import { TenantContext } from '#utils/tenant_context'
-import HealthService, { forGuest } from './health.service.js'
+import HealthService from './health.service.js'
 import DeviceSyncService from './device_sync.service.js'
 
 const idValidator = vine.compile(
@@ -97,7 +98,7 @@ export default class HealthController {
 
       return StandardResponseFormatter.success(
         response,
-        role === 'guest' ? forGuest(row) : row,
+        role === 'guest' ? redactHealthForGuest(row) : row,
         i18n.formatMessage('access_point_health_title'),
         i18n.formatMessage('access_point_health_message'),
         200,

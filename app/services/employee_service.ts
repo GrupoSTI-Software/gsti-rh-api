@@ -774,13 +774,19 @@ export default class EmployeeService {
     currentEmployee.employeePayrollNum = employee.employeePayrollNum
     currentEmployee.employeePayrollCode = employee.employeePayrollCode
     currentEmployee.employeeHireDate = employee.employeeHireDate
-    currentEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
-    if (currentEmployee.employeeTerminatedDate) {
-      currentEmployee.employeeTerminationModality = employee.employeeTerminationModality ?? null
-      currentEmployee.employeeTerminationType = employee.employeeTerminationType ?? null
-    } else {
-      currentEmployee.employeeTerminationModality = null
-      currentEmployee.employeeTerminationType = null
+    // Registro de baja (VLRH-H1792172889566, regla 3): propiedad ausente =
+    // conservar fecha, modalidad y tipo. El controller solo la fija cuando la
+    // decisión sobre la fila bloqueada fue corregir la baja de un dado de baja;
+    // antes, una llave ausente en el request borraba la baja.
+    if ('employeeTerminatedDate' in employee) {
+      currentEmployee.employeeTerminatedDate = employee.employeeTerminatedDate
+      if (currentEmployee.employeeTerminatedDate) {
+        currentEmployee.employeeTerminationModality = employee.employeeTerminationModality ?? null
+        currentEmployee.employeeTerminationType = employee.employeeTerminationType ?? null
+      } else {
+        currentEmployee.employeeTerminationModality = null
+        currentEmployee.employeeTerminationType = null
+      }
     }
     currentEmployee.companyId = employee.companyId
     currentEmployee.departmentId = employee.departmentId

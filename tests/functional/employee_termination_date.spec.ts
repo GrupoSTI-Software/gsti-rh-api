@@ -14,6 +14,7 @@ import Employee from '#models/employee'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import EmployeeQuotaService from '#services/employee_quota_service'
 import EmployeeService from '#services/employee_service'
 import OffboardingsService from '#modules/employee-offboarding/offboardings/offboardings.service'
 import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
@@ -600,24 +601,55 @@ test.group(
       }
     })
 
-    test('CA-8: la edición con la fecha que manda el BO guarda el día capturado', async ({
+    test('CA-8: en un activo la edición no asienta la baja (400); en un dado de baja guarda el día capturado', async ({
       client,
       assert,
     }) => {
-      const fixture = await track(() => createEmployee(unit, 'EdicionValida'))
-      const response = await put(client, root, fixture, validTermination(`${D}T06:00:00.000Z`))
+      // VLRH-H1792172889566: la baja de un activo solo se programa en el expediente
+      const active = await track(() => createEmployee(unit, 'EdicionActivo'))
+      const rejected = await put(client, root, active, validTermination(`${D}T06:00:00.000Z`))
+      rejected.assertStatus(400)
+      assert.equal(rejected.body().key, 'baja-solo-desde-el-expediente')
+      const activeRow = await employeeRow(active.employee.employeeId)
+      assert.isNull(activeRow.terminated_date)
+
+      const terminated = await track(() =>
+        createEmployee(unit, 'EdicionValida', {
+          date: '2024-01-15',
+          modality: MODALITY,
+          type: TERMINATION_TYPE,
+        })
+      )
+      await db
+        .from('employees')
+        .where('employee_id', terminated.employee.employeeId)
+        .update({ employee_deleted_at: new Date() })
+      const response = await put(client, root, terminated, validTermination(`${D}T06:00:00.000Z`))
       response.assertStatus(201)
 
-      const row = await employeeRow(fixture.employee.employeeId)
+      const row = await employeeRow(terminated.employee.employeeId)
       assert.equal(row.terminated_date, `${D} 00:00:00`)
       assert.equal(row.employee_termination_modality, MODALITY)
       assert.equal(row.employee_termination_type, TERMINATION_TYPE)
     })
 
-    test('CA-9: la edición con la fecha vacía sigue quitando el registro de baja', async ({
+    test('CA-9: la edición con la fecha vacía quita la baja antigua de un activo con cupo y sin expediente (válvula)', async ({
       client,
       assert,
+      cleanup,
     }) => {
+      // VLRH-H1792361735984: fecha presente y vacía sobre un activo con fecha guardada,
+      // con employees:delete (root), cupo y sin expediente en curso → 201 y trío en NULL
+      const originalQuota = EmployeeQuotaService.prototype.resolveQuota
+      cleanup(() => {
+        EmployeeQuotaService.prototype.resolveQuota = originalQuota
+      })
+      EmployeeQuotaService.prototype.resolveQuota = async function (businessUnitId, trx) {
+        return {
+          limit: (await this.countActiveEmployees(businessUnitId, trx)) + 5,
+          source: 'legacy',
+        }
+      }
       const fixture = await track(() => createEmployee(unit, 'EdicionVacia'))
       for (const value of [null, '', '   ']) {
         await setTermination(fixture.employee.employeeId, {
@@ -638,7 +670,7 @@ test.group(
       }
     })
 
-    test('CA-10: sin permiso de registro de baja, la fecha inválida es 400 (no 403) y la misma fecha no exige el permiso', async ({
+    test('CA-10: sin permiso de registro de baja, la fecha inválida es 400 (no 403), la misma fecha no exige el permiso y el cambio en un activo es 400', async ({
       client,
       assert,
     }) => {
@@ -675,13 +707,15 @@ test.group(
         same.assertStatus(201)
         assert.deepEqual(await employeeRow(fixture.employee.employeeId), before)
 
-        // Y una fecha válida distinta sigue exigiendo el permiso, como hoy
+        // Y una fecha válida distinta en un activo se rechaza antes del permiso
+        // (VLRH-H1792172889566, regla 1): 400, nunca 403
         const changed = await put(client, actor, fixture, {
           employeeTerminatedDate: '2024-02-15',
           employeeTerminationModality: recorded.modality,
           employeeTerminationType: recorded.type,
         })
-        changed.assertStatus(403)
+        changed.assertStatus(400)
+        assert.equal(changed.body().key, 'baja-solo-desde-el-expediente')
         assert.deepEqual(await employeeRow(fixture.employee.employeeId), before)
       } finally {
         employeesModule.systemModulePermissionEnforcementActive = originalEnforcement

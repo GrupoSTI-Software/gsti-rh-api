@@ -19,6 +19,7 @@ import AssistIngestionService from '#modules/assist-ingestion/assist_ingestion.s
 import TemplateService from '#modules/biometric-vault/template/template.service'
 import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import { whereVisibleTo } from '#modules/access-point/sharing/access_point_visibility'
 import { TenantContext } from '#utils/tenant_context'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
@@ -86,7 +87,7 @@ export default class UnmappedPinsService {
   async list(businessUnitIds: number[], status?: string): Promise<UnmappedPinRow[]> {
     if (businessUnitIds.length === 0) return []
 
-    const sharedIds = await this.sharedAccessPointIds(businessUnitIds)
+    const sharedIds = await this.scope.sharedWithAny(businessUnitIds)
     /**
      * Las filas viven con la empresa del aparato: la invitada las ve por el
      * `access_point_id` compartido, no por su `business_unit_id`, asi que la
@@ -104,8 +105,7 @@ export default class UnmappedPinsService {
     sharedIds: number[],
     status?: string
   ): Promise<UnmappedPinRow[]> {
-    const rows = await AdmsUnmappedPin.query()
-      .where((visible) => visibleTo(visible, businessUnitIds, sharedIds))
+    const rows = await whereVisibleTo(AdmsUnmappedPin.query(), businessUnitIds, sharedIds)
       .if(status !== undefined, (query) =>
         query.where('adms_unmapped_pin_status', status as string)
       )
@@ -478,27 +478,21 @@ export default class UnmappedPinsService {
     unmappedPinId: number,
     businessUnitIds: number[]
   ): Promise<AdmsUnmappedPin> {
-    const sharedIds =
-      businessUnitIds.length === 0 ? [] : await this.sharedAccessPointIds(businessUnitIds)
+    const sharedIds = await this.scope.sharedWithAny(businessUnitIds)
     const row =
       businessUnitIds.length === 0
         ? null
         : await TenantContext.runUnscoped(
             () =>
-              AdmsUnmappedPin.query()
-                .where('adms_unmapped_pin_id', unmappedPinId)
-                .where((visible) => visibleTo(visible, businessUnitIds, sharedIds))
-                .first(),
+              whereVisibleTo(
+                AdmsUnmappedPin.query().where('adms_unmapped_pin_id', unmappedPinId),
+                businessUnitIds,
+                sharedIds
+              ).first(),
             TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
           )
     if (row) return row
     throw pendingNotFound()
-  }
-
-  /** Aparatos que las empresas dadas usan como invitadas. */
-  private async sharedAccessPointIds(businessUnitIds: number[]): Promise<number[]> {
-    const lists = await Promise.all(businessUnitIds.map((id) => this.scope.sharedWith(id)))
-    return [...new Set(lists.flat())]
   }
 }
 
@@ -524,17 +518,4 @@ function toCandidate(employee: Employee, matchedBy: 'code' | 'name'): CandidateR
       .join(' '),
     matchedBy,
   }
-}
-
-/** Las filas de las empresas dadas y las de los aparatos que comparten con ellas. */
-function visibleTo(
-  query: {
-    whereIn: (column: string, values: number[]) => unknown
-    orWhereIn: (column: string, values: number[]) => unknown
-  },
-  businessUnitIds: number[],
-  sharedIds: number[]
-): void {
-  query.whereIn('business_unit_id', businessUnitIds)
-  if (sharedIds.length > 0) query.orWhereIn('access_point_id', sharedIds)
 }

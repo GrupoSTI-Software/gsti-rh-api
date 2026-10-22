@@ -1,5 +1,6 @@
 import db from '@adonisjs/lucid/services/db'
 import type AccessPoint from '#models/access_point'
+import { ownsAccessPoint } from './access_point_visibility.js'
 
 /**
  * Lo que el Backoffice pinta de un checador compartido (VLRH-P0065, 6).
@@ -54,8 +55,7 @@ export async function sharingViewOf(
 
   for (const accessPoint of accessPoints) {
     const guests = guestsByAccessPoint.get(accessPoint.accessPointId) ?? []
-    const owned = viewerBusinessUnitIds.includes(accessPoint.businessUnitId as number)
-    if (owned) {
+    if (ownsAccessPoint(accessPoint.businessUnitId, viewerBusinessUnitIds)) {
       result.set(
         accessPoint.accessPointId,
         guests.length > 0 ? { sharedRole: 'owner', sharedWith: guests, sharedBy: null } : NOT_SHARED
@@ -69,26 +69,4 @@ export async function sharingViewOf(
     }
   }
   return result
-}
-
-/**
- * Lo que la invitada no recibe del checador ajeno (VLRH-P0065, 6): de la
- * responsable solo el nombre --el Backoffice lo pinta--, nada de su ficha
- * (razon social, slug, zona) ni su id interno; y ni IP, ni MAC, ni los CIDR
- * permitidos, que son la configuracion de red del aparato y de quien lo
- * administra. A la responsable se le devuelve igual.
- */
-export function redactForViewer<T extends Record<string, unknown>>(
-  serialized: T,
-  view: AccessPointSharingView | undefined
-): T {
-  if (view?.sharedRole !== 'guest') return serialized
-  return {
-    ...serialized,
-    businessUnit: { businessUnitName: view.sharedBy },
-    businessUnitId: null,
-    accessPointIp: null,
-    accessPointMac: null,
-    accessPointAllowedCidrs: null,
-  }
 }

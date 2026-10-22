@@ -285,10 +285,21 @@ test.group('Edición y baja sin estructura — PUT/DELETE /api/employees/:id (US
     assert.isNull(response.body().data.employee.positionId)
   })
 
-  test('registra la baja desde la ficha (PUT) sin pedir estructura (regla 1)', async ({
+  test('corrige la baja de un dado de baja desde la ficha (PUT) sin pedir estructura (regla 1)', async ({
     client,
     assert,
   }) => {
+    // VLRH-H1792172889566: la baja de un activo ya no se asienta desde la ficha;
+    // la corrección sigue viva para el dado de baja, y sigue sin pedir estructura
+    await db
+      .from('employees')
+      .where('employee_id', sinEstructuraBajaPut.employee.employeeId)
+      .update({
+        employee_deleted_at: new Date(),
+        employee_terminated_date: '2026-09-01 00:00:00',
+        employee_termination_modality: 'Renuncia',
+        employee_termination_type: 'Cambio de Residencia',
+      })
     const response = await put(sinEstructuraBajaPut, {
       employeeTerminatedDate: '2026-09-15',
       employeeTerminationModality: 'Renuncia',
