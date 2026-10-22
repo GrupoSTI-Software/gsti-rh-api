@@ -7,6 +7,7 @@ import {
   cleanupOrgChartFixtures,
   createDepartmentFixture,
   createPositionFixture,
+  linkDepartmentPositionFixture,
 } from '#tests/helpers/org_chart_fixtures'
 import { TenantContext } from '#utils/tenant_context'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
@@ -55,6 +56,7 @@ export async function createEmployeeFixture(
   })
   const department = await createDepartmentFixture(businessUnitId, `Departamento ${prefix}`)
   const position = await createPositionFixture(businessUnitId, `Puesto ${prefix}`)
+  await linkDepartmentPositionFixture(department.departmentId, position.positionId, businessUnitId)
   const code = `EMP-${stamp}`.slice(0, 40)
   const [employeeId] = await db.table('employees').insert({
     employee_slug: opaqueEmployeeSlug(),

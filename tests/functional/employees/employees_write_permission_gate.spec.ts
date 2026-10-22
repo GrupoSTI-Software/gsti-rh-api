@@ -12,6 +12,7 @@ import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { linkDepartmentPositionFixture } from '#tests/helpers/org_chart_fixtures'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 
@@ -240,6 +241,8 @@ async function createEmployeeFixture(
     position_created_at: now,
   })
   const alternativePositionId = Number(alternativePositionInsert[0])
+  await linkDepartmentPositionFixture(departmentId, positionId, businessUnitId)
+  await linkDepartmentPositionFixture(departmentId, alternativePositionId, businessUnitId)
   const employeeInsert = await db.table('employees').insert({
     employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
@@ -281,6 +284,7 @@ async function cleanupEmployeeFixture(fixture: EmployeeFixture | null) {
     .where('employee_id', fixture.employee.employeeId)
     .delete()
   await Employee.query().where('employee_id', fixture.employee.employeeId).delete()
+  await db.from('department_position').where('department_id', fixture.departmentId).delete()
   await db.from('positions').where('position_id', fixture.alternativePositionId).delete()
   await db.from('positions').where('position_id', fixture.positionId).delete()
   await db.from('departments').where('department_id', fixture.departmentId).delete()
@@ -351,6 +355,10 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
           .delete()
         await db
           .from('employees')
+          .where('business_unit_id', actor.businessUnit.businessUnitId)
+          .delete()
+        await db
+          .from('department_position')
           .where('business_unit_id', actor.businessUnit.businessUnitId)
           .delete()
         await db
@@ -586,15 +594,18 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
   })
 
   test('E: impide importación antes de crear empleados', async ({ client, assert }) => {
-    const before = await Employee.query().whereNull('employee_deleted_at').count('* as total')
+    const countEmployees = async () => {
+      const rows = await db.from('employees').whereNull('employee_deleted_at').count('* as total')
+      return Number(rows[0].total)
+    }
+    const before = await countEmployees()
     const response = await client
       .post('/api/employees/import-excel')
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
     response.assertStatus(403)
     assert.equal(response.body()?.key, 'PERM.DENIED')
-    const after = await Employee.query().whereNull('employee_deleted_at').count('* as total')
-    assert.equal(Number(after[0].$extras.total), Number(before[0].$extras.total))
+    assert.equal(await countEmployees(), before)
   })
 
   test('F: impide importación de asignaciones de turno', async ({ client, assert }) => {

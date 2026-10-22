@@ -8,7 +8,7 @@ import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import Department from '#models/department'
 import Position from '#models/position'
-import Employee from '#models/employee'
+import { linkDepartmentPositionFixture } from '#tests/helpers/org_chart_fixtures'
 
 /**
  * USRH1789328927556 — el alta exige departamento y puesto de la empresa del
@@ -89,12 +89,13 @@ async function createRootActor(unit: BusinessUnit): Promise<Actor> {
   return { user, person }
 }
 
-async function createPerson(email: string): Promise<Person> {
+async function createPerson(email: string, businessUnitId: number): Promise<Person> {
   return Person.create({
     personFirstname: 'Alta',
     personLastname: 'Estructura',
     personSecondLastname: stamp(),
     personEmail: email,
+    businessUnitId,
   })
 }
 
@@ -102,11 +103,12 @@ async function cleanupActor(actor: Actor | null): Promise<void> {
   if (!actor) return
   await BusinessUnitUser.query().where('user_id', actor.user.userId).delete()
   await User.query().where('user_id', actor.user.userId).delete()
-  await Person.query().where('person_id', actor.person.personId).delete()
+  await db.from('people').where('person_id', actor.person.personId).delete()
 }
 
 async function cleanupUnits(units: BusinessUnit[]): Promise<void> {
   for (const unit of units) {
+    await db.from('department_position').where('business_unit_id', unit.businessUnitId).delete()
     await Position.query().withTrashed().where('business_unit_id', unit.businessUnitId).delete()
     await Department.query().withTrashed().where('business_unit_id', unit.businessUnitId).delete()
     await BusinessUnit.query().where('business_unit_id', unit.businessUnitId).delete()
@@ -115,17 +117,16 @@ async function cleanupUnits(units: BusinessUnit[]): Promise<void> {
 
 async function cleanupPerson(person: Person | null): Promise<void> {
   if (!person) return
-  const employee = await Employee.query()
-    .withTrashed()
-    .where('person_id', person.personId)
-    .first()
+  const employee = await db.from('employees').where('person_id', person.personId).first()
   if (employee) {
-    await db.from('user_responsible_employees').where('employee_id', employee.employeeId).delete()
-    await db.from('employee_offboardings').where('employee_id', employee.employeeId).delete()
-    await db.from('employee_salary_history').where('employee_id', employee.employeeId).delete()
-    await Employee.query().withTrashed().where('employee_id', employee.employeeId).delete()
+    const employeeId = Number(employee.employee_id)
+    await db.from('user_responsible_employees').where('employee_id', employeeId).delete()
+    await db.from('employee_offboardings').where('employee_id', employeeId).delete()
+    await db.from('employee_salary_history').where('employee_id', employeeId).delete()
+    await db.from('employee_branch_offices').where('employee_id', employeeId).delete()
+    await db.from('employees').where('employee_id', employeeId).delete()
   }
-  await Person.query().withTrashed().where('person_id', person.personId).delete()
+  await db.from('people').where('person_id', person.personId).delete()
 }
 
 test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', (group) => {
@@ -143,6 +144,11 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
     foreignUnit = await createUnit('ajena')
     activeDepartment = await createDepartment(unit, 'Activo')
     activePosition = await createPosition(unit, 'Activo')
+    await linkDepartmentPositionFixture(
+      activeDepartment.departmentId,
+      activePosition.positionId,
+      unit.businessUnitId
+    )
     deletedDepartment = await createDepartment(unit, 'Eliminado')
     foreignDepartment = await createDepartment(foreignUnit, 'Ajeno')
     foreignPosition = await createPosition(foreignUnit, 'Ajeno')
@@ -188,7 +194,7 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
     client,
     assert,
   }) => {
-    const person = await createPerson(`alta-ambos-${stamp()}@gsti-tests.local`)
+    const person = await createPerson(`alta-ambos-${stamp()}@gsti-tests.local`, unit.businessUnitId)
     try {
       const response = await post(client, person, { departmentId: 0, positionId: '' })
 
@@ -196,10 +202,14 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
       assert.equal(response.body().type, 'warning')
       assert.equal(response.body().message, 'Faltan el departamento y el puesto')
       assert.notEqual(response.body().title, 'Server error')
-      const created = await Employee.query().where('person_id', person.personId).first()
+      const created = await db
+        .from('employees')
+        .where('person_id', person.personId)
+        .whereNull('employee_deleted_at')
+        .first()
       assert.isNull(created)
-      const released = await Person.query().withTrashed().where('person_id', person.personId).first()
-      assert.isNotNull(released?.deletedAt)
+      const released = await db.from('people').where('person_id', person.personId).first()
+      assert.isNotNull(released?.person_deleted_at)
     } finally {
       await cleanupPerson(person)
     }
@@ -209,7 +219,7 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
     client,
     assert,
   }) => {
-    const person = await createPerson(`alta-puesto-${stamp()}@gsti-tests.local`)
+    const person = await createPerson(`alta-puesto-${stamp()}@gsti-tests.local`, unit.businessUnitId)
     try {
       const response = await post(client, person, {
         departmentId: activeDepartment.departmentId,
@@ -218,7 +228,11 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
 
       response.assertStatus(400)
       assert.equal(response.body().message, 'Falta el puesto')
-      const created = await Employee.query().where('person_id', person.personId).first()
+      const created = await db
+        .from('employees')
+        .where('person_id', person.personId)
+        .whereNull('employee_deleted_at')
+        .first()
       assert.isNull(created)
     } finally {
       await cleanupPerson(person)
@@ -229,7 +243,7 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
     client,
     assert,
   }) => {
-    const person = await createPerson(`alta-depto-${stamp()}@gsti-tests.local`)
+    const person = await createPerson(`alta-depto-${stamp()}@gsti-tests.local`, unit.businessUnitId)
     try {
       const response = await post(client, person, {
         departmentId: 0,
@@ -247,7 +261,7 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
     client,
     assert,
   }) => {
-    const person = await createPerson(`alta-ok-${stamp()}@gsti-tests.local`)
+    const person = await createPerson(`alta-ok-${stamp()}@gsti-tests.local`, unit.businessUnitId)
     try {
       const response = await post(client, person, {
         departmentId: activeDepartment.departmentId,
@@ -271,7 +285,7 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
   })
 
   test('sin employeeCode se crea: el codigo se genera y no hay 500', async ({ client, assert }) => {
-    const person = await createPerson(`alta-sin-codigo-${stamp()}@gsti-tests.local`)
+    const person = await createPerson(`alta-sin-codigo-${stamp()}@gsti-tests.local`, unit.businessUnitId)
     try {
       const body = storeBody(person, {
         departmentId: activeDepartment.departmentId,
@@ -298,11 +312,11 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
     assert,
   }) => {
     const email = `alta-reintento-${stamp()}@gsti-tests.local`
-    const first = await createPerson(email)
+    const first = await createPerson(email, unit.businessUnitId)
     const rejected = await post(client, first, { departmentId: 0, positionId: 0 })
     rejected.assertStatus(400)
 
-    const second = await createPerson(email)
+    const second = await createPerson(email, unit.businessUnitId)
     try {
       const response = await post(client, second, {
         departmentId: activeDepartment.departmentId,
@@ -321,7 +335,7 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
     client,
     assert,
   }) => {
-    const person = await createPerson(`alta-ajeno-${stamp()}@gsti-tests.local`)
+    const person = await createPerson(`alta-ajeno-${stamp()}@gsti-tests.local`, unit.businessUnitId)
     try {
       const foreign = await post(client, person, {
         departmentId: foreignDepartment.departmentId,
@@ -336,7 +350,11 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
       missing.assertStatus(400)
       assert.equal(foreign.body().message, 'El departamento no existe en la empresa del empleado')
       assert.equal(missing.body().message, foreign.body().message)
-      const created = await Employee.query().where('person_id', person.personId).first()
+      const created = await db
+        .from('employees')
+        .where('person_id', person.personId)
+        .whereNull('employee_deleted_at')
+        .first()
       assert.isNull(created)
     } finally {
       await cleanupPerson(person)
@@ -347,7 +365,7 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
     client,
     assert,
   }) => {
-    const person = await createPerson(`alta-puesto-ajeno-${stamp()}@gsti-tests.local`)
+    const person = await createPerson(`alta-puesto-ajeno-${stamp()}@gsti-tests.local`, unit.businessUnitId)
     try {
       const response = await post(client, person, {
         departmentId: activeDepartment.departmentId,
@@ -365,7 +383,7 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
     client,
     assert,
   }) => {
-    const person = await createPerson(`alta-eliminado-${stamp()}@gsti-tests.local`)
+    const person = await createPerson(`alta-eliminado-${stamp()}@gsti-tests.local`, unit.businessUnitId)
     try {
       const response = await post(client, person, {
         departmentId: deletedDepartment.departmentId,
@@ -380,7 +398,7 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
   })
 
   test('un dato mal formado sale 400, no 500 (regla 4)', async ({ client, assert }) => {
-    const person = await createPerson(`alta-vine-${stamp()}@gsti-tests.local`)
+    const person = await createPerson(`alta-vine-${stamp()}@gsti-tests.local`, unit.businessUnitId)
     try {
       const response = await post(client, person, {
         departmentId: activeDepartment.departmentId,
@@ -391,7 +409,11 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
       response.assertStatus(400)
       assert.equal(response.body().title, 'Error de validación')
       assert.notEqual(response.body().title, 'Server error')
-      const created = await Employee.query().where('person_id', person.personId).first()
+      const created = await db
+        .from('employees')
+        .where('person_id', person.personId)
+        .whereNull('employee_deleted_at')
+        .first()
       assert.isNull(created)
     } finally {
       await cleanupPerson(person)

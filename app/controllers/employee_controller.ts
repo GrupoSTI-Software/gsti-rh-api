@@ -31,7 +31,10 @@ import {
 } from '#helpers/user_access_email_api_error'
 import EmployeeStructureService, {
   requireEmployeeStructureForCreate,
+  resolveEmployeePositionDepartmentCheck,
   resolveEmployeeStructureUpdate,
+  type EmployeePositionDepartmentCheck,
+  type EmployeePositionDepartmentMismatch,
 } from '#services/employee_structure_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
@@ -157,6 +160,58 @@ const EMPLOYEE_WORK_SCHEDULE_REPORT_LABEL: Record<EmployeeWorkSchedule, string> 
 
 // const jar = new CookieJar()
 // const client = wrapper(axios.create({ jar }))
+
+const POSITION_DEPARTMENT_REJECTION: Record<
+  EmployeePositionDepartmentMismatch,
+  { titleKey: string; messageKey: string; detailKey: string; key: string }
+> = {
+  'position-requires-department': {
+    titleKey: 'employee_position_requires_department_title',
+    messageKey: 'employee_position_requires_department_message',
+    detailKey: 'employee_position_requires_department_detail',
+    key: 'puesto-sin-departamento',
+  },
+  'position-without-department-link': {
+    titleKey: 'employee_position_without_department_link_title',
+    messageKey: 'employee_position_without_department_link_message',
+    detailKey: 'employee_position_without_department_link_detail',
+    key: 'vinculo-departamento-faltante',
+  },
+  'position-department-mismatch': {
+    titleKey: 'org_chart_position_department_consistency_title',
+    messageKey: 'employee_position_department_mismatch_message',
+    detailKey: 'employee_position_department_mismatch_detail',
+    key: 'consistencia-puesto-departamento',
+  },
+}
+
+function nullableStructureId(value: number | string | null | undefined): number | null {
+  if (value === null || value === undefined || value === '') {
+    return null
+  }
+  const numeric = Number(value)
+  return Number.isFinite(numeric) ? numeric : null
+}
+
+function positionDepartmentRejection(
+  i18n: I18n,
+  check: Extract<EmployeePositionDepartmentCheck, { ok: false }>,
+  ids: { departmentId: number | null; positionId: number }
+) {
+  const copy = POSITION_DEPARTMENT_REJECTION[check.reason]
+  const replacements =
+    check.reason === 'position-department-mismatch'
+      ? { position: check.positionName, department: check.linkedDepartmentName }
+      : undefined
+  return {
+    type: 'warning' as const,
+    title: i18n.t(copy.titleKey),
+    message: replacements === undefined ? i18n.t(copy.messageKey) : i18n.t(copy.messageKey, replacements),
+    detail: replacements === undefined ? i18n.t(copy.detailKey) : i18n.t(copy.detailKey, replacements),
+    key: copy.key,
+    data: ids,
+  }
+}
 
 export default class EmployeeController {
   /**
@@ -1071,6 +1126,24 @@ export default class EmployeeController {
           key: 'alta-empleado-invalida',
         }
       }
+      const positionDepartmentPair = resolveEmployeePositionDepartmentCheck(null, {
+        departmentId: nullableStructureId(employee.departmentId),
+        positionId: nullableStructureId(employee.positionId),
+        businessUnitId: Number(employee.businessUnitId),
+      })
+      const positionDepartmentCheck = await new EmployeeStructureService().verifyPositionDepartment(
+        positionDepartmentPair
+      )
+      if (!positionDepartmentCheck.ok && positionDepartmentPair) {
+        if (personId) {
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
+        }
+        response.status(422)
+        return positionDepartmentRejection(i18n, positionDepartmentCheck, {
+          departmentId: positionDepartmentPair.departmentId,
+          positionId: positionDepartmentPair.positionId,
+        })
+      }
       const exist = await employeeService.verifyInfoExist(employee)
       if (exist.status !== 200) {
         // USRH1785436961832: el alta se rechaza (p. ej. catálogo faltante) —
@@ -1783,6 +1856,28 @@ export default class EmployeeController {
           message: i18n.t(`employee_${structureCheck.field}_not_in_business_unit_message`),
           data: { ...data },
         }
+      }
+      const positionDepartmentPair = resolveEmployeePositionDepartmentCheck(
+        {
+          departmentId: currentEmployee.departmentId,
+          positionId: currentEmployee.positionId,
+          businessUnitId: currentEmployee.businessUnitId,
+        },
+        {
+          departmentId: structure.departmentId,
+          positionId: structure.positionId,
+          businessUnitId: structure.businessUnitId,
+        }
+      )
+      const positionDepartmentCheck = await new EmployeeStructureService().verifyPositionDepartment(
+        positionDepartmentPair
+      )
+      if (!positionDepartmentCheck.ok && positionDepartmentPair) {
+        response.status(422)
+        return positionDepartmentRejection(i18n, positionDepartmentCheck, {
+          departmentId: positionDepartmentPair.departmentId,
+          positionId: positionDepartmentPair.positionId,
+        })
       }
       employee.departmentId = structure.departmentId
       employee.positionId = structure.positionId

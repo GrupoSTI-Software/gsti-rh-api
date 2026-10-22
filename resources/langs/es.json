@@ -1124,6 +1124,14 @@
   "org_chart_position_department_consistency_title": "Inconsistencia entre puesto y departamento",
   "org_chart_position_department_consistency_message": "El departamento enviado no coincide con el departamento del puesto padre seleccionado.",
   "org_chart_position_department_consistency_detail": "Indique como departmentId el mismo departamento donde está enlazado el puesto padre, o elija un padre de la misma rama.",
+  "employee_position_requires_department_title": "Puesto sin departamento",
+  "employee_position_requires_department_message": "El empleado tiene puesto y no tiene departamento.",
+  "employee_position_requires_department_detail": "Elige el departamento al que pertenece el puesto, o deja vacíos el departamento y el puesto.",
+  "employee_position_without_department_link_title": "Vínculo con departamento faltante",
+  "employee_position_without_department_link_message": "El puesto elegido no pertenece a ningún departamento de la empresa del empleado.",
+  "employee_position_without_department_link_detail": "Liga el puesto a un departamento desde el organigrama o elige otro puesto.",
+  "employee_position_department_mismatch_message": "El puesto {position} pertenece al departamento {department}.",
+  "employee_position_department_mismatch_detail": "Elige el departamento {department} o cambia el puesto.",
   "company_competency_level": "Nivel de competencia de la empresa",
   "label": "Etiqueta",
   "the_number_of_levels_must_be_between_3_and_5": "El número de niveles debe ser entre 3 y 5",
@@ -3613,3 +3621,4 @@
   "announcement_slides_banner_success": "Banner guardado correctamente.",
   "announcement_slides_unexpected_error_detail": "Ocurrió un error inesperado al procesar los slides de anuncios."
 }
+

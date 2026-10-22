@@ -9,6 +9,9 @@ import BusinessUnitUser from '#models/business_unit_user'
 import Department from '#models/department'
 import Position from '#models/position'
 import Employee from '#models/employee'
+import { linkDepartmentPositionFixture } from '#tests/helpers/org_chart_fixtures'
+import { TenantContext } from '#utils/tenant_context'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 
 /**
  * USRH1788466831270 — editar y dar de baja a un empleado aunque no tenga
@@ -97,7 +100,7 @@ async function createEmployee(
   employee.departmentId = structure.departmentId
   employee.positionId = structure.positionId
   employee.employeeTerminatedDate = null
-  await employee.save()
+  await TenantContext.runUnscoped(() => employee.save(), TENANT_UNSCOPED_REASON.TEST_FIXTURE)
   return { employee, person }
 }
 
@@ -135,8 +138,10 @@ async function cleanupEmployees(fixtures: EmployeeFixture[]): Promise<void> {
     // pendientes caen en cascada al borrar el expediente.
     await db.from('employee_offboardings').where('employee_id', employee.employeeId).delete()
     await db.from('employee_salary_history').where('employee_id', employee.employeeId).delete()
-    await Employee.query().withTrashed().where('employee_id', employee.employeeId).delete()
-    await Person.query().where('person_id', person.personId).delete()
+    await db.from('user_responsible_employees').where('employee_id', employee.employeeId).delete()
+    await db.from('employee_branch_offices').where('employee_id', employee.employeeId).delete()
+    await db.from('employees').where('employee_id', employee.employeeId).delete()
+    await db.from('people').where('person_id', person.personId).delete()
   }
 }
 
@@ -149,6 +154,7 @@ async function cleanupActor(actor: Actor | null): Promise<void> {
 
 async function cleanupUnits(units: BusinessUnit[]): Promise<void> {
   for (const unit of units) {
+    await db.from('department_position').where('business_unit_id', unit.businessUnitId).delete()
     await Position.query().withTrashed().where('business_unit_id', unit.businessUnitId).delete()
     await Department.query().withTrashed().where('business_unit_id', unit.businessUnitId).delete()
     await BusinessUnit.query().where('business_unit_id', unit.businessUnitId).delete()
@@ -214,6 +220,8 @@ test.group('Edición y baja sin estructura — PUT/DELETE /api/employees/:id (US
   let sinEstructuraBajaDelete: EmployeeFixture
   let deptoEliminado: EmployeeFixture
   let conEstructura: EmployeeFixture
+  let coherenteQuitarDepto: EmployeeFixture
+  let coherenteQuitarAmbos: EmployeeFixture
 
   group.setup(async () => {
     unit = await createUnit('empresa')
@@ -223,6 +231,16 @@ test.group('Edición y baja sin estructura — PUT/DELETE /api/employees/:id (US
     deletedDepartment = await createDepartment(unit, 'Eliminado')
     foreignDepartment = await createDepartment(foreignUnit, 'Ajeno')
     foreignPosition = await createPosition(foreignUnit, 'Ajeno')
+    await linkDepartmentPositionFixture(
+      activeDepartment.departmentId,
+      activePosition.positionId,
+      unit.businessUnitId
+    )
+    await linkDepartmentPositionFixture(
+      foreignDepartment.departmentId,
+      foreignPosition.positionId,
+      foreignUnit.businessUnitId
+    )
 
     const none = { departmentId: null, positionId: null }
     sinEstructura = await createEmployee(unit, 'SinEstructura', none)
@@ -235,6 +253,14 @@ test.group('Edición y baja sin estructura — PUT/DELETE /api/employees/:id (US
       positionId: activePosition.positionId,
     })
     conEstructura = await createEmployee(unit, 'ConEstructura', {
+      departmentId: activeDepartment.departmentId,
+      positionId: activePosition.positionId,
+    })
+    coherenteQuitarDepto = await createEmployee(unit, 'QuitarDepto', {
+      departmentId: activeDepartment.departmentId,
+      positionId: activePosition.positionId,
+    })
+    coherenteQuitarAmbos = await createEmployee(unit, 'QuitarAmbos', {
       departmentId: activeDepartment.departmentId,
       positionId: activePosition.positionId,
     })
@@ -255,6 +281,8 @@ test.group('Edición y baja sin estructura — PUT/DELETE /api/employees/:id (US
       sinEstructuraBajaDelete,
       deptoEliminado,
       conEstructura,
+      coherenteQuitarDepto,
+      coherenteQuitarAmbos,
     ])
     await cleanupActor(root)
     await cleanupUnits([unit, foreignUnit])
@@ -469,5 +497,35 @@ test.group('Edición y baja sin estructura — PUT/DELETE /api/employees/:id (US
     assert.isString(response.body().message)
     assert.isNotEmpty(response.body().message)
     assert.notEqual(response.body().title, 'Server error')
+  })
+
+  test('quitar solo el departamento y conservar el puesto se rechaza (VLRH-H1792361820794)', async ({
+    client,
+    assert,
+  }) => {
+    const response = await put(coherenteQuitarDepto, { departmentId: null })(client)
+
+    response.assertStatus(422)
+    assert.equal(response.body().key, 'puesto-sin-departamento')
+    assert.equal(response.body().type, 'warning')
+    assert.equal(response.body().message, 'El empleado tiene puesto y no tiene departamento.')
+    const row = await snapshot(coherenteQuitarDepto.employee.employeeId)
+    assert.equal(row.department_id, activeDepartment.departmentId)
+    assert.equal(row.position_id, activePosition.positionId)
+  })
+
+  test('quitar departamento y puesto sigue permitido (VLRH-H1792361820794)', async ({
+    client,
+    assert,
+  }) => {
+    const response = await put(coherenteQuitarAmbos, {
+      departmentId: null,
+      positionId: null,
+    })(client)
+
+    response.assertStatus(201)
+    const row = await snapshot(coherenteQuitarAmbos.employee.employeeId)
+    assert.isNull(row.department_id)
+    assert.isNull(row.position_id)
   })
 })

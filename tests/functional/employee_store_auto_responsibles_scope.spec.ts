@@ -8,6 +8,7 @@ import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
 import Position from '#models/position'
 import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
+import { linkDepartmentPositionFixture } from '#tests/helpers/org_chart_fixtures'
 
 /**
  * VLRH-H1791336042220 — los responsables automáticos del alta son solo de la
@@ -263,6 +264,11 @@ async function workplace(label: string): Promise<Workplace> {
     businessUnitId: created.businessUnitId,
     companyId: created.businessUnitId,
   })
+  await linkDepartmentPositionFixture(
+    department.departmentId,
+    position.positionId,
+    created.businessUnitId
+  )
   return { unit: created, department, position }
 }
 
@@ -433,6 +439,9 @@ async function cleanup(
     await db.from('roles').whereIn('role_id', roleIds).delete()
   }
   for (const place of places) {
+    if (place.department) {
+      await db.from('department_position').where('department_id', place.department.departmentId).delete()
+    }
     if (place.position) {
       await db.from('positions').where('position_id', place.position.positionId).delete()
     }
