@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import AccessPoint from '#models/access_point'
 import {
   redactCatalogForGuest,
   redactHealthForGuest,
@@ -10,8 +11,8 @@ import type { DeviceProfileDto } from '#modules/access-point/device-profile/dto/
 
 /**
  * Lo que no viaja a la invitada, campo por campo (VLRH-H1792107443082, CA-3).
- * Cada forma se compara contra el objeto completo esperado: un campo nuevo en
- * la declaracion o uno que deje de recortarse rompe la prueba.
+ * Cada forma se compara contra el objeto completo esperado: un campo que se
+ * agregue al recorte o que deje de recortarse rompe la prueba.
  */
 const GUEST_VIEW: AccessPointSharingView = {
   sharedRole: 'guest',
@@ -55,6 +56,31 @@ test.group('Recorte de la invitada: catalogo', () => {
     const redacted = redactCatalogForGuest(withoutCidrs, GUEST_VIEW)
     assert.property(redacted, 'accessPointAllowedCidrs')
     assert.isNull(redacted.accessPointAllowedCidrs)
+  })
+
+  test('sobre el serialize() real del modelo, nada de red ni el id de la responsable', ({
+    assert,
+  }) => {
+    // Sin BD: solo atributos en memoria. Si una columna cambia su nombre
+    // serializado, la clave recortada deja de coincidir y esta prueba truena.
+    const accessPoint = new AccessPoint().merge({
+      accessPointName: 'Entrada',
+      businessUnitId: 10,
+      accessPointIp: '10.0.0.5',
+      accessPointMac: 'AA:BB',
+      accessPointAllowedCidrs: ['10.0.0.0/24'],
+    })
+    const real = accessPoint.serialize()
+    for (const key of ['businessUnitId', 'accessPointIp', 'accessPointMac']) {
+      assert.isNotNull(real[key], `serialize() debe emitir ${key}`)
+    }
+    const redacted = redactCatalogForGuest(real, GUEST_VIEW)
+    assert.isNull(redacted.businessUnitId)
+    assert.isNull(redacted.accessPointIp)
+    assert.isNull(redacted.accessPointMac)
+    assert.isNull(redacted.accessPointAllowedCidrs)
+    assert.deepEqual(redacted.businessUnit, { businessUnitName: 'Responsable SA' })
+    assert.equal(redacted.accessPointName, 'Entrada')
   })
 
   test('la responsable y el no compartido reciben el objeto intacto', ({ assert }) => {
