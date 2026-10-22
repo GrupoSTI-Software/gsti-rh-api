@@ -365,7 +365,9 @@ Qué significa cada dato:
 
 Objetivo: comprobar que reescribir el domicilio del lugar verificado con otras mayúsculas, con espacios de más o con un dato vacío donde antes no había nada no cuenta como cambio de domicilio, y que cambiar solo el tipo de lugar, las notas de conectividad, el internet o el equipo tampoco: en los dos casos la lista sigue vigente.
 
-Paso 1 — registra otra visita: repite el Escenario 1, Paso 1, mismo cuerpo (mismo lugar) → devuelve `201`, con un `applicationId` nuevo y `"status": "vigente"`.
+Paso 1 — registra otra visita:
+
+repite el Escenario 1, Paso 1, mismo cuerpo (mismo lugar) → devuelve `201`, con un `applicationId` nuevo y `"status": "vigente"`.
 
 Paso 2 — vuelve a guardar el lugar escribiendo el mismo domicilio de otra forma (mayúsculas, espacios de más y el código postal vacío donde estaba en `null`):
 
@@ -491,7 +493,9 @@ Cuerpo (solo cambian esos cuatro datos; la calle y el código postal van como qu
 }
 ```
 
-Paso 5 — comprueba que la lista sigue vigente: `GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` con el `applicationId` del Paso 1 en `"status": "vigente"`.
+Paso 5 — comprueba que la lista sigue vigente:
+
+`GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` con el `applicationId` del Paso 1 en `"status": "vigente"`.
 
 Qué significa lo nuevo aquí:
 
@@ -503,7 +507,9 @@ Qué significa lo nuevo aquí:
 
 Objetivo: comprobar que dar de baja el lugar que verificó la lista vigente la anula igual que un cambio de domicilio, que el lugar queda dado de baja sin borrarse y que repetir esa baja ya no encuentra el lugar.
 
-Paso 1 — registra la visita sobre el otro lugar vivo de Pedro (el secundario, `Calle QA TWC Pedro Secundaria`): repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"` y ese `teleworkLocationId`.
+Paso 1 — registra la visita sobre el otro lugar vivo de Pedro (el secundario, `Calle QA TWC Pedro Secundaria`):
+
+repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"` y ese `teleworkLocationId`.
 
 Paso 2 — da de baja ese lugar:
 
@@ -589,7 +595,9 @@ Qué significa lo nuevo aquí:
 
 Objetivo: comprobar que, cuando la lista vigente está ligada a un lugar, dejar como fijo pactado a **otro** lugar con domicilio distinto anula la lista, y que dejarlo como fijo con el mismo domicilio escrito de otra forma no la anula.
 
-Paso 1 — registra la visita sobre el lugar vivo que queda (el fijo pactado, `Calle QA TWC Pedro Vivo`): repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
+Paso 1 — registra la visita sobre el lugar vivo que queda (el fijo pactado, `Calle QA TWC Pedro Vivo`):
+
+repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
 
 Paso 2 — registra **otro** lugar ya marcado como fijo pactado, con domicilio distinto al verificado:
 
@@ -653,9 +661,13 @@ Guarda el `employeeTeleworkLocationId` del lugar nuevo: se usa en los escenarios
 }
 ```
 
-Paso 3 — comprueba la lista: `GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` en `null` y la primera fila de `history` en `"status": "invalidada"` con motivo `cambio_de_domicilio`.
+Paso 3 — comprueba la lista:
 
-Paso 4 — registra otra visita sobre el mismo lugar del Paso 1: repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
+`GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` en `null` y la primera fila de `history` en `"status": "invalidada"` con motivo `cambio_de_domicilio`.
+
+Paso 4 — registra otra visita sobre el mismo lugar del Paso 1:
+
+repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
 
 Paso 5 — registra un segundo lugar ya marcado como fijo pactado, ahora con **el mismo domicilio** que el lugar verificado, escrito de otra forma:
 
@@ -719,7 +731,9 @@ Cuerpo:
 
 La calle queda guardada recortada en los extremos (`calle qa twc pedro vivo 25`): los espacios de más se ignoran al comparar, no al guardar.
 
-Paso 6 — comprueba la lista: `GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` con la lista del Paso 4 en `"status": "vigente"`.
+Paso 6 — comprueba la lista:
+
+`GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` con la lista del Paso 4 en `"status": "vigente"`.
 
 Qué significa lo nuevo aquí:
 
@@ -730,29 +744,49 @@ Qué significa lo nuevo aquí:
 
 Objetivo: comprobar que cuando la lista vigente no quedó ligada a ningún lugar la referencia es el fijo pactado: cambiar su domicilio, quitarle la marca de fijo, darlo de baja o marcar otro lugar con otro domicilio como fijo anula la lista, mientras que dejar el primer fijo cuando no había ninguno no anula nada.
 
-Paso 1 — deja como fijo pactado al lugar donde el Escenario 1, Paso 1, registró la visita (el lugar vivo de Pedro): `PUT /api/nom037/telework-locations/<id del lugar vivo de Pedro>`, repite el Escenario 1, Paso 2, mismo cuerpo (mismo lugar, misma calle) → devuelve `200`, con `"teleworkChecklistInvalidated": false` (el domicilio no cambió) y `"employeeTeleworkLocationIsFixedAgreed": true`.
+Paso 1 — deja como fijo pactado al lugar donde el Escenario 1, Paso 1, registró la visita (el lugar vivo de Pedro):
 
-Paso 2 — registra la visita **sin lugar**: repite el Escenario 1, Paso 1, quitando solo `teleworkLocationId` → devuelve `201`, con `"teleworkLocationId": null` y `"status": "vigente"`.
+`PUT /api/nom037/telework-locations/<id del lugar vivo de Pedro>`, repite el Escenario 1, Paso 2, mismo cuerpo (mismo lugar, misma calle) → devuelve `200`, con `"teleworkChecklistInvalidated": false` (el domicilio no cambió) y `"employeeTeleworkLocationIsFixedAgreed": true`.
 
-Paso 3 — cambia la calle del fijo pactado: `PUT /api/nom037/telework-locations/<id del lugar del Paso 1>`, repite el Escenario 1, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Vivo 30` → devuelve `200`, con `"teleworkChecklistInvalidated": true`.
+Paso 2 — registra la visita **sin lugar**:
+
+repite el Escenario 1, Paso 1, quitando solo `teleworkLocationId` → devuelve `201`, con `"teleworkLocationId": null` y `"status": "vigente"`.
+
+Paso 3 — cambia la calle del fijo pactado:
+
+`PUT /api/nom037/telework-locations/<id del lugar del Paso 1>`, repite el Escenario 1, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Vivo 30` → devuelve `200`, con `"teleworkChecklistInvalidated": true`.
 
 Comprueba la lista: `GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` en `null` y la lista del Paso 2 en `"status": "invalidada"` con motivo `cambio_de_domicilio`.
 
-Paso 4 — registra otra visita sin lugar: repite el Paso 2 de este escenario, mismo cuerpo → devuelve `201`, con `"status": "vigente"`.
+Paso 4 — registra otra visita sin lugar:
 
-Paso 5 — quítale la marca de fijo pactado al mismo lugar (`PUT` que repite el cuerpo del Paso 3 de este escenario, cambiando solo `employeeTeleworkLocationIsFixedAgreed` por `false`) → devuelve `200`, con `"teleworkChecklistInvalidated": true`.
+repite el Paso 2 de este escenario, mismo cuerpo → devuelve `201`, con `"status": "vigente"`.
 
-Paso 6 — registra otra visita sin lugar: repite el Paso 2 de este escenario, mismo cuerpo → devuelve `201`, con `"status": "vigente"`. Ya no hay ningún fijo pactado.
+Paso 5 — quítale la marca de fijo pactado al mismo lugar (`PUT` que repite el cuerpo del Paso 3 de este escenario, cambiando solo `employeeTeleworkLocationIsFixedAgreed` por `false`) → devuelve `200`, con `"teleworkChecklistInvalidated":
 
-Paso 7 — marca ese lugar como fijo pactado otra vez (`PUT` que repite el cuerpo del Paso 3 de este escenario, cambiando solo `employeeTeleworkLocationIsFixedAgreed` por `true`): ese es el primer fijo desde que la lista no tiene referencia.
+true`.
+
+Paso 6 — registra otra visita sin lugar:
+
+repite el Paso 2 de este escenario, mismo cuerpo → devuelve `201`, con `"status": "vigente"`. Ya no hay ningún fijo pactado.
+
+Paso 7 — marca ese lugar como fijo pactado otra vez (`PUT` que repite el cuerpo del Paso 3 de este escenario, cambiando solo `employeeTeleworkLocationIsFixedAgreed` por `true`):
+
+ese es el primer fijo desde que la lista no tiene referencia.
 
 **Response exacto:** `200`, con `"teleworkChecklistInvalidated": false`.
 
-Paso 8 — comprueba la lista: `GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` con la lista del Paso 6 en `"status": "vigente"`.
+Paso 8 — comprueba la lista:
 
-Paso 9 — registra otra visita sin lugar: repite el Paso 2 de este escenario, mismo cuerpo → devuelve `201`, con `"status": "vigente"`.
+`GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` con la lista del Paso 6 en `"status": "vigente"`.
 
-Paso 10 — da de baja al fijo pactado: `DELETE /api/nom037/telework-locations/<id del lugar del Paso 1>` → devuelve `200`, con `"teleworkChecklistInvalidated": true` y el lugar con `"employeeTeleworkLocationActive": false`.
+Paso 9 — registra otra visita sin lugar:
+
+repite el Paso 2 de este escenario, mismo cuerpo → devuelve `201`, con `"status": "vigente"`.
+
+Paso 10 — da de baja al fijo pactado:
+
+`DELETE /api/nom037/telework-locations/<id del lugar del Paso 1>` → devuelve `200`, con `"teleworkChecklistInvalidated": true` y el lugar con `"employeeTeleworkLocationActive": false`.
 
 Comprueba la lista: `GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` en `null` y la lista del Paso 9 en `"status": "invalidada"` con motivo `"cambio_de_domicilio"`.
 
@@ -782,7 +816,9 @@ Cuerpo (el del Escenario 1, Paso 2, con la calle de ese lugar y la marca de fijo
 
 **Response exacto:** `200`, con `"teleworkChecklistInvalidated": false`: no había lista vigente, así que no había nada que anular.
 
-Paso 12 — registra otra visita **sin lugar**: repite el Paso 2 de este escenario, mismo cuerpo → devuelve `201`, con `"teleworkLocationId": null` y `"status": "vigente"`.
+Paso 12 — registra otra visita **sin lugar**:
+
+repite el Paso 2 de este escenario, mismo cuerpo → devuelve `201`, con `"teleworkLocationId": null` y `"status": "vigente"`.
 
 Paso 13 — marca **otro** lugar, con domicilio distinto al del fijo, como fijo pactado:
 
@@ -844,7 +880,9 @@ Cuerpo:
 }
 ```
 
-Paso 14 — comprueba la lista: `GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` en `null` y la lista del Paso 12 en `"status": "invalidada"` con motivo `"cambio_de_domicilio"`.
+Paso 14 — comprueba la lista:
+
+`GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` en `null` y la lista del Paso 12 en `"status": "invalidada"` con motivo `"cambio_de_domicilio"`.
 
 Qué significa lo nuevo aquí:
 
@@ -856,7 +894,9 @@ Qué significa lo nuevo aquí:
 
 Objetivo: comprobar que los lugares que no son la referencia de la lista —ni el verificado ni el fijo pactado— no la anulan ni al darlos de alta, ni al editarlos, ni al darlos de baja.
 
-Paso 1 — registra la visita sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`): repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
+Paso 1 — registra la visita sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`):
+
+repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
 
 Paso 2 — registra un lugar secundario, sin la marca de fijo pactado:
 
@@ -977,9 +1017,13 @@ Cuerpo (el del Paso 2 sin el `employeeId`, cambiando solo la calle):
 }
 ```
 
-Paso 4 — da de baja ese mismo lugar secundario: `DELETE /api/nom037/telework-locations/<id del lugar secundario nuevo>` → devuelve `200`, con la misma forma del Escenario 3, Paso 2 (el lugar con `"employeeTeleworkLocationActive": false` y su `deletedAt` con fecha), pero con `"teleworkChecklistInvalidated": false`.
+Paso 4 — da de baja ese mismo lugar secundario:
 
-Paso 5 — comprueba la lista: `GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` con la lista del Paso 1 en `"status": "vigente"`.
+`DELETE /api/nom037/telework-locations/<id del lugar secundario nuevo>` → devuelve `200`, con la misma forma del Escenario 3, Paso 2 (el lugar con `"employeeTeleworkLocationActive": false` y su `deletedAt` con fecha), pero con `"teleworkChecklistInvalidated": false`.
+
+Paso 5 — comprueba la lista:
+
+`GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` con la lista del Paso 1 en `"status": "vigente"`.
 
 Qué significa lo nuevo aquí:
 
@@ -990,7 +1034,9 @@ Qué significa lo nuevo aquí:
 
 Objetivo: comprobar que cuando el colaborador no tiene lista vigente —porque nunca tuvo una o porque la que tenía ya venció— el lugar se guarda igual y no aparece ningún estado nuevo en su lista.
 
-Paso 1 — guarda el lugar vivo de Rosa cambiando su calle (`PUT /api/nom037/telework-locations/<id del lugar vivo de Rosa>` que repite el Escenario 1, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Rosa Viva 2` y `"employeeTeleworkLocationIsFixedAgreed": false`).
+Paso 1 — guarda el lugar vivo de Rosa cambiando su calle (`PUT /api/nom037/telework-locations/<id del lugar vivo de Rosa>` que repite el Escenario 1, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Rosa Viva 2` y `"employeeTeleworkLocationIsFixedAgreed":
+
+false`).
 
 **Response exacto:** `200`, con `"teleworkChecklistInvalidated": false`.
 
@@ -1005,7 +1051,9 @@ WHERE business_unit_id = <id interno de la empresa A>
 
 Resultado: `0`: nunca tuvo lista (Rosa es presencial y el sistema no le admite listas de verificación).
 
-Paso 3 — registra una visita de Pedro sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`): repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`. Guarda ese `applicationId`.
+Paso 3 — registra una visita de Pedro sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`):
+
+repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`. Guarda ese `applicationId`.
 
 Paso 4 — adelanta por la base el vencimiento de esa lista a ayer:
 
@@ -1017,7 +1065,9 @@ WHERE telework_checklist_application_id = <applicationId del Paso 3>;
 
 Resultado: 1 fila afectada. `<ayer>` es la fecha de ayer (Ciudad de México), en formato `AAAA-MM-DD`.
 
-Paso 5 — cambia la calle de ese mismo lugar (`PUT` que repite el Escenario 1, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Coworking 2` y `"employeeTeleworkLocationIsFixedAgreed": true`).
+Paso 5 — cambia la calle de ese mismo lugar (`PUT` que repite el Escenario 1, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Coworking 2` y `"employeeTeleworkLocationIsFixedAgreed":
+
+true`).
 
 **Response exacto:** `200`, con `"teleworkChecklistInvalidated": false`: la lista ya venció, así que no había nada que anular.
 
@@ -1034,7 +1084,9 @@ WHERE telework_checklist_application_id = <applicationId del Paso 3>;
 
 Resultado: 1 fila, con el estado que ya tenía (`vigente`), el vencimiento de ayer y **sin** fecha ni motivo de anulación: el cambio no escribió nada en la lista.
 
-Paso 7 — pide el historial: `GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` en `null` y la lista del Paso 3 en `"status": "vencida"`: al consultarla, el sistema la reporta como vencida, no como anulada.
+Paso 7 — pide el historial:
+
+`GET /api/nom037/telework-checklists/employees/<id de Pedro>` → devuelve `200`, con `current` en `null` y la lista del Paso 3 en `"status": "vencida"`: al consultarla, el sistema la reporta como vencida, no como anulada.
 
 Qué significa lo nuevo aquí:
 
@@ -1046,9 +1098,13 @@ Qué significa lo nuevo aquí:
 
 Objetivo: comprobar que, una vez anulada la lista, otro cambio del mismo lugar se guarda sin volver a anularla y sin mover la fecha ni el autor de la primera anulación.
 
-Paso 1 — registra la visita sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`): repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
+Paso 1 — registra la visita sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`):
 
-Paso 2 — cambia la calle de ese lugar (`PUT` que repite el Escenario 1, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Coworking 3` y `"employeeTeleworkLocationIsFixedAgreed": true`) → devuelve `200`, con `"teleworkChecklistInvalidated": true`.
+repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
+
+Paso 2 — cambia la calle de ese lugar (`PUT` que repite el Escenario 1, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Coworking 3` y `"employeeTeleworkLocationIsFixedAgreed":
+
+true`) → devuelve `200`, con `"teleworkChecklistInvalidated": true`.
 
 Paso 3 — anota quién y cuándo anuló la lista:
 
@@ -1061,7 +1117,9 @@ WHERE telework_checklist_application_id = <applicationId del Paso 1>;
 
 Resultado: 1 fila, con la fecha y el `invalidated_by_user_id` de la cuenta **A**.
 
-Paso 4 — cambia otra vez la calle de ese mismo lugar (`PUT` que repite el Escenario 2, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Coworking 4`).
+Paso 4 — cambia otra vez la calle de ese mismo lugar:
+
+ (`PUT` que repite el Escenario 2, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Coworking 4`).
 
 **Response exacto:** `200`, con `"teleworkChecklistInvalidated": false`: la lista ya estaba anulada.
 
@@ -1080,7 +1138,9 @@ Objetivo: comprobar que la cuenta de la empresa A, aun con todos sus permisos, n
 
 Usuario: **A**. Todas las peticiones de este escenario llevan el header `X-Business-Unit-Id` con el **código público de la empresa A**.
 
-Paso 1 — edita el lugar de la empresa B (el que tiene la calle `Calle QA TWC Bruno Viva`): repite el Escenario 1, Paso 2, mismo cuerpo; un `PUT` no lleva `employeeId`.
+Paso 1 — edita el lugar de la empresa B (el que tiene la calle `Calle QA TWC Bruno Viva`):
+
+repite el Escenario 1, Paso 2, mismo cuerpo; un `PUT` no lleva `employeeId`.
 
 **Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar de Bruno>`
 
@@ -1097,7 +1157,9 @@ Paso 1 — edita el lugar de la empresa B (el que tiene la calle `Calle QA TWC B
 }
 ```
 
-Paso 2 — da de baja ese mismo lugar: `DELETE /api/nom037/telework-locations/<id del lugar de Bruno>` → devuelve `404` con el mismo cuerpo (`lugar-no-encontrado` / `TWL.NF.LOC.001`).
+Paso 2 — da de baja ese mismo lugar:
+
+`DELETE /api/nom037/telework-locations/<id del lugar de Bruno>` → devuelve `404` con el mismo cuerpo (`lugar-no-encontrado` / `TWL.NF.LOC.001`).
 
 Paso 3 — registra un lugar para el colaborador de la empresa B:
 
@@ -1118,7 +1180,9 @@ Cuerpo: el del Escenario 4, Paso 2, cambiando solo `employeeId` por `<id de Brun
 }
 ```
 
-Paso 4 — registra una visita de Pedro sobre su lugar de coworking (el creado en el Escenario 4, Paso 2): repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
+Paso 4 — registra una visita de Pedro sobre su lugar de coworking (el creado en el Escenario 4, Paso 2):
+
+repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
 
 Paso 5 — edita ese lugar de la empresa A mandando el número de la empresa B en el cuerpo:
 
