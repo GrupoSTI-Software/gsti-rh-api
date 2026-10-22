@@ -16,10 +16,9 @@ import type { AccessPointScopePort } from '#modules/access-point/sharing/access_
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
-import {
-  redactForViewer,
-  sharingViewOf,
-} from '#modules/access-point/sharing/access_point_sharing_view'
+import { sharingViewOf } from '#modules/access-point/sharing/access_point_sharing_view'
+import { redactCatalogForGuest } from '#modules/access-point/sharing/access_point_guest_redaction'
+import { whereVisibleTo } from '#modules/access-point/sharing/access_point_visibility'
 
 export default class AccessPointService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -70,16 +69,10 @@ export default class AccessPointService {
     const sharedIds = visible ? await this.scope.sharedWith(filters.businessUnitId) : []
     return TenantContext.runUnscoped(
       () =>
-        AccessPoint.query()
-          .where((scope) => {
-            if (!visible) {
-              scope.whereRaw('1 = 0')
-              return
-            }
-            scope
-              .where('business_unit_id', filters.businessUnitId)
-              .orWhereIn('access_point_id', sharedIds)
-          })
+        (visible
+          ? whereVisibleTo(AccessPoint.query(), [filters.businessUnitId], sharedIds)
+          : AccessPoint.query().whereRaw('1 = 0')
+        )
           .whereNull('access_point_deleted_at')
           .if(filters.search, (query) => {
             query.whereRaw('UPPER(access_point_name) LIKE ?', [
@@ -109,7 +102,7 @@ export default class AccessPointService {
       ...serialized,
       data: serialized.data.map((row, index) => {
         const view = views.get(rows[index].accessPointId)
-        return { ...redactForViewer(row, view), ...(view ?? {}) }
+        return { ...redactCatalogForGuest(row, view), ...(view ?? {}) }
       }),
     }
   }

@@ -1,6 +1,7 @@
 # Contenido de plantillas de puesto — formato v1
 
-Guía para quien escribe puestos tipo. HU: VLRH-H1792026425571 (CAP VLRH-C0197, EPIC VLRH-E0046).
+Guía para quien escribe puestos tipo, el catálogo de giros y las estructuras por giro y tamaño.
+HU: VLRH-H1792026425571 y VLRH-H1792205820286 (CAP VLRH-C0197, EPIC VLRH-E0046).
 
 Esta carpeta guarda el contenido de plantillas que Valanserh ofrece a sus clientes. El contenido
 lo escriben Wilvardo y Claude a partir de fuentes públicas y criterio propio; un importador lo
@@ -22,7 +23,7 @@ node ace position-templates:validate database/data/position_templates/puestos_ho
 - Revisa juntos todos los `.json` de la carpeta (sin subcarpetas) y reporta **todos** los
   hallazgos de una vez, cada uno como `[código] archivo#ruta.del.dato: detalle`.
 - Con un archivo suelto, los demás `.json` de su carpeta cuentan como contexto (para detectar
-  código y versión repetidos), pero solo se reporta lo del archivo pedido.
+  repetidos y resolver giros y puestos mencionados), pero solo se reporta lo del archivo pedido.
 - Sale con código 1 ante cualquier hallazgo, y también si no encuentra ningún `.json`: mientras
   esta carpeta solo tenga esta guía, la revisión falla. Es a propósito: nunca da por bueno lo que
   no revisó.
@@ -42,9 +43,12 @@ Un archivo es un objeto JSON con este sobre:
 | `idioma` | sí | `"es"`. Todo el contenido va en español |
 | `descripcion` | no | Nota libre para quien lee el archivo, 1 a 500 caracteres |
 | `puestos` | no | Lista de 0 a 500 puestos tipo |
+| `giros` | no | Lista de 0 a 500 giros del catálogo (sección 9) |
+| `estructuras` | no | Lista de 0 a 200 estructuras por giro y rango de empleados (sección 9) |
 
-El archivo debe traer al menos una lista con elementos. Nombre de archivo sugerido:
-`puestos_<giro>.json` en kebab o snake case, sin acentos ni espacios.
+El archivo debe traer al menos una lista con elementos y puede combinarlas como convenga.
+Nombres de archivo sugeridos: `puestos_<giro>.json`, `industries.json` para el catálogo de giros y
+`org_structures_demo.json` para las estructuras, sin acentos ni espacios.
 
 Reglas que aplican a todo el archivo:
 
@@ -251,3 +255,109 @@ oficial de la fuente.
   de escribirlos. El formato solo valida su forma.
 - El ejemplo `tests/fixtures/position_templates/valid_example.json` muestra un archivo válido con
   datos ilustrativos: sirve de molde, pero sus códigos no se copian a contenido real.
+
+## 9. Giros y estructuras
+
+HU: VLRH-H1792205820286. Una **estructura plantilla** acomoda áreas y puestos tipo con su
+jerarquía para un giro y un rango de empleados. El **catálogo de giros** es la lista curada de
+actividades de las empresas cliente, ligada al SCIAN. Ni giros ni estructuras llevan versión ni
+estado: solo los puestos tipo se versionan.
+
+### El giro
+
+```json
+{
+  "codigo": "restaurantes", "nombre": "Restaurantes", "codigo_scian": "722",
+  "es_demo": true, "tiene_estructura": true,
+  "atribucion": { "fuente": "scian_2023", "id_en_fuente": "722", "adaptado": true }
+}
+```
+
+| Campo | Obligatorio | Regla |
+|---|---|---|
+| `codigo` | sí | Clave estable en minúsculas con guiones, 2 a 60 caracteres. **Única en toda la carpeta**. Es la que usan `puestos[].giros` y `estructuras[].giro` |
+| `nombre` | sí | 1 a 150 caracteres |
+| `codigo_scian` | sí | **Un solo** código SCIAN 2023 de 3 a 6 dígitos que empieza con un sector SCIAN. Sector y subsector se deducen de sus 2 y 3 primeros dígitos. No valen rangos (`31-33`) ni el sector solo (`72`) |
+| `es_demo` | sí | `true` en los cuatro giros que se enseñan en demo: aviación privada, hotelería, restaurantes y manufactura |
+| `tiene_estructura` | sí | `true` **si y solo si** la carpeta trae al menos una estructura de ese giro |
+| `atribucion` | sí | Normalmente `{ "fuente": "scian_2023", "id_en_fuente": "<código>", "adaptado": true }`: el nombre del giro se adapta |
+
+El SCIAN es del INEGI y se cita como "Fuente: INEGI, Sistema de Clasificación Industrial de
+América del Norte (SCIAN) 2023" (sección 7). La revisión valida la **forma** del código y su
+sector, no que exista en el catálogo del INEGI: el código se verifica contra el SCIAN antes de
+escribirlo. Los giros que escriben los clientes en su registro no entran a este catálogo sin la
+curaduría de Wilvardo.
+
+`es_demo` y `tiene_estructura` son booleanos (`true`, no `"true"`).
+
+### Rangos de empleados
+
+Una estructura es para uno de estos rangos de empleados totales: `1-10`, `11-50`, `51-250` o
+`251+`. Son los mismos cortes con los que la empresa registra su tamaño. Hay **una sola**
+estructura por cada combinación de giro y rango en toda la carpeta.
+
+### Cómo se arma una estructura
+
+```json
+{
+  "giro": "restaurantes", "rango_empleados": "1-10",
+  "areas": [
+    {
+      "codigo": "direccion", "nombre": "Dirección",
+      "puestos": [ { "clave": "gerente", "puesto": "pt-res-gerente" } ]
+    },
+    {
+      "codigo": "administracion", "nombre": "Administración",
+      "puestos": [ { "clave": "auxiliar", "puesto": "pt-trv-auxiliar-administrativo", "reporta_a": "gerente" } ]
+    }
+  ],
+  "atribucion": { "fuente": "propio", "adaptado": false }
+}
+```
+
+- `giro`: código de un giro del catálogo.
+- `areas`: de 1 a 50. Cada área trae `codigo` (único dentro de la estructura), `nombre` (1 a 150)
+  y `puestos` (1 a 100). Las áreas no se anidan: la jerarquía es entre puestos.
+- Cada puesto del área trae:
+  - `clave`: identifica ese puesto **dentro de la estructura**, única entre todas sus áreas. Existe
+    porque el mismo puesto tipo puede aparecer dos veces (dos supervisores en áreas distintas).
+  - `puesto`: código de un puesto tipo de la carpeta, **sin versión**. Basta con que exista en
+    alguna versión y estado; al aplicarse, la estructura toma la última versión `estandar`.
+  - `reporta_a`: `clave` de otro puesto de la misma estructura. Se omite **solo** en el puesto en
+    la cima.
+- **Una sola cima**: exactamente un puesto sin `reporta_a`. Ningún puesto se reporta a sí mismo,
+  ni directa ni indirectamente.
+- Fuera del formato: número de plazas por puesto, sucursales y varias razones sociales.
+
+### Qué revisa y qué reporta
+
+Las referencias se resuelven contra **todos** los archivos de la carpeta: el catálogo de giros, los
+puestos tipo y las estructuras pueden vivir en archivos distintos. Un archivo rechazado por el
+esquema no entra a esos cruces: sus giros y puestos no cuentan como existentes hasta corregirlo.
+
+| Código | Cuándo sale |
+|---|---|
+| `TPL.VAL.GIRO_INEXISTENTE` | Un puesto tipo o una estructura menciona un giro que no está en el catálogo |
+| `TPL.VAL.PUESTO_INEXISTENTE` | Una estructura menciona un código de puesto tipo que no existe en ningún archivo |
+| `TPL.VAL.CLAVE_DE_GIRO_DUPLICADA` | El mismo `codigo` de giro aparece dos veces en la carpeta |
+| `TPL.VAL.ESTRUCTURA_DUPLICADA_POR_GIRO_Y_RANGO` | Dos estructuras con el mismo giro y rango de empleados |
+| `TPL.VAL.MARCA_DE_ESTRUCTURA_INCONSISTENTE` | `tiene_estructura` en `true` sin ninguna estructura del giro, o en `false` con alguna |
+| `TPL.VAL.CLAVE_DUPLICADA_EN_ESTRUCTURA` | Dos áreas con el mismo `codigo` o dos puestos con la misma `clave` en una estructura |
+| `TPL.VAL.REPORTA_A_INEXISTENTE` | `reporta_a` no es la `clave` de ningún puesto de la estructura |
+| `TPL.VAL.RAIZ_DE_JERARQUIA_INVALIDA` | La estructura no tiene exactamente un puesto en la cima (ninguno, o dos o más) |
+| `TPL.VAL.JERARQUIA_CICLICA` | Un puesto termina reportándose a sí mismo, directa o indirectamente |
+
+El código SCIAN mal formado, un rango fuera de la lista, un área sin puestos, un booleano escrito
+como texto, un `null` o un campo inventado salen con los hallazgos de esquema de siempre
+(`DATO_FUERA_DEL_ESQUEMA`, `CAMPO_DESCONOCIDO`, `ATRIBUCION_INCOMPLETA`, `ATRIBUCION_INCONSISTENTE`).
+
+### Orden de producción
+
+La revisión falla cerrado: un puesto con `alcance: giro` no pasa mientras la carpeta no traiga el
+catálogo de giros. Por eso el contenido se produce en este orden:
+
+1. VLRH-H1792026458558 publica `industries.json` con `tiene_estructura: false` en todos los giros.
+2. VLRH-H1792026439608 agrega los puestos tipo transversales; VLRH-H1792026441154 y
+   VLRH-H1792026442849, los de cada giro, que pasan la revisión porque sus giros ya existen.
+3. VLRH-H1792026467911 agrega `org_structures_demo.json` y, **en el mismo PR**, cambia a `true` la
+   marca `tiene_estructura` de cada giro al que le agrega estructura.

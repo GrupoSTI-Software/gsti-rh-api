@@ -13,6 +13,13 @@ import {
 } from '#constants/position_template_error_codes'
 import { normalizeForSearch } from '#utils/org_alias_normalize'
 import { positionTemplateFileValidator } from '#modules/position-templates/validators/position_template_file.validator'
+import {
+  findDuplicateKeys,
+  findHierarchyIssues,
+  flattenOrgStructureNodes,
+  orgStructureLabel,
+  type OrgStructureIssue,
+} from '#modules/position-templates/position_template_structure.rules'
 import type {
   PositionTemplateCatalog,
   PositionTemplateFile,
@@ -393,9 +400,195 @@ const checkCompetencyTypes: PositionTemplateSetCheck = (documents) => {
   })
 }
 
+/** Un hallazgo de jerarquía de la estructura `index`. El `switch` exhaustivo obliga a mapear todo `kind` nuevo. */
+function hierarchyFinding(
+  file: string,
+  index: number,
+  label: string,
+  issue: OrgStructureIssue
+): PositionTemplateFinding {
+  const base = ['estructuras', String(index)]
+  switch (issue.kind) {
+    case 'clave_duplicada':
+      return buildFinding(
+        CODES.CLAVE_DUPLICADA_EN_ESTRUCTURA,
+        dataSubject(file, [...base, ...issue.path.split('.')]),
+        `La estructura "${label}" repite la clave "${issue.clave}".`
+      )
+    case 'reporta_a_inexistente':
+      return buildFinding(
+        CODES.REPORTA_A_INEXISTENTE,
+        dataSubject(file, [...base, ...issue.path.split('.')]),
+        `La estructura "${label}", puesto "${issue.clave}": reporta a "${issue.reportaA}", que no es ningún puesto de la estructura.`
+      )
+    case 'raiz_invalida':
+      return buildFinding(
+        CODES.RAIZ_DE_JERARQUIA_INVALIDA,
+        dataSubject(file, base),
+        issue.roots.length === 0
+          ? `La estructura "${label}" no tiene ningún puesto en la cima; debe tener uno.`
+          : `La estructura "${label}" tiene ${issue.roots.length} puestos en la cima (${issue.roots.map((key) => `"${key}"`).join(', ')}); debe tener uno.`
+      )
+    case 'ciclo':
+      return buildFinding(
+        CODES.JERARQUIA_CICLICA,
+        dataSubject(file, [...base, ...issue.path.split('.')]),
+        `La estructura "${label}" tiene un ciclo de reporte: ${[...issue.chain, issue.chain[0]].map((key) => `"${key}"`).join(' → ')}.`
+      )
+  }
+}
+
+/** Regla 6 de VLRH-H1792205820286: claves únicas, `reporta_a` resoluble, una sola cima y sin ciclos. */
+const checkOrgStructureHierarchy: PositionTemplateDocumentCheck = ({ file, document }) =>
+  (document.estructuras ?? []).flatMap((structure, index) => {
+    const label = orgStructureLabel(structure)
+    return [
+      ...findDuplicateKeys(structure),
+      ...findHierarchyIssues(flattenOrgStructureNodes(structure)),
+    ].map((issue) => hierarchyFinding(file, index, label, issue))
+  })
+
+/** Grupos de ocurrencias con la misma clave que aparecen más de una vez en el conjunto. */
+function repeatedGroups<T extends SetOccurrence>(
+  occurrences: Iterable<[string, T]>
+): [string, T[]][] {
+  const groups = new Map<string, T[]>()
+  for (const [groupKey, occurrence] of occurrences) {
+    const group = groups.get(groupKey) ?? []
+    group.push(occurrence)
+    groups.set(groupKey, group)
+  }
+  return [...groups.entries()].filter(([, group]) => group.length > 1)
+}
+
+/** Regla 1 de VLRH-H1792205820286: la clave del giro es única en todo el conjunto. */
+const checkIndustryCodes: PositionTemplateSetCheck = (documents) =>
+  repeatedGroups(
+    documents.flatMap(({ file, requested, document }) =>
+      (document.giros ?? []).map(
+        (industry, index): [string, SetOccurrence & { index: number }] => [
+          industry.codigo,
+          { file, requested, index },
+        ]
+      )
+    )
+  ).flatMap(([code, group]) =>
+    reportTargets(group.slice(1), group).map((target) => {
+      const other = group.find((item) => item !== target) ?? group[0]
+      return buildFinding(
+        CODES.CLAVE_DE_GIRO_DUPLICADA,
+        dataSubject(target.file, ['giros', String(target.index), 'codigo']),
+        `El giro "${code}" también está en ${other.file}#giros.${other.index}.`
+      )
+    })
+  )
+
+/** Regla 3 de VLRH-H1792205820286: una sola estructura por giro y rango de empleados. */
+const checkOrgStructureUniqueness: PositionTemplateSetCheck = (documents) =>
+  repeatedGroups(
+    documents.flatMap(({ file, requested, document }) =>
+      (document.estructuras ?? []).map(
+        (structure, index): [string, SetOccurrence & { index: number }] => [
+          orgStructureLabel(structure),
+          { file, requested, index },
+        ]
+      )
+    )
+  ).flatMap(([label, group]) =>
+    reportTargets(group.slice(1), group).map((target) => {
+      const other = group.find((item) => item !== target) ?? group[0]
+      return buildFinding(
+        CODES.ESTRUCTURA_DUPLICADA_POR_GIRO_Y_RANGO,
+        dataSubject(target.file, ['estructuras', String(target.index)]),
+        `Ya hay una estructura "${label}" en ${other.file}#estructuras.${other.index}.`
+      )
+    })
+  )
+
+/** Regla 5 de VLRH-H1792205820286: todo giro que mencionan puestos y estructuras está en el catálogo. */
+const checkIndustryReferences: PositionTemplateSetCheck = (documents) => {
+  const known = new Set(
+    documents.flatMap(({ document }) => (document.giros ?? []).map((industry) => industry.codigo))
+  )
+  const missing = (code: string) => !known.has(code)
+  return documents.flatMap(({ file, document }) => [
+    ...(document.puestos ?? []).flatMap((job, jobIndex) =>
+      (job.giros ?? []).flatMap((code, index) =>
+        missing(code)
+          ? [
+              buildFinding(
+                CODES.GIRO_INEXISTENTE,
+                dataSubject(file, ['puestos', String(jobIndex), 'giros', String(index)]),
+                `El puesto "${job.codigo}": el giro "${code}" no está en el catálogo de giros.`
+              ),
+            ]
+          : []
+      )
+    ),
+    ...(document.estructuras ?? []).flatMap((structure, index) =>
+      missing(structure.giro)
+        ? [
+            buildFinding(
+              CODES.GIRO_INEXISTENTE,
+              dataSubject(file, ['estructuras', String(index), 'giro']),
+              `La estructura "${orgStructureLabel(structure)}": el giro "${structure.giro}" no está en el catálogo de giros.`
+            ),
+          ]
+        : []
+    ),
+  ])
+}
+
 /**
- * Chequeos posteriores al esquema. VLRH-H1792205820286 agrega los suyos (giros y su
- * organización por tamaño) a estas listas sin tocar los existentes.
+ * Regla 4 de VLRH-H1792205820286: todo puesto de una estructura existe entre los puestos
+ * tipo del conjunto, por código, en cualquier versión y estado.
+ */
+const checkJobProfileReferences: PositionTemplateSetCheck = (documents) => {
+  const known = new Set(
+    documents.flatMap(({ document }) => (document.puestos ?? []).map((job) => job.codigo))
+  )
+  return documents.flatMap(({ file, document }) =>
+    (document.estructuras ?? []).flatMap((structure, index) =>
+      flattenOrgStructureNodes(structure)
+        .filter((node) => !known.has(node.puesto))
+        .map((node) =>
+          buildFinding(
+            CODES.PUESTO_INEXISTENTE,
+            dataSubject(file, ['estructuras', String(index), ...node.path.split('.'), 'puesto']),
+            `La estructura "${orgStructureLabel(structure)}", puesto "${node.clave}": el puesto tipo "${node.puesto}" no existe en ningún archivo de la carpeta.`
+          )
+        )
+    )
+  )
+}
+
+/** `tiene_estructura` es `true` si y solo si el conjunto trae al menos una estructura del giro. */
+const checkStructureFlags: PositionTemplateSetCheck = (documents) => {
+  const withStructure = new Set(
+    documents.flatMap(({ document }) =>
+      (document.estructuras ?? []).map((structure) => structure.giro)
+    )
+  )
+  return documents.flatMap(({ file, document }) =>
+    (document.giros ?? []).flatMap((industry, index) => {
+      const hasStructure = withStructure.has(industry.codigo)
+      if (industry.tiene_estructura === hasStructure) return []
+      return [
+        buildFinding(
+          CODES.MARCA_DE_ESTRUCTURA_INCONSISTENTE,
+          dataSubject(file, ['giros', String(index), 'tiene_estructura']),
+          hasStructure
+            ? `El giro "${industry.codigo}" dice no tener estructura y la carpeta trae al menos una.`
+            : `El giro "${industry.codigo}" dice tener estructura y la carpeta no trae ninguna.`
+        ),
+      ]
+    })
+  )
+}
+
+/**
+ * Chequeos posteriores al esquema: los de puestos tipo (VLRH-H1792026425571) y los de
+ * giros y estructuras (VLRH-H1792205820286).
  */
 export const POSITION_TEMPLATE_DOCUMENT_CHECKS: readonly PositionTemplateDocumentCheck[] = [
   checkUnknownKeys,
@@ -403,11 +596,21 @@ export const POSITION_TEMPLATE_DOCUMENT_CHECKS: readonly PositionTemplateDocumen
   checkAttributions,
   checkScope,
   checkDuplicatedElements,
+  checkOrgStructureHierarchy,
 ]
 export const POSITION_TEMPLATE_SET_CHECKS: readonly PositionTemplateSetCheck[] = [
   checkCodeAndVersion,
   checkCompetencyTypes,
+  checkIndustryCodes,
+  checkOrgStructureUniqueness,
+  checkIndustryReferences,
+  checkJobProfileReferences,
+  checkStructureFlags,
 ]
+
+function emptyCatalog(): PositionTemplateCatalog {
+  return { jobProfiles: [], industries: [], orgStructures: [] }
+}
 
 function sortFindings(findings: PositionTemplateFinding[]): PositionTemplateFinding[] {
   return [...findings].sort((left, right) =>
@@ -525,7 +728,7 @@ export default class PositionTemplateValidationService {
 
   /**
    * Puro: esquema por documento y chequeos del conjunto. Solo reporta hallazgos de
-   * documentos `requested`; el `catalog` trae los puestos de todo el conjunto.
+   * documentos `requested`; el `catalog` trae puestos, giros y estructuras de todo el conjunto.
    */
   async validateDocuments(
     documents: PositionTemplateSourceDocument[]
@@ -539,7 +742,7 @@ export default class PositionTemplateValidationService {
             'No hay ningún documento que revisar.'
           ),
         ],
-        { jobProfiles: [] }
+        emptyCatalog()
       )
     }
 
@@ -565,6 +768,12 @@ export default class PositionTemplateValidationService {
       jobProfiles: validated.flatMap(({ file, document }) =>
         (document.puestos ?? []).map((item, index) => ({ file, index, item }))
       ),
+      industries: validated.flatMap(({ file, document }) =>
+        (document.giros ?? []).map((item, index) => ({ file, index, item }))
+      ),
+      orgStructures: validated.flatMap(({ file, document }) =>
+        (document.estructuras ?? []).map((item, index) => ({ file, index, item }))
+      ),
     })
   }
 
@@ -573,12 +782,12 @@ export default class PositionTemplateValidationService {
     const loaded = await this.loadFromPaths(paths)
     if (!loaded.documents.some((item) => item.requested)) {
       return loaded.findings.length > 0
-        ? toResult(loaded.findings, { jobProfiles: [] })
+        ? toResult(loaded.findings, emptyCatalog())
         : this.validateDocuments([])
     }
     const validated = await this.validateDocuments(loaded.documents)
     if (loaded.findings.length === 0) return validated
-    return toResult([...loaded.findings, ...validated.findings], { jobProfiles: [] })
+    return toResult([...loaded.findings, ...validated.findings], emptyCatalog())
   }
 
   /** Pasos 1 a 3: sobre, `null` y esquema vine. Un documento rechazado no sigue. */

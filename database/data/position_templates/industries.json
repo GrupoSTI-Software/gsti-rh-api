@@ -1,0 +1,1123 @@
+{
+  "version_formato": 1,
+  "idioma": "es",
+  "descripcion": "Catálogo curado de giros. Cada giro usa un nombre comercial y se liga a un código del SCIAN 2023 del INEGI. Fuente: INEGI, Sistema de Clasificación Industrial de América del Norte (SCIAN) 2023; los nombres de giro son adaptación de GSTI / Valanserh.",
+  "giros": [
+    {
+      "codigo": "aviacion-privada",
+      "nombre": "Aviación privada",
+      "codigo_scian": "481210",
+      "es_demo": true,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "481210",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "hoteleria",
+      "nombre": "Hotelería",
+      "codigo_scian": "7211",
+      "es_demo": true,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "7211",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "restaurantes",
+      "nombre": "Restaurantes",
+      "codigo_scian": "7225",
+      "es_demo": true,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "7225",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "manufactura",
+      "nombre": "Manufactura",
+      "codigo_scian": "332",
+      "es_demo": true,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "332",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "agricultura",
+      "nombre": "Agricultura",
+      "codigo_scian": "111",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "111",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "ganaderia",
+      "nombre": "Ganadería",
+      "codigo_scian": "112",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "112",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "pesca",
+      "nombre": "Pesca",
+      "codigo_scian": "1141",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "1141",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "mineria",
+      "nombre": "Minería y tratamiento de minerales",
+      "codigo_scian": "212",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "212",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "energia-electrica",
+      "nombre": "Generación y distribución de energía eléctrica",
+      "codigo_scian": "2211",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "2211",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "suministro-de-agua",
+      "nombre": "Tratamiento y suministro de agua",
+      "codigo_scian": "2213",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "2213",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "construccion-de-vivienda",
+      "nombre": "Construcción de vivienda",
+      "codigo_scian": "2361",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "2361",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "construccion-de-edificios",
+      "nombre": "Construcción de edificios comerciales e industriales",
+      "codigo_scian": "2362",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "2362",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "obra-civil",
+      "nombre": "Obra civil e infraestructura",
+      "codigo_scian": "237",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "237",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "instalaciones-y-acabados",
+      "nombre": "Instalaciones y acabados para la construcción",
+      "codigo_scian": "238",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "238",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "alimentos",
+      "nombre": "Fabricación de alimentos",
+      "codigo_scian": "311",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "311",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "bebidas",
+      "nombre": "Fabricación de bebidas",
+      "codigo_scian": "3121",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "3121",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "confeccion-de-ropa",
+      "nombre": "Confección de ropa",
+      "codigo_scian": "315",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "315",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "papel-y-carton",
+      "nombre": "Fabricación de papel y cartón",
+      "codigo_scian": "322",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "322",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "imprenta",
+      "nombre": "Imprenta y artes gráficas",
+      "codigo_scian": "323",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "323",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "industria-quimica",
+      "nombre": "Industria química",
+      "codigo_scian": "325",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "325",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "industria-farmaceutica",
+      "nombre": "Industria farmacéutica",
+      "codigo_scian": "3254",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "3254",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "plasticos",
+      "nombre": "Fabricación de productos de plástico",
+      "codigo_scian": "3261",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "3261",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "materiales-para-construccion",
+      "nombre": "Fabricación de cemento, vidrio y cerámica",
+      "codigo_scian": "327",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "327",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "maquinaria-y-equipo",
+      "nombre": "Fabricación de maquinaria y equipo",
+      "codigo_scian": "333",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "333",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "electronica",
+      "nombre": "Fabricación de equipo electrónico",
+      "codigo_scian": "334",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "334",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "aparatos-electricos",
+      "nombre": "Fabricación de aparatos eléctricos",
+      "codigo_scian": "335",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "335",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "autopartes",
+      "nombre": "Fabricación de autopartes",
+      "codigo_scian": "3363",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "3363",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "aeroespacial",
+      "nombre": "Industria aeroespacial",
+      "codigo_scian": "3364",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "3364",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "muebles",
+      "nombre": "Fabricación de muebles",
+      "codigo_scian": "337",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "337",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "dispositivos-medicos",
+      "nombre": "Fabricación de material e instrumental médico",
+      "codigo_scian": "3391",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "3391",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "distribucion-de-alimentos",
+      "nombre": "Distribución de abarrotes, alimentos y bebidas",
+      "codigo_scian": "431",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "431",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "distribucion-de-medicamentos",
+      "nombre": "Distribución de medicamentos",
+      "codigo_scian": "433110",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "433110",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "distribucion-de-insumos-industriales",
+      "nombre": "Distribución de materias primas e insumos industriales",
+      "codigo_scian": "434",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "434",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "distribucion-de-maquinaria",
+      "nombre": "Distribución de maquinaria y equipo",
+      "codigo_scian": "435",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "435",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "tiendas-de-abarrotes",
+      "nombre": "Tiendas de abarrotes",
+      "codigo_scian": "461110",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "461110",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "supermercados",
+      "nombre": "Supermercados y tiendas de autoservicio",
+      "codigo_scian": "4621",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "4621",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "tiendas-de-ropa-y-calzado",
+      "nombre": "Tiendas de ropa y calzado",
+      "codigo_scian": "463",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "463",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "farmacias",
+      "nombre": "Farmacias",
+      "codigo_scian": "4641",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "4641",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "ferreterias",
+      "nombre": "Ferreterías y tlapalerías",
+      "codigo_scian": "467111",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "467111",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "agencias-de-autos",
+      "nombre": "Agencias de autos",
+      "codigo_scian": "4681",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "4681",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "refaccionarias",
+      "nombre": "Refaccionarias",
+      "codigo_scian": "4682",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "4682",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "gasolineras",
+      "nombre": "Gasolineras",
+      "codigo_scian": "468411",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "468411",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "venta-de-celulares-y-accesorios",
+      "nombre": "Venta de celulares y accesorios",
+      "codigo_scian": "466212",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "466212",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "comercio-electronico",
+      "nombre": "Comercio electrónico",
+      "codigo_scian": "469110",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "469110",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "autotransporte-de-carga",
+      "nombre": "Autotransporte de carga",
+      "codigo_scian": "484",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "484",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "transporte-de-pasajeros",
+      "nombre": "Transporte de pasajeros",
+      "codigo_scian": "485",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "485",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "mantenimiento-de-aeronaves",
+      "nombre": "Mantenimiento de aeronaves",
+      "codigo_scian": "488190",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "488190",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "agencias-aduanales",
+      "nombre": "Agencias aduanales",
+      "codigo_scian": "488511",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "488511",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "paqueteria-y-mensajeria",
+      "nombre": "Paquetería y mensajería",
+      "codigo_scian": "492",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "492",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "almacenamiento-y-logistica",
+      "nombre": "Logística, almacenes y centros de distribución",
+      "codigo_scian": "493",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "493",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "produccion-audiovisual",
+      "nombre": "Producción audiovisual",
+      "codigo_scian": "512",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "512",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "telecomunicaciones",
+      "nombre": "Telecomunicaciones",
+      "codigo_scian": "517",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "517",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "servicios-financieros",
+      "nombre": "Servicios financieros y de crédito",
+      "codigo_scian": "522",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "522",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "seguros-y-fianzas",
+      "nombre": "Seguros y fianzas",
+      "codigo_scian": "524",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "524",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "inmobiliarias",
+      "nombre": "Inmobiliarias",
+      "codigo_scian": "5312",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5312",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "renta-de-maquinaria",
+      "nombre": "Renta de maquinaria y equipo",
+      "codigo_scian": "5324",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5324",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "despachos-juridicos",
+      "nombre": "Despachos jurídicos",
+      "codigo_scian": "5411",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5411",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "despachos-contables",
+      "nombre": "Despachos contables",
+      "codigo_scian": "5412",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5412",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "arquitectura-e-ingenieria",
+      "nombre": "Arquitectura e ingeniería",
+      "codigo_scian": "5413",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5413",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "desarrollo-de-software",
+      "nombre": "Desarrollo de software y servicios de TI",
+      "codigo_scian": "5415",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5415",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "consultoria",
+      "nombre": "Consultoría",
+      "codigo_scian": "5416",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5416",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "publicidad-y-mercadotecnia",
+      "nombre": "Publicidad y mercadotecnia",
+      "codigo_scian": "5418",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5418",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "clinicas-veterinarias",
+      "nombre": "Clínicas veterinarias",
+      "codigo_scian": "54194",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "54194",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "corporativos",
+      "nombre": "Corporativos y grupos empresariales",
+      "codigo_scian": "551111",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "551111",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "servicios-integrales-a-instalaciones",
+      "nombre": "Servicios integrales a instalaciones",
+      "codigo_scian": "561210",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "561210",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "agencias-de-empleo",
+      "nombre": "Agencias de colocación y empleo temporal",
+      "codigo_scian": "5613",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5613",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "centros-de-contacto",
+      "nombre": "Centros de contacto",
+      "codigo_scian": "561422",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "561422",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "agencias-de-viajes",
+      "nombre": "Agencias de viajes",
+      "codigo_scian": "5615",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5615",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "seguridad-privada",
+      "nombre": "Seguridad privada",
+      "codigo_scian": "5616",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5616",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "limpieza-de-inmuebles",
+      "nombre": "Limpieza y mantenimiento de inmuebles",
+      "codigo_scian": "5617",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "5617",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "organizacion-de-eventos",
+      "nombre": "Organización de eventos y convenciones",
+      "codigo_scian": "561920",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "561920",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "manejo-de-residuos",
+      "nombre": "Manejo de residuos",
+      "codigo_scian": "562",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "562",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "escuelas",
+      "nombre": "Escuelas de educación básica y media superior",
+      "codigo_scian": "6111",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "6111",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "universidades",
+      "nombre": "Universidades",
+      "codigo_scian": "6113",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "6113",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "centros-de-capacitacion",
+      "nombre": "Centros de capacitación",
+      "codigo_scian": "6114",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "6114",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "consultorios-medicos",
+      "nombre": "Consultorios y clínicas médicas",
+      "codigo_scian": "6211",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "6211",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "consultorios-dentales",
+      "nombre": "Consultorios dentales",
+      "codigo_scian": "6212",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "6212",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "laboratorios-clinicos",
+      "nombre": "Laboratorios clínicos",
+      "codigo_scian": "6215",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "6215",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "hospitales",
+      "nombre": "Hospitales",
+      "codigo_scian": "622",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "622",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "residencias-para-adultos-mayores",
+      "nombre": "Residencias para adultos mayores",
+      "codigo_scian": "623",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "623",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "guarderias",
+      "nombre": "Guarderías",
+      "codigo_scian": "6244",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "6244",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "parques-de-diversiones",
+      "nombre": "Parques de diversiones y acuáticos",
+      "codigo_scian": "7131",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "7131",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "casinos",
+      "nombre": "Casinos",
+      "codigo_scian": "713210",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "713210",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "clubes-deportivos-y-gimnasios",
+      "nombre": "Clubes deportivos y gimnasios",
+      "codigo_scian": "7139",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "7139",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "catering-y-comedores-industriales",
+      "nombre": "Catering, comedores industriales y banquetes",
+      "codigo_scian": "7223",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "7223",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "bares-y-centros-nocturnos",
+      "nombre": "Bares y centros nocturnos",
+      "codigo_scian": "7224",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "7224",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "cafeterias",
+      "nombre": "Cafeterías",
+      "codigo_scian": "722515",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "722515",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "talleres-automotrices",
+      "nombre": "Talleres automotrices",
+      "codigo_scian": "8111",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "8111",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "salones-de-belleza",
+      "nombre": "Salones de belleza y estéticas",
+      "codigo_scian": "812110",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "812110",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "lavanderias",
+      "nombre": "Lavanderías y tintorerías",
+      "codigo_scian": "812210",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "812210",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "servicios-funerarios",
+      "nombre": "Servicios funerarios",
+      "codigo_scian": "8123",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "8123",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "estacionamientos",
+      "nombre": "Estacionamientos",
+      "codigo_scian": "812410",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "812410",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "asociaciones-y-camaras",
+      "nombre": "Asociaciones, cámaras y organizaciones civiles",
+      "codigo_scian": "813",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "813",
+        "adaptado": true
+      }
+    }
+  ]
+}

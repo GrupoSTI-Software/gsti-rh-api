@@ -90,6 +90,8 @@ test.group('Revisión del archivo de plantillas | ejemplo y atribución', () => 
     assert.isTrue(result.ok)
     assert.deepEqual(result.findings, [])
     assert.lengthOf(result.catalog?.jobProfiles ?? [], 5)
+    assert.lengthOf(result.catalog?.industries ?? [], 4)
+    assert.lengthOf(result.catalog?.orgStructures ?? [], 1)
 
     const fromDisk = await service().validatePaths([FIXTURE_DIR])
     assert.isTrue(fromDisk.ok, JSON.stringify(fromDisk.findings))
@@ -407,7 +409,8 @@ test.group('Revisión del archivo de plantillas | carga confinada', (group) => {
     await mkdir(folder, { recursive: true })
     const example = await loadExample()
     await writeFile(join(folder, 'a.json'), JSON.stringify(example))
-    await writeFile(join(folder, 'b.json'), JSON.stringify(example))
+    // Solo los puestos: los giros y la estructura repetidos son casos de VLRH-H1792205820286.
+    await writeFile(join(folder, 'b.json'), JSON.stringify({ ...example, giros: [], estructuras: [] }))
     await writeFile(join(folder, 'c.json'), '{ roto')
 
     const single = await service().validatePaths([`${SCRATCH_DIR}/set/a.json`])
@@ -461,5 +464,368 @@ test.group('Revisión del archivo de plantillas | catálogo de códigos', () => 
       const { title, key } = POSITION_TEMPLATE_ERROR_CATALOG[code]
       assert.equal(key, slug(title), code)
     }
+  })
+})
+
+/*
+ * Giros y estructuras (VLRH-H1792205820286). Mismo método: un clon del ejemplo con una
+ * sola rotura, o el ejemplo partido en varios documentos en memoria.
+ */
+
+/** Giro `index` del clon. */
+function industry(document: JsonRecord, index: number): JsonRecord {
+  return asRecord(asList(document.giros)[index])
+}
+
+/** Estructura `index` del clon. */
+function structure(document: JsonRecord, index = 0): JsonRecord {
+  return asRecord(asList(document.estructuras)[index])
+}
+
+/** Puestos del área `areaIndex` de la primera estructura. */
+function areaNodes(document: JsonRecord, areaIndex: number): unknown[] {
+  return asList(asRecord(asList(structure(document).areas)[areaIndex]).puestos)
+}
+
+/** Puesto `nodeIndex` del área `areaIndex` de la primera estructura (0 = dirección, 1 = administración). */
+function node(document: JsonRecord, areaIndex: number, nodeIndex: number): JsonRecord {
+  return asRecord(areaNodes(document, areaIndex)[nodeIndex])
+}
+
+/** El ejemplo como sobre con solo las listas pedidas. */
+function envelope(example: JsonRecord, lists: Record<string, unknown>): JsonRecord {
+  return { version_formato: example.version_formato, idioma: example.idioma, ...lists }
+}
+
+test.group('Revisión del archivo de plantillas | referencias de giros y estructuras', () => {
+  test('CA-2: la estructura menciona un puesto tipo que no existe', async ({ assert }) => {
+    const findings = await findingsOf((document) => {
+      node(document, 0, 0).puesto = 'pt-res-cocinero'
+    })
+    assert.lengthOf(findings, 1)
+    const [finding] = findings
+    assert.equal(finding.code, CODES.PUESTO_INEXISTENTE)
+    assert.equal(finding.key, 'puesto-tipo-inexistente')
+    assert.equal(finding.title, 'Puesto tipo inexistente')
+    assert.isTrue(finding.subject.endsWith('#estructuras.0.areas.0.puestos.0.puesto'))
+    assert.include(finding.detail, 'pt-res-cocinero')
+    assert.include(finding.detail, 'restaurantes 1-10')
+  })
+
+  test('CA-3: el ejemplo partido en tres documentos y un puesto en revisión pasan', async ({
+    assert,
+  }) => {
+    const example = await loadExample()
+    const split = await service().validateDocuments([
+      asDocument(envelope(example, { giros: example.giros }), `${FIXTURE_DIR}/giros.json`),
+      asDocument(envelope(example, { puestos: example.puestos }), `${FIXTURE_DIR}/puestos.json`),
+      asDocument(
+        envelope(example, { estructuras: example.estructuras }),
+        `${FIXTURE_DIR}/estructuras.json`
+      ),
+    ])
+    assert.isTrue(split.ok, JSON.stringify(split.findings))
+    assert.lengthOf(split.catalog?.industries ?? [], 4)
+    assert.lengthOf(split.catalog?.orgStructures ?? [], 1)
+
+    const inReview = await findingsOf((document) => {
+      job(document, 2).estado = 'en_revision'
+    })
+    assert.deepEqual(inReview, [])
+  })
+
+  test('CA-4: giro fuera del catálogo en un puesto o en una estructura', async ({ assert }) => {
+    const fromJob = await findingsOf((document) => {
+      job(document, 0).giros = ['panaderia']
+    })
+    assert.deepEqual(codesOf(fromJob), [CODES.GIRO_INEXISTENTE])
+    assert.isTrue(fromJob[0].subject.endsWith('#puestos.0.giros.0'))
+    assert.include(fromJob[0].detail, 'panaderia')
+
+    const fromStructure = await findingsOf((document) => {
+      structure(document).giro = 'panaderia'
+    })
+    assert.deepEqual(codesOf(fromStructure), [
+      CODES.GIRO_INEXISTENTE,
+      CODES.MARCA_DE_ESTRUCTURA_INCONSISTENTE,
+    ])
+    assert.isTrue(fromStructure[0].subject.endsWith('#estructuras.0.giro'))
+    assert.include(fromStructure[0].detail, 'panaderia')
+    assert.isTrue(fromStructure[1].subject.endsWith('#giros.2.tiene_estructura'))
+  })
+
+  test('CA-8: dos estructuras para el mismo giro y rango', async ({ assert }) => {
+    const sameDocument = await findingsOf((document) => {
+      asList(document.estructuras).push(structuredClone(structure(document)))
+    })
+    assert.deepEqual(codesOf(sameDocument), [CODES.ESTRUCTURA_DUPLICADA_POR_GIRO_Y_RANGO])
+    assert.isTrue(sameDocument[0].subject.endsWith('#estructuras.1'))
+    assert.include(sameDocument[0].detail, `${FIXTURE}#estructuras.0`)
+
+    const example = await loadExample()
+    const second = `${FIXTURE_DIR}/second.json`
+    const otherDocument = await service().validateDocuments([
+      asDocument(example),
+      asDocument(envelope(example, { estructuras: [structuredClone(structure(example))] }), second),
+    ])
+    assert.deepEqual(codesOf(otherDocument.findings), [CODES.ESTRUCTURA_DUPLICADA_POR_GIRO_Y_RANGO])
+    assert.equal(otherDocument.findings[0]?.subject, `${second}#estructuras.0`)
+    assert.include(otherDocument.findings[0]?.detail ?? '', `${FIXTURE}#estructuras.0`)
+
+    const otherRange = await findingsOf((document) => {
+      asList(document.estructuras).push({ ...structuredClone(structure(document)), rango_empleados: '11-50' })
+    })
+    assert.deepEqual(otherRange, [])
+  })
+
+  test('CA-10: clave de giro repetida en el documento o en otro del conjunto', async ({
+    assert,
+  }) => {
+    const sameDocument = await findingsOf((document) => {
+      asList(document.giros).push(structuredClone(industry(document, 1)))
+    })
+    assert.deepEqual(codesOf(sameDocument), [CODES.CLAVE_DE_GIRO_DUPLICADA])
+    assert.isTrue(sameDocument[0].subject.endsWith('#giros.4.codigo'))
+    assert.include(sameDocument[0].detail, 'hoteleria')
+
+    const example = await loadExample()
+    const second = `${FIXTURE_DIR}/second.json`
+    const otherDocument = await service().validateDocuments([
+      asDocument(example),
+      asDocument(envelope(example, { giros: [structuredClone(industry(example, 1))] }), second),
+    ])
+    assert.deepEqual(codesOf(otherDocument.findings), [CODES.CLAVE_DE_GIRO_DUPLICADA])
+    assert.equal(otherDocument.findings[0]?.subject, `${second}#giros.0.codigo`)
+  })
+
+  test('CA-11: tiene_estructura contra las estructuras del conjunto', async ({ assert }) => {
+    const claimsStructure = await findingsOf((document) => {
+      industry(document, 1).tiene_estructura = true
+    })
+    assert.deepEqual(codesOf(claimsStructure), [CODES.MARCA_DE_ESTRUCTURA_INCONSISTENTE])
+    assert.isTrue(claimsStructure[0].subject.endsWith('#giros.1.tiene_estructura'))
+
+    const deniesStructure = await findingsOf((document) => {
+      industry(document, 2).tiene_estructura = false
+    })
+    assert.deepEqual(codesOf(deniesStructure), [CODES.MARCA_DE_ESTRUCTURA_INCONSISTENTE])
+    assert.isTrue(deniesStructure[0].subject.endsWith('#giros.2.tiene_estructura'))
+  })
+
+  test('CA-16: archivo suelto resuelve contra el contexto y no reporta lo del contexto', async ({
+    assert,
+  }) => {
+    const example = await loadExample()
+    const context = (giros: unknown[]): PositionTemplateSourceDocument => ({
+      path: `${FIXTURE_DIR}/contexto.json`,
+      content: envelope(example, { giros, puestos: example.puestos }),
+      requested: false,
+    })
+    const requested = asDocument(
+      envelope(example, { estructuras: example.estructuras }),
+      `${FIXTURE_DIR}/estructuras.json`
+    )
+
+    const resolved = await service().validateDocuments([context(asList(example.giros)), requested])
+    assert.isTrue(resolved.ok, JSON.stringify(resolved.findings))
+
+    const giros = asList(example.giros)
+    const duplicatedInContext = await service().validateDocuments([
+      context([...giros, structuredClone(giros[0])]),
+      requested,
+    ])
+    assert.isTrue(duplicatedInContext.ok, JSON.stringify(duplicatedInContext.findings))
+  })
+})
+
+test.group('Revisión del archivo de plantillas | jerarquía de la estructura', () => {
+  test('CA-5: dos puestos en la cima', async ({ assert }) => {
+    const findings = await findingsOf((document) => {
+      delete node(document, 1, 0).reporta_a
+    })
+    assert.deepEqual(codesOf(findings), [CODES.RAIZ_DE_JERARQUIA_INVALIDA])
+    assert.isTrue(findings[0].subject.endsWith('#estructuras.0'))
+    assert.include(findings[0].detail, '"gerente"')
+    assert.include(findings[0].detail, '"auxiliar"')
+  })
+
+  test('CA-6: autorreporte, ciclo de tres y ciclo sin cima', async ({ assert }) => {
+    const selfReport = await findingsOf((document) => {
+      node(document, 1, 0).reporta_a = 'auxiliar'
+    })
+    assert.deepEqual(codesOf(selfReport), [CODES.JERARQUIA_CICLICA])
+
+    // Claves de dos letras: el patrón de código exige al menos 2 caracteres.
+    const threeCycle = await findingsOf((document) => {
+      const puesto = 'pt-trv-auxiliar-administrativo'
+      areaNodes(document, 1).push(
+        { clave: 'pa', puesto, reporta_a: 'pc' },
+        { clave: 'pb', puesto, reporta_a: 'pa' },
+        { clave: 'pc', puesto, reporta_a: 'pb' }
+      )
+    })
+    assert.deepEqual(codesOf(threeCycle), [CODES.JERARQUIA_CICLICA])
+    assert.isTrue(threeCycle[0].subject.endsWith('#estructuras.0.areas.1.puestos.1.reporta_a'))
+    assert.include(threeCycle[0].detail, '"pa" → "pc" → "pb" → "pa"')
+
+    const withoutTop = await findingsOf((document) => {
+      node(document, 0, 0).reporta_a = 'auxiliar'
+    })
+    assert.sameMembers(codesOf(withoutTop), [
+      CODES.RAIZ_DE_JERARQUIA_INVALIDA,
+      CODES.JERARQUIA_CICLICA,
+    ])
+  })
+
+  test('CA-7: reporta a un puesto inexistente y claves repetidas', async ({ assert }) => {
+    const unknownBoss = await findingsOf((document) => {
+      node(document, 1, 0).reporta_a = 'jefe'
+    })
+    assert.deepEqual(codesOf(unknownBoss), [CODES.REPORTA_A_INEXISTENTE])
+    assert.isTrue(unknownBoss[0].subject.endsWith('#estructuras.0.areas.1.puestos.0.reporta_a'))
+    assert.include(unknownBoss[0].detail, '"jefe"')
+
+    const repeatedKey = await findingsOf((document) => {
+      areaNodes(document, 1).push({ clave: 'gerente', puesto: 'pt-res-gerente' })
+    })
+    assert.deepEqual(codesOf(repeatedKey), [CODES.CLAVE_DUPLICADA_EN_ESTRUCTURA])
+    assert.isTrue(repeatedKey[0].subject.endsWith('#estructuras.0.areas.1.puestos.1.clave'))
+
+    const repeatedArea = await findingsOf((document) => {
+      asList(structure(document).areas).push({
+        codigo: 'direccion',
+        nombre: 'Dirección operativa',
+        puestos: [{ clave: 'cajero', puesto: 'pt-trv-auxiliar-administrativo', reporta_a: 'gerente' }],
+      })
+    })
+    assert.deepEqual(codesOf(repeatedArea), [CODES.CLAVE_DUPLICADA_EN_ESTRUCTURA])
+    assert.isTrue(repeatedArea[0].subject.endsWith('#estructuras.0.areas.2.codigo'))
+  })
+
+  test('CA-15: varios problemas de giros y estructuras salen juntos y ordenados', async ({
+    assert,
+  }) => {
+    const findings = await findingsOf((document) => {
+      node(document, 0, 0).puesto = 'pt-res-cocinero'
+      job(document, 1).giros = ['panaderia']
+      node(document, 1, 0).reporta_a = 'auxiliar'
+    })
+    assert.deepEqual(subjectsOf(findings), [
+      `${FIXTURE}#estructuras.0.areas.0.puestos.0.puesto`,
+      `${FIXTURE}#estructuras.0.areas.1.puestos.0.reporta_a`,
+      `${FIXTURE}#puestos.1.giros.0`,
+    ])
+    assert.deepEqual(codesOf(findings), [
+      CODES.PUESTO_INEXISTENTE,
+      CODES.JERARQUIA_CICLICA,
+      CODES.GIRO_INEXISTENTE,
+    ])
+  })
+})
+
+test.group('Revisión del archivo de plantillas | esquema de giros y estructuras', () => {
+  test('CA-9: código SCIAN y booleanos estrictos del giro', async ({ assert }) => {
+    const cases: [(document: JsonRecord) => void, string][] = [
+      [(document) => delete industry(document, 0).codigo_scian, '#giros.0.codigo_scian'],
+      ...['31-33', '72', '99123'].map((value): [(document: JsonRecord) => void, string] => [
+        (document) => (industry(document, 1).codigo_scian = value),
+        '#giros.1.codigo_scian',
+      ]),
+      [(document) => (industry(document, 0).es_demo = 'true'), '#giros.0.es_demo'],
+      [(document) => (industry(document, 3).tiene_estructura = 'true'), '#giros.3.tiene_estructura'],
+    ]
+    for (const [mutate, path] of cases) {
+      const findings = await findingsOf(mutate)
+      assert.deepEqual(codesOf(findings), [CODES.DATO_FUERA_DEL_ESQUEMA], path)
+      assert.isTrue(findings[0].subject.endsWith(path), path)
+    }
+  })
+
+  test('CA-12: rango fuera de la lista, estructura sin áreas y área sin puestos', async ({
+    assert,
+  }) => {
+    const cases: [(document: JsonRecord) => void, string][] = [
+      [(document) => (structure(document).rango_empleados = '1-9'), '#estructuras.0.rango_empleados'],
+      [(document) => (structure(document).rango_empleados = '250+'), '#estructuras.0.rango_empleados'],
+      [(document) => delete structure(document).areas, '#estructuras.0.areas'],
+      [
+        (document) => (asRecord(asList(structure(document).areas)[1]).puestos = []),
+        '#estructuras.0.areas.1.puestos',
+      ],
+    ]
+    for (const [mutate, path] of cases) {
+      const findings = await findingsOf(mutate)
+      assert.deepEqual(codesOf(findings), [CODES.DATO_FUERA_DEL_ESQUEMA], path)
+      assert.isTrue(findings[0].subject.endsWith(path), path)
+    }
+  })
+
+  test('CA-13: atribución de giros y estructuras', async ({ assert }) => {
+    const withoutAttribution = await findingsOf((document) => delete industry(document, 0).atribucion)
+    assert.deepEqual(codesOf(withoutAttribution), [CODES.ATRIBUCION_INCOMPLETA])
+    assert.isTrue(withoutAttribution[0].subject.endsWith('#giros.0.atribucion'))
+
+    const withoutSourceId = await findingsOf((document) => {
+      delete asRecord(industry(document, 2).atribucion).id_en_fuente
+    })
+    assert.deepEqual(codesOf(withoutSourceId), [CODES.ATRIBUCION_INCOMPLETA])
+    assert.isTrue(withoutSourceId[0].subject.endsWith('#giros.2.atribucion.id_en_fuente'))
+
+    const ownWithId = await findingsOf((document) => {
+      asRecord(structure(document).atribucion).id_en_fuente = 'x-1'
+    })
+    assert.deepEqual(codesOf(ownWithId), [CODES.ATRIBUCION_INCONSISTENTE])
+    assert.isTrue(ownWithId[0].subject.endsWith('#estructuras.0.atribucion.id_en_fuente'))
+  })
+
+  test('CA-14: campos desconocidos y null en giros y estructuras', async ({ assert }) => {
+    const sector = await findingsOf((document) => {
+      industry(document, 1).sector = '72'
+    })
+    assert.deepEqual(codesOf(sector), [CODES.CAMPO_DESCONOCIDO])
+    assert.isTrue(sector[0].subject.endsWith('#giros.1.sector'))
+
+    const seats = await findingsOf((document) => {
+      node(document, 1, 0).plazas = 2
+    })
+    assert.deepEqual(codesOf(seats), [CODES.CAMPO_DESCONOCIDO])
+    assert.isTrue(seats[0].subject.endsWith('#estructuras.0.areas.1.puestos.0.plazas'))
+
+    const nullBoss = await findingsOf((document) => {
+      node(document, 1, 0).reporta_a = null
+    })
+    assert.deepEqual(codesOf(nullBoss), [CODES.DATO_FUERA_DEL_ESQUEMA])
+    assert.isTrue(nullBoss[0].subject.endsWith('#estructuras.0.areas.1.puestos.0.reporta_a'))
+  })
+})
+
+test.group('Revisión del archivo de plantillas | contrato de giros y estructuras', () => {
+  test('CA-18: las reglas de jerarquía son puras y no importan el servicio', async ({ assert }) => {
+    const text = await readFile(
+      join(APP_ROOT, 'app/modules/position-templates/position_template_structure.rules.ts'),
+      'utf8'
+    )
+    assert.notMatch(
+      text,
+      /#models\/|@adonisjs\/lucid|writeFile|readFile|db\.|position_template_validation\.service/
+    )
+  })
+
+  test('CA-20: los 9 códigos de giros y estructuras con su título', ({ assert }) => {
+    const expected: [PositionTemplateErrorCode, string][] = [
+      [CODES.GIRO_INEXISTENTE, 'Giro inexistente'],
+      [CODES.PUESTO_INEXISTENTE, 'Puesto tipo inexistente'],
+      [CODES.CLAVE_DE_GIRO_DUPLICADA, 'Clave de giro duplicada'],
+      [CODES.ESTRUCTURA_DUPLICADA_POR_GIRO_Y_RANGO, 'Estructura duplicada por giro y rango'],
+      [CODES.MARCA_DE_ESTRUCTURA_INCONSISTENTE, 'Marca de estructura inconsistente'],
+      [CODES.CLAVE_DUPLICADA_EN_ESTRUCTURA, 'Clave duplicada en la estructura'],
+      [CODES.REPORTA_A_INEXISTENTE, 'Reporta a un puesto inexistente'],
+      [CODES.RAIZ_DE_JERARQUIA_INVALIDA, 'Raíz de jerarquía inválida'],
+      [CODES.JERARQUIA_CICLICA, 'Jerarquía cíclica'],
+    ]
+    for (const [code, title] of expected) {
+      assert.equal(POSITION_TEMPLATE_ERROR_CATALOG[code].title, title, code)
+    }
+    assert.lengthOf(Object.values(CODES), 23)
   })
 })

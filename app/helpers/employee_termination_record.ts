@@ -86,3 +86,65 @@ export function isEmployeeTerminationRecordChanged(
     normalizeToken(current.employeeTerminationType) !== normalizeToken(next.employeeTerminationType)
   )
 }
+
+/** Qué llaves del trío de baja trajo el request (ausente ≠ `null` ni `''`). */
+export interface TerminationRecordPresence {
+  date: boolean
+  modality: boolean
+  type: boolean
+}
+
+export interface TerminationRecordUpdateInput {
+  /** Estado del colaborador en la fila evaluada (`employee_deleted_at IS NOT NULL`). */
+  employeeIsDeleted: boolean
+  /** Registro guardado, con los tokens ya normalizados. */
+  current: EmployeeTerminationRecord
+  /**
+   * Registro que resultaría de aplicar el request: llave ausente = valor
+   * guardado; fecha vacía → modalidad y tipo `null`.
+   */
+  next: EmployeeTerminationRecord
+  presence: TerminationRecordPresence
+}
+
+/**
+ * Decisión del guardado de la ficha sobre el trío de baja. Unión discriminada:
+ * el controller solo puede escribir el trío desde `correct-deleted`, así que
+ * el typecheck impide escribirlo por otra rama.
+ */
+export type TerminationRecordUpdateDecision =
+  | { action: 'keep' }
+  | { action: 'reject-active' }
+  | { action: 'reject-clear-deleted' }
+  /** Quitar la baja antigua de un activo (VLRH-H1792361735984): el controller escribe el trío en `NULL`. */
+  | { action: 'clear-legacy' }
+  | { action: 'correct-deleted'; record: EmployeeTerminationRecord }
+
+/**
+ * Qué hace `PUT /api/employees/:employeeId` con fecha, modalidad y tipo de baja
+ * (VLRH-H1792172889566). En orden: sin ninguna llave → `keep` (regla 3); igual
+ * a lo guardado tras normalizar → `keep` (regla 2); activo con fecha guardada
+ * que la vacía → `clear-legacy` (válvula de VLRH-H1792361735984: permiso de dar
+ * de baja, cupo y sin expediente en curso los exige el controller); cualquier
+ * otro cambio en un activo → `reject-active` (regla 1); dado de baja sin fecha →
+ * `reject-clear-deleted` (regla 4); si no → `correct-deleted` con el registro
+ * a escribir. Función pura: sin I/O; el llamador la evalúa sobre la fila leída
+ * y otra vez sobre la fila bloqueada (regla 5).
+ */
+export function resolveTerminationRecordUpdate(
+  input: TerminationRecordUpdateInput
+): TerminationRecordUpdateDecision {
+  const { presence } = input
+  if (!presence.date && !presence.modality && !presence.type) return { action: 'keep' }
+  if (!isEmployeeTerminationRecordChanged(input.current, input.next)) return { action: 'keep' }
+  if (!input.employeeIsDeleted) {
+    const clearsSavedDate =
+      normalizeEmployeeTerminatedDate(input.next.employeeTerminatedDate) === null &&
+      normalizeEmployeeTerminatedDate(input.current.employeeTerminatedDate) !== null
+    return clearsSavedDate ? { action: 'clear-legacy' } : { action: 'reject-active' }
+  }
+  if (normalizeEmployeeTerminatedDate(input.next.employeeTerminatedDate) === null) {
+    return { action: 'reject-clear-deleted' }
+  }
+  return { action: 'correct-deleted', record: input.next }
+}

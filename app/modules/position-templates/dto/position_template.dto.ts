@@ -5,6 +5,8 @@ import type { positionTemplateFileValidator } from '#modules/position-templates/
 /** Documento ya validado por el esquema vine (formato v1). */
 export type PositionTemplateFile = Infer<typeof positionTemplateFileValidator>
 export type PositionTemplateJobProfile = NonNullable<PositionTemplateFile['puestos']>[number]
+export type PositionTemplateIndustry = NonNullable<PositionTemplateFile['giros']>[number]
+export type PositionTemplateOrgStructure = NonNullable<PositionTemplateFile['estructuras']>[number]
 
 /**
  * Documento leído de disco, todavía sin validar. `path` es relativo a la raíz de la
@@ -39,6 +41,8 @@ export interface PositionTemplateEntry<T> {
 
 export interface PositionTemplateCatalog {
   jobProfiles: PositionTemplateEntry<PositionTemplateJobProfile>[]
+  industries: PositionTemplateEntry<PositionTemplateIndustry>[]
+  orgStructures: PositionTemplateEntry<PositionTemplateOrgStructure>[]
 }
 
 /** Con hallazgos no hay `catalog`: el tipo impide cargar contenido rechazado. */

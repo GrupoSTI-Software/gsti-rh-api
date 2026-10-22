@@ -735,7 +735,9 @@ test.group(
         )
         actors.push(actor)
 
-        // Colaborador ACTIVO con fecha de baja programada: quitarla desde la ficha sigue exigiendo delete
+        // Colaborador ACTIVO con fecha de baja antigua: quitarla desde la ficha es
+        // la válvula de VLRH-H1792361735984 y exige employees:delete; el permiso
+        // de reactivar no la relaja: 403 del gate y la fecha sigue
         const scheduled = await track(() =>
           createEmployee(unit, 'Programada', `PR-${stamp()}`, {
             date: '2026-12-31',
