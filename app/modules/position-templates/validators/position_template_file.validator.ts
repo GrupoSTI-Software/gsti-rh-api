@@ -4,6 +4,8 @@ import {
   POSITION_TEMPLATE_CERTIFICATION_CATEGORY_KEYS,
   POSITION_TEMPLATE_CODE_PATTERN,
   POSITION_TEMPLATE_COMPETENCY_TYPES,
+  POSITION_TEMPLATE_EMPLOYEE_RANGES,
+  POSITION_TEMPLATE_SCIAN_PATTERN,
   POSITION_TEMPLATE_SCOPES,
   POSITION_TEMPLATE_SINCO_PATTERN,
   POSITION_TEMPLATE_SOURCE_KEYS,
@@ -96,12 +98,54 @@ export const positionTemplateJobProfileSchema = vine.object({
     .optional(),
 })
 
-/** Sobre del documento. VLRH-H1792205820286 agrega aquí sus listas hermanas. */
+/** Giro del catálogo curado ligado al SCIAN (VLRH-H1792205820286). */
+export const positionTemplateIndustrySchema = vine.object({
+  codigo: positionTemplateCode(),
+  nombre: vine.string().trim().minLength(1).maxLength(150),
+  codigo_scian: vine.string().trim().regex(POSITION_TEMPLATE_SCIAN_PATTERN),
+  es_demo: vine.boolean({ strict: true }),
+  tiene_estructura: vine.boolean({ strict: true }),
+  atribucion: positionTemplateAttribution(),
+})
+
+/**
+ * Estructura plantilla por giro y rango de empleados (VLRH-H1792205820286). La
+ * jerarquía (claves únicas, una cima, sin ciclos) la valida
+ * `position_template_structure.rules.ts`.
+ */
+export const positionTemplateOrgStructureSchema = vine.object({
+  giro: positionTemplateCode(),
+  rango_empleados: vine.enum(POSITION_TEMPLATE_EMPLOYEE_RANGES),
+  areas: vine
+    .array(
+      vine.object({
+        codigo: positionTemplateCode(),
+        nombre: vine.string().trim().minLength(1).maxLength(150),
+        puestos: vine
+          .array(
+            vine.object({
+              clave: positionTemplateCode(),
+              puesto: positionTemplateCode(),
+              reporta_a: positionTemplateCode().optional(),
+            })
+          )
+          .minLength(1)
+          .maxLength(100),
+      })
+    )
+    .minLength(1)
+    .maxLength(50),
+  atribucion: positionTemplateAttribution(),
+})
+
+/** Sobre del documento: puestos tipo, catálogo de giros y estructuras, en cualquier combinación. */
 export const positionTemplateFileSchema = vine.object({
   version_formato: vine.literal(1),
   idioma: vine.literal('es'),
   descripcion: vine.string().trim().minLength(1).maxLength(500).optional(),
   puestos: vine.array(positionTemplateJobProfileSchema).maxLength(500).optional(),
+  giros: vine.array(positionTemplateIndustrySchema).maxLength(500).optional(),
+  estructuras: vine.array(positionTemplateOrgStructureSchema).maxLength(200).optional(),
 })
 
 export const positionTemplateFileValidator = vine.compile(positionTemplateFileSchema)

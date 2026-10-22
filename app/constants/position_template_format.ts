@@ -132,3 +132,45 @@ export const POSITION_TEMPLATE_SOURCE_KEYS: readonly PositionTemplateSourceKey[]
 
 /** Única fuente que no lleva `id_en_fuente`. */
 export const POSITION_TEMPLATE_OWN_SOURCE_KEY: PositionTemplateSourceKey = 'propio'
+
+/**
+ * Rangos de empleados totales de una estructura plantilla (VLRH-H1792205820286). Mismos
+ * cortes con los que la empresa registra su tamaño (VLRH-H1792026460111).
+ */
+export const POSITION_TEMPLATE_EMPLOYEE_RANGES = ['1-10', '11-50', '51-250', '251+'] as const
+export type PositionTemplateEmployeeRange = (typeof POSITION_TEMPLATE_EMPLOYEE_RANGES)[number]
+
+/** Sectores del SCIAN México: los dos primeros dígitos de todo código SCIAN. */
+export const POSITION_TEMPLATE_SCIAN_SECTORS = [
+  '11',
+  '21',
+  '22',
+  '23',
+  '31',
+  '32',
+  '33',
+  '43',
+  '46',
+  '48',
+  '49',
+  '51',
+  '52',
+  '53',
+  '54',
+  '55',
+  '56',
+  '61',
+  '62',
+  '71',
+  '72',
+  '81',
+  '93',
+] as const
+
+/**
+ * Un solo código SCIAN 2023 de 3 a 6 dígitos que empieza con un sector. Valida la forma,
+ * no que el código exista en el catálogo del INEGI. Rechaza `31-33` y el sector solo (`72`).
+ */
+export const POSITION_TEMPLATE_SCIAN_PATTERN = new RegExp(
+  `^(${POSITION_TEMPLATE_SCIAN_SECTORS.join('|')})[0-9]{1,4}$`
+)

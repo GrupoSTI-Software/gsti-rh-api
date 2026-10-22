@@ -2,6 +2,28 @@
   "version_formato": 1,
   "idioma": "es",
   "descripcion": "Ejemplo válido del formato de plantillas v1 (fixture de pruebas, no contenido importable).",
+  "giros": [
+    {
+      "codigo": "aviacion-privada", "nombre": "Aviación privada", "codigo_scian": "4812",
+      "es_demo": true, "tiene_estructura": false,
+      "atribucion": { "fuente": "scian_2023", "id_en_fuente": "4812", "adaptado": true }
+    },
+    {
+      "codigo": "hoteleria", "nombre": "Hotelería", "codigo_scian": "7211",
+      "es_demo": true, "tiene_estructura": false,
+      "atribucion": { "fuente": "scian_2023", "id_en_fuente": "7211", "adaptado": true }
+    },
+    {
+      "codigo": "restaurantes", "nombre": "Restaurantes", "codigo_scian": "722",
+      "es_demo": true, "tiene_estructura": true,
+      "atribucion": { "fuente": "scian_2023", "id_en_fuente": "722", "adaptado": true }
+    },
+    {
+      "codigo": "manufactura", "nombre": "Manufactura", "codigo_scian": "336",
+      "es_demo": true, "tiene_estructura": false,
+      "atribucion": { "fuente": "scian_2023", "id_en_fuente": "336", "adaptado": true }
+    }
+  ],
   "puestos": [
     {
       "codigo": "pt-avp-piloto", "version": 1, "estado": "estandar", "nombre": "Piloto de aviación privada",
@@ -85,6 +107,22 @@
         { "nombre": "Computadora de escritorio", "tipo_activo_sugerido": { "nombre": "Equipo de cómputo", "categoria_teletrabajo": "computing_equipment" }, "atribucion": { "fuente": "propio", "adaptado": false } },
         { "nombre": "Silla de oficina", "tipo_activo_sugerido": { "nombre": "Silla ergonómica", "categoria_teletrabajo": "ergonomic_chair" }, "atribucion": { "fuente": "propio", "adaptado": false } }
       ]
+    }
+  ],
+  "estructuras": [
+    {
+      "giro": "restaurantes", "rango_empleados": "1-10",
+      "areas": [
+        {
+          "codigo": "direccion", "nombre": "Dirección",
+          "puestos": [ { "clave": "gerente", "puesto": "pt-res-gerente" } ]
+        },
+        {
+          "codigo": "administracion", "nombre": "Administración",
+          "puestos": [ { "clave": "auxiliar", "puesto": "pt-trv-auxiliar-administrativo", "reporta_a": "gerente" } ]
+        }
+      ],
+      "atribucion": { "fuente": "propio", "adaptado": false }
     }
   ]
 }

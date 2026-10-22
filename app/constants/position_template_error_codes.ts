@@ -33,6 +33,24 @@ export const POSITION_TEMPLATE_ERROR_CODES = {
   CODIGO_Y_VERSION_DUPLICADOS: 'TPL.VAL.CODIGO_Y_VERSION_DUPLICADOS',
   /** Una competencia (nombre normalizado) con dos `tipo` distintos en el conjunto. */
   TIPO_DE_COMPETENCIA_INCONSISTENTE: 'TPL.VAL.TIPO_DE_COMPETENCIA_INCONSISTENTE',
+  /** Un `puestos[].giros[]` o un `estructuras[].giro` no está en el catálogo de giros del conjunto (VLRH-H1792205820286). */
+  GIRO_INEXISTENTE: 'TPL.VAL.GIRO_INEXISTENTE',
+  /** Un puesto de una estructura menciona un código de puesto tipo que no existe en el conjunto, en ninguna versión ni estado. */
+  PUESTO_INEXISTENTE: 'TPL.VAL.PUESTO_INEXISTENTE',
+  /** El mismo `codigo` de giro en dos lugares del conjunto. */
+  CLAVE_DE_GIRO_DUPLICADA: 'TPL.VAL.CLAVE_DE_GIRO_DUPLICADA',
+  /** Dos estructuras con el mismo (`giro`, `rango_empleados`) en el conjunto. */
+  ESTRUCTURA_DUPLICADA_POR_GIRO_Y_RANGO: 'TPL.VAL.ESTRUCTURA_DUPLICADA_POR_GIRO_Y_RANGO',
+  /** `tiene_estructura` de un giro no coincide con las estructuras del conjunto. */
+  MARCA_DE_ESTRUCTURA_INCONSISTENTE: 'TPL.VAL.MARCA_DE_ESTRUCTURA_INCONSISTENTE',
+  /** Dentro de una estructura, dos áreas con el mismo `codigo` o dos puestos con la misma `clave`. */
+  CLAVE_DUPLICADA_EN_ESTRUCTURA: 'TPL.VAL.CLAVE_DUPLICADA_EN_ESTRUCTURA',
+  /** `reporta_a` no es la `clave` de ningún puesto de la misma estructura. */
+  REPORTA_A_INEXISTENTE: 'TPL.VAL.REPORTA_A_INEXISTENTE',
+  /** La estructura no tiene exactamente un puesto sin `reporta_a`. Uno por estructura. */
+  RAIZ_DE_JERARQUIA_INVALIDA: 'TPL.VAL.RAIZ_DE_JERARQUIA_INVALIDA',
+  /** Un puesto termina reportándose a sí mismo, directa o indirectamente. Uno por ciclo. */
+  JERARQUIA_CICLICA: 'TPL.VAL.JERARQUIA_CICLICA',
 } as const
 
 export type PositionTemplateErrorCode =
@@ -81,4 +99,34 @@ export const POSITION_TEMPLATE_ERROR_CATALOG = {
     title: 'Tipo de competencia inconsistente',
     key: 'tipo-de-competencia-inconsistente',
   },
+  'TPL.VAL.GIRO_INEXISTENTE': { title: 'Giro inexistente', key: 'giro-inexistente' },
+  'TPL.VAL.PUESTO_INEXISTENTE': {
+    title: 'Puesto tipo inexistente',
+    key: 'puesto-tipo-inexistente',
+  },
+  'TPL.VAL.CLAVE_DE_GIRO_DUPLICADA': {
+    title: 'Clave de giro duplicada',
+    key: 'clave-de-giro-duplicada',
+  },
+  'TPL.VAL.ESTRUCTURA_DUPLICADA_POR_GIRO_Y_RANGO': {
+    title: 'Estructura duplicada por giro y rango',
+    key: 'estructura-duplicada-por-giro-y-rango',
+  },
+  'TPL.VAL.MARCA_DE_ESTRUCTURA_INCONSISTENTE': {
+    title: 'Marca de estructura inconsistente',
+    key: 'marca-de-estructura-inconsistente',
+  },
+  'TPL.VAL.CLAVE_DUPLICADA_EN_ESTRUCTURA': {
+    title: 'Clave duplicada en la estructura',
+    key: 'clave-duplicada-en-la-estructura',
+  },
+  'TPL.VAL.REPORTA_A_INEXISTENTE': {
+    title: 'Reporta a un puesto inexistente',
+    key: 'reporta-a-un-puesto-inexistente',
+  },
+  'TPL.VAL.RAIZ_DE_JERARQUIA_INVALIDA': {
+    title: 'Raíz de jerarquía inválida',
+    key: 'raiz-de-jerarquia-invalida',
+  },
+  'TPL.VAL.JERARQUIA_CICLICA': { title: 'Jerarquía cíclica', key: 'jerarquia-ciclica' },
 } satisfies Record<PositionTemplateErrorCode, { title: string; key: string }>
