@@ -790,6 +790,8 @@ Comprueba la lista: `GET /api/nom037/telework-checklists/employees/<id de Pedro>
 
 Paso 11 — deja como fijo pactado a otro lugar vivo, el creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`):
 
+Necesitas a la mano el `employeeTeleworkLocationId` guardado en el Escenario 4, Paso 2 (si no lo tienes, la consulta de lugares de Preparar lo resuelve por su calle `Calle QA TWC Pedro Coworking`).
+
 **Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar creado en el Escenario 4, Paso 2>`
 
 Cuerpo (el del Escenario 1, Paso 2, con la calle de ese lugar y la marca de fijo pactado):
@@ -893,6 +895,8 @@ Qué significa lo nuevo aquí:
 Objetivo: comprobar que los lugares que no son la referencia de la lista —ni el verificado ni el fijo pactado— no la anulan ni al darlos de alta, ni al editarlos, ni al darlos de baja.
 
 Paso 1 — registra la visita sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`):
+
+Necesitas a la mano el `employeeTeleworkLocationId` guardado en el Escenario 4, Paso 2 (si no lo tienes, la consulta de lugares de Preparar lo resuelve por su calle `Calle QA TWC Pedro Coworking`).
 
 repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
 
@@ -1053,6 +1057,8 @@ Resultado: `0`: nunca tuvo lista (Rosa es presencial y el sistema no le admite l
 
 Paso 3 — registra una visita de Pedro sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`):
 
+Necesitas a la mano el `employeeTeleworkLocationId` guardado en el Escenario 4, Paso 2 (si no lo tienes, la consulta de lugares de Preparar lo resuelve por su calle `Calle QA TWC Pedro Coworking`).
+
 repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`. Guarda ese `applicationId`: lo usan los Pasos 4 y 6 de este escenario.
 
 Paso 4 — adelanta por la base el vencimiento de esa lista a ayer:
@@ -1066,6 +1072,8 @@ WHERE telework_checklist_application_id = <applicationId del Paso 3>;
 Resultado: 1 fila afectada. `<ayer>` es la fecha de ayer (Ciudad de México), en formato `AAAA-MM-DD`.
 
 Paso 5 — cambia la calle de ese mismo lugar:
+
+Necesitas a la mano el `employeeTeleworkLocationId` del Paso 3 de este escenario.
 
 repite el Escenario 1, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Coworking 2` y `"employeeTeleworkLocationIsFixedAgreed": true`, sobre `PUT /api/nom037/telework-locations/<id del lugar creado en el Escenario 4, Paso 2>`.
 
@@ -1100,9 +1108,13 @@ Objetivo: comprobar que, una vez anulada la lista, otro cambio del mismo lugar s
 
 Paso 1 — registra la visita sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`):
 
+Necesitas a la mano el `employeeTeleworkLocationId` guardado en el Escenario 4, Paso 2 (si no lo tienes, la consulta de lugares de Preparar lo resuelve por su calle `Calle QA TWC Pedro Coworking`).
+
 repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`. Guarda ese `applicationId`: lo usan los Pasos 3 y 5 de este escenario.
 
 Paso 2 — cambia la calle de ese lugar:
+
+Necesitas a la mano el `employeeTeleworkLocationId` del Paso 1 de este escenario.
 
 repite el Escenario 1, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Coworking 3` y `"employeeTeleworkLocationIsFixedAgreed": true`, sobre `PUT /api/nom037/telework-locations/<id del lugar creado en el Escenario 4, Paso 2>` → devuelve `200`, con `"teleworkChecklistInvalidated": true`.
 
@@ -1118,6 +1130,8 @@ WHERE telework_checklist_application_id = <applicationId del Paso 1>;
 Resultado: 1 fila, con la fecha y el `invalidated_by_user_id` de la cuenta **A**.
 
 Paso 4 — cambia otra vez la calle de ese mismo lugar:
+
+Necesitas a la mano el `employeeTeleworkLocationId` del Paso 1 de este escenario.
 
 repite el Escenario 2, Paso 2, cambiando solo `employeeTeleworkLocationStreet` por `Calle QA TWC Pedro Coworking 4`, sobre `PUT /api/nom037/telework-locations/<id del lugar creado en el Escenario 4, Paso 2>`.
 
@@ -1182,9 +1196,13 @@ Cuerpo: el del Escenario 4, Paso 2, cambiando solo `employeeId` por `<id de Brun
 
 Paso 4 — registra una visita de Pedro sobre su lugar de coworking (el creado en el Escenario 4, Paso 2):
 
+Necesitas a la mano el `employeeTeleworkLocationId` guardado en el Escenario 4, Paso 2 (si no lo tienes, la consulta de lugares de Preparar lo resuelve por su calle `Calle QA TWC Pedro Coworking`).
+
 repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
 
 Paso 5 — edita ese lugar de la empresa A mandando el número de la empresa B en el cuerpo:
+
+Necesitas a la mano el `employeeTeleworkLocationId` del Paso 4 de este escenario.
 
 **Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar creado en el Escenario 4, Paso 2>`
 
