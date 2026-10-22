@@ -1383,26 +1383,26 @@ Qué pasó: no se puede provocar con el API: desde esta mejora, dar de baja un l
 Marca cada uno de estos contra su `Objetivo:`:
 
 - [ ] **Escenario 10** — no verificable en la rama: no hay prueba de `401` en las rutas de lugares.
-- [ ] **Escenario 11** — dos registros a la vez del mismo teletrabajador dejan una sola lista vigente.
-- [ ] **Escenario 12** — dos teletrabajadores distintos registrando a la vez se quedan cada uno con la suya.
-- [ ] **Escenario 13** — el cambio espera el candado del colaborador, termina bien y anula una sola vez.
-- [ ] **Escenario 14** — el fallo por dentro responde `500` y revierte el domicilio, el fijo y la lista.
-- [ ] **Escenario 15** — el registro del error lleva solo ids y el nombre del error, sin domicilio.
-- [ ] **Escenario 16** — la lista ligada a un lugar ya dado de baja decide contra el fijo pactado, como si nunca hubiera tenido lugar.
+- [x] **Escenario 11** — dos registros a la vez del mismo teletrabajador dejan una sola lista vigente.
+- [x] **Escenario 12** — dos teletrabajadores distintos registrando a la vez se quedan cada uno con la suya.
+- [x] **Escenario 13** — el cambio espera el candado del colaborador, termina bien y anula una sola vez.
+- [x] **Escenario 14** — el fallo por dentro responde `500` y revierte el domicilio, el fijo y la lista.
+- [x] **Escenario 15** — el registro del error lleva solo ids y el nombre del error, sin domicilio.
+- [x] **Escenario 16** — la lista ligada a un lugar ya dado de baja decide contra el fijo pactado, como si nunca hubiera tenido lugar.
 
 ## Checklist
 
 Marca cada escenario contra su `Objetivo:`, no contra «se hicieron los pasos».
 
-- [ ] **Escenario 1** — cambiar el domicilio del lugar verificado anula la lista, con su motivo y su autor de sesión, y deja sus respuestas intactas.
-- [ ] **Escenario 2** — reescribir el domicilio con otras mayúsculas, acentos o espacios, o tocar solo lo que no es el domicilio, no anula la lista.
-- [ ] **Escenario 3** — dar de baja el lugar verificado anula la lista, el lugar queda de baja sin borrarse y repetir la baja responde como si no existiera.
-- [ ] **Escenario 4** — marcar otro lugar como fijo pactado con domicilio distinto anula; con el mismo domicilio, no.
-- [ ] **Escenario 5** — sin lugar ligado, cambiar, desmarcar o dar de baja al fijo pactado anula; marcar otro lugar con otro domicilio como fijo también; el primer fijo no.
-- [ ] **Escenario 6** — dar de alta, editar o dar de baja un lugar que no es la referencia de la lista no anula nada.
-- [ ] **Escenario 7** — sin lista vigente, o con la última ya vencida, el cambio se guarda y no aparece estado nuevo.
-- [ ] **Escenario 8** — el segundo cambio no vuelve a anular ni mueve la fecha ni el autor.
-- [ ] **Escenario 9** — lo de otra empresa recibe el mismo aviso que lo que no existe; una edición legítima con el número de la otra empresa en el cuerpo tampoco la toca.
+- [x] **Escenario 1** — cambiar el domicilio del lugar verificado anula la lista, con su motivo y su autor de sesión, y deja sus respuestas intactas.
+- [x] **Escenario 2** — reescribir el domicilio con otras mayúsculas, acentos o espacios, o tocar solo lo que no es el domicilio, no anula la lista.
+- [x] **Escenario 3** — dar de baja el lugar verificado anula la lista, el lugar queda de baja sin borrarse y repetir la baja responde como si no existiera.
+- [x] **Escenario 4** — marcar otro lugar como fijo pactado con domicilio distinto anula; con el mismo domicilio, no.
+- [x] **Escenario 5** — sin lugar ligado, cambiar, desmarcar o dar de baja al fijo pactado anula; marcar otro lugar con otro domicilio como fijo también; el primer fijo no.
+- [x] **Escenario 6** — dar de alta, editar o dar de baja un lugar que no es la referencia de la lista no anula nada.
+- [x] **Escenario 7** — sin lista vigente, o con la última ya vencida, el cambio se guarda y no aparece estado nuevo.
+- [x] **Escenario 8** — el segundo cambio no vuelve a anular ni mueve la fecha ni el autor.
+- [x] **Escenario 9** — lo de otra empresa recibe el mismo aviso que lo que no existe; una edición legítima con el número de la otra empresa en el cuerpo tampoco la toca.
 
 ## Hallazgos de otras historias
 
