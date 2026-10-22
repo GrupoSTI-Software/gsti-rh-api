@@ -265,4 +265,41 @@ test.group('Importación Excel sin estructura ni relleno — USRH1789328927648',
     assert.equal(row.department_id, da1.departmentId)
     assert.equal(row.position_id, pa1.positionId)
   })
+
+  test('fila de alta con puesto reconocido y departamento vacío se reporta y no se escribe', async ({
+    client,
+    assert,
+  }) => {
+    const code = payrollCode('puesto-sin-depto')
+    const buffer = await buildImportExcel({
+      'Identificador de nómina': code,
+      'Unidad de negocio de trabajo': actor.businessUnit.businessUnitName,
+      'Unidad de negocio de nómina': actor.businessUnit.businessUnitName,
+      'Nombre del empleado': 'Importado',
+      'Apellido paterno del empleado': 'PuestoSinDepartamento',
+      Posición: pa1.positionName,
+    })
+
+    const response = await importFile(client, buffer)
+
+    response.assertStatus(200)
+    assert.equal(response.body().type, 'warning')
+    assert.equal(response.body().data.summary.created, 0)
+    assert.equal(response.body().data.summary.failed, 1)
+    assert.lengthOf(response.body().data.rowErrors, 1)
+    assert.equal(response.body().data.rowErrors[0].field, 'Puesto')
+    assert.include(
+      response.body().data.rowErrors[0].message,
+      `Puesto sin departamento: el puesto "${pa1.positionName}" requiere el departamento al que pertenece`
+    )
+
+    assert.isNull(await employeeByPayroll(code))
+    assert.isNull(
+      await db
+        .from('people')
+        .where('business_unit_id', actor.businessUnit.businessUnitId)
+        .where('person_lastname', 'PuestoSinDepartamento')
+        .first()
+    )
+  })
 })

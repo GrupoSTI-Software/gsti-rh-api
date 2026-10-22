@@ -6,7 +6,9 @@ import Department from '#models/department'
 import Position from '#models/position'
 import { DateTime } from 'luxon'
 import BusinessUnit from '#models/business_unit'
-import EmployeeStructureService from '#services/employee_structure_service'
+import EmployeeStructureService, {
+  resolveEmployeePositionDepartmentCheck,
+} from '#services/employee_structure_service'
 
 export default class EmployeeContractService {
   async create(employeeContract: EmployeeContract) {
@@ -229,7 +231,11 @@ export default class EmployeeContractService {
 
     // Regla 3: solo lo que el contrato trae, vivo y de la empresa DEL EMPLEADO.
     // Una llamada por campo: el otro va en null para que no se verifique.
+    // El par resultante solo se copia si es coherente; si no, no se copia ninguno
+    // (VLRH-H1792361821461). El contrato ya quedó guardado.
     const structureService = new EmployeeStructureService()
+    let nextDepartmentId = employee.departmentId
+    let nextPositionId = employee.positionId
     const { departmentId, positionId } = lastEmployeeContract
     if (departmentId !== null && departmentId !== employee.departmentId) {
       const verification = await structureService.verifyAssignable({
@@ -239,7 +245,7 @@ export default class EmployeeContractService {
         departmentIdToVerify: departmentId,
         positionIdToVerify: null,
       })
-      if (verification.ok) employee.departmentId = departmentId
+      if (verification.ok) nextDepartmentId = departmentId
     }
     if (positionId !== null && positionId !== employee.positionId) {
       const verification = await structureService.verifyAssignable({
@@ -249,10 +255,29 @@ export default class EmployeeContractService {
         departmentIdToVerify: null,
         positionIdToVerify: positionId,
       })
-      if (verification.ok) employee.positionId = positionId
+      if (verification.ok) nextPositionId = positionId
     }
 
-    if (employee.$isDirty) await employee.save()
+    if (nextDepartmentId === employee.departmentId && nextPositionId === employee.positionId) return
+
+    const pair = resolveEmployeePositionDepartmentCheck(
+      {
+        departmentId: employee.departmentId,
+        positionId: employee.positionId,
+        businessUnitId: employee.businessUnitId,
+      },
+      {
+        departmentId: nextDepartmentId,
+        positionId: nextPositionId,
+        businessUnitId: employee.businessUnitId,
+      }
+    )
+    const coherence = await structureService.verifyPositionDepartment(pair)
+    if (!coherence.ok) return
+
+    employee.departmentId = nextDepartmentId
+    employee.positionId = nextPositionId
+    await employee.save()
   }
 
   async setPayrollBusinessUnitFromLastContract(employeeContract: EmployeeContract) {

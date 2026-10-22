@@ -300,4 +300,52 @@ test.group('Estructura del empleado — verificación en la empresa del empleado
     assert.notInclude(JSON.stringify(result), foreignDepartment.departmentName)
     assert.notInclude(JSON.stringify(result), String(foreignDepartment.departmentId))
   })
+
+  test('loadLiveDepartmentLinks: lista vacía, vínculo retirado y filtro de empresa', async ({ assert }) => {
+    const empty = await service.loadLiveDepartmentLinks([], unit.businessUnitId)
+    assert.equal(empty.size, 0)
+
+    const position = await createPosition(unit, 'Precarga')
+    const retiredDepartment = await createDepartment(unit, 'Retirado')
+    await linkDepartmentPositionFixture(
+      activeDepartment.departmentId,
+      position.positionId,
+      unit.businessUnitId
+    )
+    await linkDepartmentPositionFixture(
+      retiredDepartment.departmentId,
+      position.positionId,
+      unit.businessUnitId
+    )
+    await db
+      .from('department_position')
+      .where('department_id', retiredDepartment.departmentId)
+      .where('position_id', position.positionId)
+      .update({ department_position_deleted_at: new Date() })
+    const foreignLive = await createPosition(foreignUnit, 'PrecargaAjena')
+    await linkDepartmentPositionFixture(
+      foreignDepartment.departmentId,
+      foreignLive.positionId,
+      foreignUnit.businessUnitId
+    )
+    await linkDepartmentPositionFixture(
+      foreignDepartment.departmentId,
+      position.positionId,
+      foreignUnit.businessUnitId
+    )
+
+    const home = await service.loadLiveDepartmentLinks(
+      [position.positionId, foreignLive.positionId],
+      unit.businessUnitId
+    )
+    const foreign = await service.loadLiveDepartmentLinks(
+      [position.positionId, foreignLive.positionId],
+      foreignUnit.businessUnitId
+    )
+
+    assert.deepEqual(home.get(position.positionId), [activeDepartment.departmentId])
+    assert.isUndefined(home.get(foreignLive.positionId))
+    assert.deepEqual(foreign.get(foreignLive.positionId), [foreignDepartment.departmentId])
+    assert.isUndefined(foreign.get(position.positionId))
+  })
 })

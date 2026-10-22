@@ -215,6 +215,20 @@ function isPositiveInteger(value: number): boolean {
   return Number.isInteger(value) && value > 0
 }
 
+/** Vínculos vigentes de una empresa: misma vigencia para la lectura de uno y la precarga. */
+function liveDepartmentLinksQuery(businessUnitId: number) {
+  return db
+    .from('department_position as dp')
+    .join('departments as d', 'd.department_id', 'dp.department_id')
+    .join('positions as p', 'p.position_id', 'dp.position_id')
+    .where('dp.business_unit_id', businessUnitId)
+    .where('d.business_unit_id', businessUnitId)
+    .where('p.business_unit_id', businessUnitId)
+    .whereNull('dp.department_position_deleted_at')
+    .whereNull('d.department_deleted_at')
+    .whereNull('p.position_deleted_at')
+}
+
 export default class EmployeeStructureService {
   async verifyAssignable(
     resolution: EmployeeStructureResolution
@@ -278,17 +292,8 @@ export default class EmployeeStructureService {
         department_id: number | string
         position_name: string | null
         department_name: string | null
-      }[] = await db
-        .from('department_position as dp')
-        .join('departments as d', 'd.department_id', 'dp.department_id')
-        .join('positions as p', 'p.position_id', 'dp.position_id')
+      }[] = await liveDepartmentLinksQuery(pair.businessUnitId)
         .where('dp.position_id', pair.positionId)
-        .where('dp.business_unit_id', pair.businessUnitId)
-        .where('d.business_unit_id', pair.businessUnitId)
-        .where('p.business_unit_id', pair.businessUnitId)
-        .whereNull('dp.department_position_deleted_at')
-        .whereNull('d.department_deleted_at')
-        .whereNull('p.position_deleted_at')
         .orderBy('dp.department_id', 'asc')
         .select('dp.department_id', 'p.position_name', 'd.department_name')
 
@@ -306,6 +311,37 @@ export default class EmployeeStructureService {
         positionName: firstLink?.position_name ?? '',
         linkedDepartmentName: firstLink?.department_name ?? '',
       }
+    }, TENANT_UNSCOPED_REASON.EMPLOYEE_STRUCTURE)
+  }
+
+  /**
+   * Vínculos vigentes de los puestos en una empresa: positionId -> departmentIds.
+   * Una consulta. Lista vacía no abre el bypass de tenant.
+   */
+  async loadLiveDepartmentLinks(
+    positionIds: readonly number[],
+    businessUnitId: number
+  ): Promise<Map<number, number[]>> {
+    const ids = [...new Set(positionIds.filter((id) => isPositiveInteger(id)))]
+    if (ids.length === 0 || !isPositiveInteger(businessUnitId)) {
+      return new Map()
+    }
+
+    return TenantContext.runUnscoped(async () => {
+      const rows: { position_id: number | string; department_id: number | string }[] =
+        await liveDepartmentLinksQuery(businessUnitId)
+          .whereIn('dp.position_id', ids)
+          .orderBy('dp.department_id', 'asc')
+          .select('dp.position_id', 'dp.department_id')
+
+      const links = new Map<number, number[]>()
+      for (const row of rows) {
+        const positionId = Number(row.position_id)
+        const departments = links.get(positionId) ?? []
+        departments.push(Number(row.department_id))
+        links.set(positionId, departments)
+      }
+      return links
     }, TENANT_UNSCOPED_REASON.EMPLOYEE_STRUCTURE)
   }
 }

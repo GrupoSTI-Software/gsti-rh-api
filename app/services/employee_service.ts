@@ -68,6 +68,11 @@ import ShiftExceptionService from './shift_exception_service.js'
 import Holiday from '#models/holiday'
 import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 import EmployeeQuotaService from './employee_quota_service.js'
+import EmployeeStructureService, {
+  evaluateEmployeePositionDepartment,
+  resolveEmployeePositionDepartmentCheck,
+  type EmployeePositionDepartmentVerification,
+} from '#services/employee_structure_service'
 import { EmployeeQuotaError } from '../exceptions/employee_quota_error.js'
 import {
   employeeImportQuotaExceededError,
@@ -2857,11 +2862,11 @@ export default class EmployeeService {
       // Obtener departamentos, posiciones y unidades de negocio existentes para mapeo
       const departments = await Department.query()
         .whereNull('department_deleted_at')
-        .select('departmentId', 'departmentName')
+        .select('departmentId', 'departmentName', 'businessUnitId')
 
       const positions = await Position.query()
         .whereNull('position_deleted_at')
-        .select('positionId', 'positionName')
+        .select('positionId', 'positionName', 'businessUnitId')
 
       const businessUnitsQuery = BusinessUnit.query()
         .whereNull('business_unit_deleted_at')
@@ -2887,7 +2892,10 @@ export default class EmployeeService {
           'employeeFirstName',
           'employeeLastName',
           'employeeSecondLastName',
-          'personId'
+          'personId',
+          'departmentId',
+          'positionId',
+          'businessUnitId'
         )
 
       // Obtener códigos de empleado existentes para generar códigos únicos
@@ -3126,14 +3134,82 @@ export default class EmployeeService {
 
       await this.assertImportWithinQuota(allowedBusinessUnitIds, newEmployeesCount)
 
+      const structureService = new EmployeeStructureService()
+      const linksByCompany = new Map<number, Map<number, number[]>>()
+      const importCompanyIds = [
+        ...new Set(
+          validRows
+            .map((validRow) => validRow.businessUnitId)
+            .filter((id): id is number => id !== null)
+        ),
+      ]
+      for (const companyId of importCompanyIds) {
+        const companyPositionIds = positions
+          .filter((position) => Number(position.businessUnitId) === companyId)
+          .map((position) => position.positionId)
+        linksByCompany.set(
+          companyId,
+          await structureService.loadLiveDepartmentLinks(companyPositionIds, companyId)
+        )
+      }
+
       const createdEmployees: Employee[] = []
 
       for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
         try {
+          const companyDepartments = this.catalogsForImportCompany(departments, businessUnitId)
+          const companyPositions = this.catalogsForImportCompany(positions, businessUnitId)
+          const companyLinks = linksByCompany.get(businessUnitId ?? -1) ?? new Map<number, number[]>()
+
           if (isUpdate) {
             const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
             if (existingEmployee) {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, businessUnitId, payrollBusinessUnitId, actorUserId, allowedBusinessUnitIds, employeeTypes)
+              const savedDepartmentId = this.nullableImportStructureId(existingEmployee.departmentId)
+              const savedPositionId = this.nullableImportStructureId(existingEmployee.positionId)
+              const savedBusinessUnitId =
+                this.nullableImportStructureId(existingEmployee.businessUnitId) ?? businessUnitId
+              const mappedDepartmentId = this.mapDepartmentBySimilarity(
+                employeeData.department,
+                companyDepartments
+              )
+              const mappedPositionId = this.mapPositionBySimilarity(employeeData.position, companyPositions)
+              const finalDepartmentId = mappedDepartmentId ?? savedDepartmentId
+              const finalPositionId = mappedPositionId ?? savedPositionId
+              const finalBusinessUnitId = businessUnitId ?? savedBusinessUnitId
+              if (finalBusinessUnitId !== null) {
+                const incoherent = this.incoherentImportRowMessage(
+                  {
+                    departmentId: savedDepartmentId,
+                    positionId: savedPositionId,
+                    businessUnitId: savedBusinessUnitId ?? finalBusinessUnitId,
+                  },
+                  {
+                    departmentId: finalDepartmentId,
+                    positionId: finalPositionId,
+                    businessUnitId: finalBusinessUnitId,
+                  },
+                  companyLinks,
+                  companyDepartments,
+                  companyPositions,
+                  employeeData
+                )
+                if (incoherent) {
+                  skipped++
+                  rowErrors.push({ row: rowNumber, field: 'Puesto', message: incoherent })
+                  continue
+                }
+              }
+              await this.updateExistingEmployee(
+                existingEmployee,
+                employeeData,
+                companyDepartments,
+                companyPositions,
+                businessUnitId,
+                payrollBusinessUnitId,
+                actorUserId,
+                allowedBusinessUnitIds,
+                employeeTypes
+              )
               if (employeeData.employeeWorkScheduleHybridAttempt) {
                 warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
               }
@@ -3153,14 +3229,29 @@ export default class EmployeeService {
             }
           }
 
+          const departmentId = this.mapDepartmentBySimilarity(employeeData.department, companyDepartments)
+          const positionId = this.mapPositionBySimilarity(employeeData.position, companyPositions)
+          if (businessUnitId !== null) {
+            const incoherent = this.incoherentImportRowMessage(
+              null,
+              { departmentId, positionId, businessUnitId },
+              companyLinks,
+              companyDepartments,
+              companyPositions,
+              employeeData
+            )
+            if (incoherent) {
+              skipped++
+              rowErrors.push({ row: rowNumber, field: 'Puesto', message: incoherent })
+              continue
+            }
+          }
+
           let employeeCode = employeeData.employeeNumber
           if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
             employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
           }
           existingEmployeeCodes.push(employeeCode)
-
-          const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments)
-          const positionId = this.mapPositionBySimilarity(employeeData.position, positions)
 
           const person = await this.createPerson(employeeData, businessUnitId!, actorUserId, allowedBusinessUnitIds)
           const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
@@ -4275,6 +4366,72 @@ export default class EmployeeService {
     // No usar valor por defecto - retornar null si no se encuentra
     // Esto permitirá que el error se maneje apropiadamente
     return similarMatch ? similarMatch.businessUnitId : null
+  }
+
+  /** Catálogo del import acotado a la empresa destino de la fila. */
+  private catalogsForImportCompany<T extends { businessUnitId?: number | null }>(
+    rows: T[],
+    businessUnitId: number | null
+  ): T[] {
+    if (businessUnitId === null) return []
+    return rows.filter((row) => Number(row.businessUnitId) === businessUnitId)
+  }
+
+  private nullableImportStructureId(value: unknown): number | null {
+    if (value === null || value === undefined || value === '') return null
+    const numeric = Number(value)
+    return Number.isInteger(numeric) && numeric > 0 ? numeric : null
+  }
+
+  /**
+   * Motivo de una fila cuyo par puesto-departamento no es el vigente de la
+   * empresa destino. `null` si no hay nada que verificar o el par cuadra.
+   * No consulta la pivote: usa la precarga de la empresa.
+   */
+  private incoherentImportRowMessage(
+    current: { departmentId: number | null; positionId: number | null; businessUnitId: number } | null,
+    next: { departmentId: number | null; positionId: number | null; businessUnitId: number },
+    links: Map<number, number[]>,
+    departments: Array<{ departmentId: number; departmentName: string }>,
+    positions: Array<{ positionId: number; positionName: string }>,
+    raw: { department?: string; position?: string }
+  ): string | null {
+    const pair = resolveEmployeePositionDepartmentCheck(current, next)
+    if (!pair) return null
+    const verdict = evaluateEmployeePositionDepartment(pair, links.get(pair.positionId) ?? [])
+    if (verdict.ok) return null
+
+    const position = positions.find((item) => item.positionId === pair.positionId)
+    const rowDepartment = departments.find((item) => item.departmentId === pair.departmentId)
+    const linkedDepartmentId =
+      verdict.reason === 'position-department-mismatch' ? verdict.linkedDepartmentIds[0] : undefined
+    const linkedDepartment =
+      linkedDepartmentId === undefined
+        ? null
+        : departments.find((item) => item.departmentId === linkedDepartmentId) ?? null
+
+    return this.buildPositionDepartmentRowMessage(verdict, {
+      position: position?.positionName || String(raw.position ?? '').trim(),
+      rowDepartment: rowDepartment?.departmentName || String(raw.department ?? '').trim(),
+      linkedDepartment: linkedDepartment?.departmentName ?? null,
+    })
+  }
+
+  /** Literales del reporte de importación (VLRH-H1792361821461). Sin i18n. */
+  private buildPositionDepartmentRowMessage(
+    verdict: Exclude<EmployeePositionDepartmentVerification, { ok: true }>,
+    names: { position: string; rowDepartment: string; linkedDepartment: string | null }
+  ): string {
+    if (verdict.reason === 'position-requires-department') {
+      return `Puesto sin departamento: el puesto "${names.position}" requiere el departamento al que pertenece`
+    }
+    if (verdict.reason === 'position-without-department-link') {
+      return `Puesto sin departamento ligado: el puesto "${names.position}" no pertenece a ningún departamento de la empresa`
+    }
+    const belongs = names.linkedDepartment
+      ? `pertenece a "${names.linkedDepartment}"`
+      : 'pertenece a otro departamento'
+    return `El departamento no corresponde al puesto: "${names.position}" ${belongs}, no a "${names.rowDepartment}"`
   }
 
   /**

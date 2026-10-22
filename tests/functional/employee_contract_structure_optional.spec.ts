@@ -18,6 +18,7 @@ import {
   cleanupOrgChartFixtures,
   createDepartmentFixture,
   createPositionFixture,
+  linkDepartmentPositionFixture,
 } from '#tests/helpers/org_chart_fixtures'
 
 /**
@@ -73,6 +74,8 @@ test.group('Contrato sin estructura y sin relleno — /api/employee-contracts (U
     pa2 = await createPositionFixture(unitA, 'PA2')
     db1 = await createDepartmentFixture(unitB, 'DB1')
     pb1 = await createPositionFixture(unitB, 'PB1')
+    await linkDepartmentPositionFixture(da1.departmentId, pa1.positionId, unitA)
+    await linkDepartmentPositionFixture(da2.departmentId, pa2.positionId, unitA)
 
     contractType = await EmployeeContractType.create({
       employeeContractTypeName: uniqueTestName('Tipo QA contrato').slice(0, 100),
