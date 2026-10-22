@@ -112,11 +112,12 @@ const L = snap(10, false)
 assert.isTrue(shouldInvalidateTeleworkChecklist(
   linked(L), chgUpdate(L, snap(10, false, { street: 'Calle Reforma' }))))
 // Caso 2 (regla 7): PUT a L cambiando solo mayúsculas/acentos/espacios → no
+// (ruido cosmético POR CAMPO: la calle y el número siguen siendo los mismos)
 assert.isFalse(shouldInvalidateTeleworkChecklist(
-  linked(L), chgUpdate(L, snap(10, false, { street: 'av. juarez 15' }))))
+  linked(L), chgUpdate(L, snap(10, false, { street: '  AV. JUAREZ ', externalNumber: ' 15 ' }))))
 ```
 
-El resto sale de la tabla del anexo (la referencia y el change de cada fila); los casos 8/9/16 usan el domicilio normalizado igual (`'av. juarez 15'`), el 18 es `fixed(null)` con `chgCreate(snap(11, true))`.
+El resto sale de la tabla del anexo (la referencia y el change de cada fila); los casos 8/9/16 usan un domicilio que **normaliza igual** (misma calle y número con ruido cosmético: `'Av. Juárez'`/`'15'` frente a `'av. juarez'`/`'15'` — nunca un valor que agregue o quite texto real), el 18 es `fixed(null)` con `chgCreate(snap(11, true))`.
 
 - [ ] **Step 2: Correr y verificar que falla**
 
