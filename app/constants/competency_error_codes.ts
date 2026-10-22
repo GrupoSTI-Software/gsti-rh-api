@@ -13,6 +13,8 @@ export const COMPETENCY_ERROR_CODES = {
   POSITION_LEVEL_NOT_FOUND: 'CMPT.NF.004',
   BUSINESS_UNIT_LEVEL_NOT_FOUND: 'CMPT.NF.005',
   POSITION_NOT_FOUND: 'CMPT.NF.006',
+  /** VLRH-H1792175042593 — tipo de competencia inválido (o nombre vacío) en consulta, alta o edición. */
+  VALIDATION_FAILED: 'CMPT.VAL.001',
 } as const
 
 export type CompetencyErrorCode = (typeof COMPETENCY_ERROR_CODES)[keyof typeof COMPETENCY_ERROR_CODES]

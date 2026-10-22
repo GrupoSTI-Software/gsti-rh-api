@@ -1,5 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import type { CompetencyErrorCode } from '#constants/competency_error_codes'
+import { COMPETENCY_ERROR_CODES, type CompetencyErrorCode } from '#constants/competency_error_codes'
 
 /**
  * 404 uniforme del dominio de competencias (anti-IDOR, VLRH-H1792032453526).
@@ -10,6 +10,29 @@ import type { CompetencyErrorCode } from '#constants/competency_error_codes'
  * `valanserh-bo` (`components/positionCompetencies/script.ts`,
  * `resources/scripts/utils/apiError.ts`) sigue leyendo `message`.
  */
+/**
+ * 422 aditivo del dominio de competencias (VLRH-H1792175042593).
+ *
+ * Recibe el error ya identificado como `E_VALIDATION_ERROR` de Vine y lo
+ * traduce al cuerpo estándar del área: `message` fijo en español (el BO
+ * construye el aviso a partir de él) + `errors` con el detalle por campo.
+ */
+export function competencyValidationErrorResponse(
+  response: HttpContext['response'],
+  error: { messages: Array<{ field: string; message: string; rule: string }> }
+) {
+  const detail = 'Los datos enviados no son válidos. Revisa los campos marcados.'
+  return response.status(422).json({
+    type: 'error',
+    title: 'Datos no válidos',
+    message: detail, // legacy: el BO lee `message`
+    detail,
+    key: 'datos-no-validos',
+    code: COMPETENCY_ERROR_CODES.VALIDATION_FAILED,
+    errors: error.messages,
+  })
+}
+
 export function competencyNotFoundResponse(
   response: HttpContext['response'],
   code: CompetencyErrorCode
