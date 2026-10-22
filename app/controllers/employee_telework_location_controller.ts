@@ -151,11 +151,16 @@ export default class EmployeeTeleworkLocationController {
    *       '422':
    *         description: El empleado no es teletrabajador (code TWL.VAL.GATING.001)
    */
-  async store({ request, response, i18n, businessUnitScope }: HttpContext) {
+  async store({ request, response, i18n, businessUnitScope, auth }: HttpContext) {
     try {
       const payload = await request.validateUsing(createEmployeeTeleworkLocationValidator)
       const service = new EmployeeTeleworkLocationService()
-      const result = await service.create(payload.employeeId, payload, businessUnitScope ?? [])
+      const result = await service.create(
+        payload.employeeId,
+        payload,
+        businessUnitScope ?? [],
+        auth.user!.userId
+      )
 
       if (!result.ok) {
         const error = this.buildErrorResponse(result.code!, i18n)
@@ -207,11 +212,16 @@ export default class EmployeeTeleworkLocationController {
    *       '404':
    *         description: Lugar inexistente o fuera del tenant
    */
-  async update({ params, request, response, i18n, businessUnitScope }: HttpContext) {
+  async update({ params, request, response, i18n, businessUnitScope, auth }: HttpContext) {
     try {
       const payload = await request.validateUsing(updateEmployeeTeleworkLocationValidator)
       const service = new EmployeeTeleworkLocationService()
-      const result = await service.update(Number(params.id), payload, businessUnitScope ?? [])
+      const result = await service.update(
+        Number(params.id),
+        payload,
+        businessUnitScope ?? [],
+        auth.user!.userId
+      )
 
       if (!result.ok) {
         const error = this.buildErrorResponse(result.code!, i18n)
@@ -263,9 +273,13 @@ export default class EmployeeTeleworkLocationController {
    *       '404':
    *         description: Lugar inexistente o fuera del tenant
    */
-  async destroy({ params, response, i18n, businessUnitScope }: HttpContext) {
+  async destroy({ params, response, i18n, businessUnitScope, auth }: HttpContext) {
     const service = new EmployeeTeleworkLocationService()
-    const result = await service.softDelete(Number(params.id), businessUnitScope ?? [])
+    const result = await service.softDelete(
+      Number(params.id),
+      businessUnitScope ?? [],
+      auth.user!.userId
+    )
 
     if (!result.ok) {
       const error = this.buildErrorResponse(result.code!, i18n)
