@@ -772,6 +772,18 @@
       }
     },
     {
+      "codigo": "servicios-integrales-a-instalaciones",
+      "nombre": "Servicios integrales a instalaciones (limpieza, seguridad y mantenimiento)",
+      "codigo_scian": "561210",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "561210",
+        "adaptado": true
+      }
+    },
+    {
       "codigo": "agencias-de-empleo",
       "nombre": "Agencias de colocación y empleo temporal",
       "codigo_scian": "5613",
