@@ -16,10 +16,8 @@ import type { AccessPointScopePort } from '#modules/access-point/sharing/access_
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
-import {
-  redactForViewer,
-  sharingViewOf,
-} from '#modules/access-point/sharing/access_point_sharing_view'
+import { sharingViewOf } from '#modules/access-point/sharing/access_point_sharing_view'
+import { redactCatalogForGuest } from '#modules/access-point/sharing/access_point_guest_redaction'
 
 export default class AccessPointService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -109,7 +107,7 @@ export default class AccessPointService {
       ...serialized,
       data: serialized.data.map((row, index) => {
         const view = views.get(rows[index].accessPointId)
-        return { ...redactForViewer(row, view), ...(view ?? {}) }
+        return { ...redactCatalogForGuest(row, view), ...(view ?? {}) }
       }),
     }
   }

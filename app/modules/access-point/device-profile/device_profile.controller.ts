@@ -6,6 +6,7 @@ import {
   ensureAccessPointPermission,
   resolveParticipantAccessPoint,
 } from '#modules/access-point/access_point_authorization'
+import { redactProfileForGuest } from '#modules/access-point/sharing/access_point_guest_redaction'
 import { TenantContext } from '#utils/tenant_context'
 import { accessPointParamValidator } from '#modules/access-point/upload-progress/validators/access_point_param.validator'
 import DeviceProfileRepositoryMysql from './device_profile.repository.mysql.js'
@@ -54,8 +55,7 @@ export default class DeviceProfileController {
       const dto = toDeviceProfileDto(accessPoint.accessPointId, profile)
       return StandardResponseFormatter.success(
         response,
-        // La IP desde la que reporta el aparato es de la red de la responsable.
-        role === 'guest' ? { ...dto, lastIpSeen: null, lastIpSeenAt: null } : dto,
+        role === 'guest' ? redactProfileForGuest(dto) : dto,
         i18n.formatMessage('access_point_profile_title'),
         i18n.formatMessage('access_point_profile_message'),
         200,
