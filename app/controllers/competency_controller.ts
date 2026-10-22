@@ -1,10 +1,14 @@
 import { HttpContext } from '@adonisjs/core/http'
 import CompetencyService from '#services/competency_service'
 import {
+  competencyListValidator,
   createCompetencyValidator,
   updateCompetencyValidator,
 } from '#validators/competency'
-import { competencyNotFoundResponse } from '#helpers/competency_api_error'
+import {
+  competencyNotFoundResponse,
+  competencyValidationErrorResponse,
+} from '#helpers/competency_api_error'
 import { COMPETENCY_ERROR_CODES } from '#constants/competency_error_codes'
 
 export default class CompetencyController {
@@ -48,16 +52,20 @@ export default class CompetencyController {
    *     responses:
    *       '200':
    *         description: Resource processed successfully
+   *       '422':
+   *         description: competencyType fuera del enum (technical | functional)
    *       default:
    *         description: Unexpected error
    */
   async index({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
+      // VLRH-H1792175042593: validar competencyType contra el enum del catálogo.
+      // El `|| undefined` convierte el string vacío en "sin filtro" (regla 3 de la HU).
+      const { competencyType } = await competencyListValidator.validate({
+        competencyType: request.input('competencyType') || undefined,
+      })
       const search = request.input('search')
-      const rawType = request.input('competencyType')
-      const competencyType =
-        rawType === 'technical' || rawType === 'functional' ? rawType : undefined
       const rawPage = Number(request.input('page', 1))
       const rawLimit = Number(request.input('limit', 100))
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
@@ -79,6 +87,9 @@ export default class CompetencyController {
         },
       }
     } catch (error) {
+      if (error.code === 'E_VALIDATION_ERROR') {
+        return competencyValidationErrorResponse(response, error)
+      }
       response.status(500)
       return {
         type: 'error',
@@ -120,6 +131,8 @@ export default class CompetencyController {
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '422':
+   *         description: competencyName vacío o competencyType fuera del enum
    *       default:
    *         description: Unexpected error
    */
@@ -140,14 +153,15 @@ export default class CompetencyController {
         data: { competency: newCompetency },
       }
     } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      if (error.code === 'E_VALIDATION_ERROR') {
+        return competencyValidationErrorResponse(response, error)
+      }
       response.status(500)
       return {
         type: 'error',
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: messageError,
+        error: error.message,
       }
     }
   }
@@ -182,6 +196,8 @@ export default class CompetencyController {
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '422':
+   *         description: competencyName vacío o competencyType fuera del enum
    *       default:
    *         description: Unexpected error
    */
@@ -216,14 +232,15 @@ export default class CompetencyController {
         data: { competency: updated },
       }
     } catch (error) {
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      if (error.code === 'E_VALIDATION_ERROR') {
+        return competencyValidationErrorResponse(response, error)
+      }
       response.status(500)
       return {
         type: 'error',
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: messageError,
+        error: error.message,
       }
     }
   }

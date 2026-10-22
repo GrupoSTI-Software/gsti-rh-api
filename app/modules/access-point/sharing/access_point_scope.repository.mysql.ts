@@ -12,6 +12,7 @@ import type {
   ChannelScope,
   VisibilityOptions,
 } from './access_point_scope.port.js'
+import { accessPointRoleOf } from './access_point_visibility.js'
 
 /** Fila de la consulta unica del scope del canal. */
 interface ChannelScopeRow {
@@ -220,6 +221,17 @@ export default class AccessPointScopeRepositoryMysql implements AccessPointScope
     return rows.map((row) => Number(row.access_point_id))
   }
 
+  /** Checadores con invitacion viva para cualquiera de las empresas (sin orden). */
+  async sharedWithAny(businessUnitIds: number[]): Promise<number[]> {
+    if (businessUnitIds.length === 0) return []
+    const rows = (await db
+      .from('access_point_shares')
+      .whereIn('business_unit_id', businessUnitIds)
+      .whereNull('access_point_share_revoked_at')
+      .distinct('access_point_id')) as Array<{ access_point_id: number }>
+    return rows.map((row) => Number(row.access_point_id))
+  }
+
   async visibleTo(
     accessPointId: number,
     requestScope: number[],
@@ -250,9 +262,7 @@ export default class AccessPointScopeRepositoryMysql implements AccessPointScope
     const deviceScope = options.includeLingering
       ? await this.channelParticipants(accessPoint.accessPointId, accessPoint.businessUnitId)
       : await this.participants(accessPoint.accessPointId, accessPoint.businessUnitId)
-    const owner = requestScope.includes(accessPoint.businessUnitId)
-    const guest = !owner && deviceScope.some((id) => requestScope.includes(id))
-    if (!owner && !guest) return null
-    return { role: owner ? 'owner' : 'guest', deviceScope }
+    const role = accessPointRoleOf(accessPoint.businessUnitId, deviceScope, requestScope)
+    return role ? { role, deviceScope } : null
   }
 }
