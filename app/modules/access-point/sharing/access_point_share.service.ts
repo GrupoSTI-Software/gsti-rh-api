@@ -6,6 +6,7 @@ import {
   type AccessPointShareRevokeReason,
 } from '#models/access_point_share'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { isDuplicateEntry } from '#helpers/mysql_duplicate_entry'
 import { TenantContext } from '#utils/tenant_context'
 import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
 import DeviceCommandService from '#modules/device-commands/device_command.service'
@@ -55,12 +56,6 @@ export interface ShareGroupWarning {
 }
 
 const REASON = TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
-
-/** Error de MySQL al chocar con el indice unico de invitaciones vivas. */
-function isDuplicateEntry(error: unknown): boolean {
-  const err = error as { code?: string; errno?: number } | null
-  return err?.code === 'ER_DUP_ENTRY' || err?.errno === 1062
-}
 
 /**
  * El landlord otorga y revoca invitaciones a un checador (VLRH-P0065, D3 y 5).
