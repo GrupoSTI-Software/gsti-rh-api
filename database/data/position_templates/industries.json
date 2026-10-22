@@ -89,7 +89,7 @@
     },
     {
       "codigo": "mineria",
-      "nombre": "Minería",
+      "nombre": "Minería y tratamiento de minerales",
       "codigo_scian": "212",
       "es_demo": false,
       "tiene_estructura": false,
