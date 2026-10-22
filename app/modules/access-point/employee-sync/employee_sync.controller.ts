@@ -661,7 +661,7 @@ async function availableFor(
     serialNumber: accessPoint.accessPointSerialNumber,
     connection: statusOf(accessPoint.accessPointLastConnection, now),
     model: models.get(accessPoint.accessPointId) ?? null,
-    sharedBy: owners.get(accessPoint.businessUnitId as number) ?? null,
+    sharedBy: owners.get(accessPoint.businessUnitId) ?? null,
   }))
 }
 
