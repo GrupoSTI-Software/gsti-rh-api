@@ -42,12 +42,12 @@
     {
       "codigo": "manufactura",
       "nombre": "Manufactura",
-      "codigo_scian": "336",
+      "codigo_scian": "332",
       "es_demo": true,
       "tiene_estructura": false,
       "atribucion": {
         "fuente": "scian_2023",
-        "id_en_fuente": "336",
+        "id_en_fuente": "332",
         "adaptado": true
       }
     },
@@ -280,18 +280,6 @@
       }
     },
     {
-      "codigo": "metalmecanica",
-      "nombre": "Metalmecánica",
-      "codigo_scian": "332",
-      "es_demo": false,
-      "tiene_estructura": false,
-      "atribucion": {
-        "fuente": "scian_2023",
-        "id_en_fuente": "332",
-        "adaptado": true
-      }
-    },
-    {
       "codigo": "maquinaria-y-equipo",
       "nombre": "Fabricación de maquinaria y equipo",
       "codigo_scian": "333",
@@ -520,6 +508,18 @@
       }
     },
     {
+      "codigo": "venta-de-celulares-y-accesorios",
+      "nombre": "Venta de celulares y accesorios",
+      "codigo_scian": "466212",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "466212",
+        "adaptado": true
+      }
+    },
+    {
       "codigo": "comercio-electronico",
       "nombre": "Comercio electrónico",
       "codigo_scian": "469110",
@@ -552,6 +552,18 @@
       "atribucion": {
         "fuente": "scian_2023",
         "id_en_fuente": "485",
+        "adaptado": true
+      }
+    },
+    {
+      "codigo": "mantenimiento-de-aeronaves",
+      "nombre": "Mantenimiento de aeronaves",
+      "codigo_scian": "488190",
+      "es_demo": false,
+      "tiene_estructura": false,
+      "atribucion": {
+        "fuente": "scian_2023",
+        "id_en_fuente": "488190",
         "adaptado": true
       }
     },
@@ -988,8 +1000,8 @@
       }
     },
     {
-      "codigo": "comedores-industriales",
-      "nombre": "Comedores industriales y banquetes",
+      "codigo": "catering-y-comedores-industriales",
+      "nombre": "Catering, comedores industriales y banquetes",
       "codigo_scian": "7223",
       "es_demo": false,
       "tiene_estructura": false,
