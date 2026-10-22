@@ -1,5 +1,6 @@
 import db from '@adonisjs/lucid/services/db'
 import type AccessPoint from '#models/access_point'
+import { ownsAccessPoint } from './access_point_visibility.js'
 
 /**
  * Lo que el Backoffice pinta de un checador compartido (VLRH-P0065, 6).
@@ -54,8 +55,7 @@ export async function sharingViewOf(
 
   for (const accessPoint of accessPoints) {
     const guests = guestsByAccessPoint.get(accessPoint.accessPointId) ?? []
-    const owned = viewerBusinessUnitIds.includes(accessPoint.businessUnitId as number)
-    if (owned) {
+    if (ownsAccessPoint(accessPoint.businessUnitId, viewerBusinessUnitIds)) {
       result.set(
         accessPoint.accessPointId,
         guests.length > 0 ? { sharedRole: 'owner', sharedWith: guests, sharedBy: null } : NOT_SHARED

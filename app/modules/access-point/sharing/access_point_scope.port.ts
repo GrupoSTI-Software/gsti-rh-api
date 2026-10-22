@@ -100,10 +100,15 @@ export interface AccessPointScopePort {
   sharedWith(businessUnitId: number): Promise<number[]>
 
   /**
-   * Regla unica de "quien ve un checador" (VLRH-P0065, 6): `owner` si la
-   * responsable esta en el alcance de la peticion; `guest` si alguna empresa
-   * del alcance participa del aparato; `null` si no lo ve, si no existe o si
-   * el alcance viene vacio (falla cerrado).
+   * Checadores con invitacion viva para cualquiera de las empresas, sin
+   * duplicados. Vacio si no se pasa ninguna.
+   */
+  sharedWithAny(businessUnitIds: number[]): Promise<number[]>
+
+  /**
+   * Checador vivo visible para la peticion, con su papel y su scope. La regla
+   * la decide `accessPointRoleOf` (`access_point_visibility.ts`); `null` si no
+   * lo ve, si no existe o si el alcance viene vacio (falla cerrado).
    */
   visibleTo(
     accessPointId: number,

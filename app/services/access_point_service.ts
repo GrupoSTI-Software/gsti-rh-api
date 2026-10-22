@@ -18,6 +18,7 @@ import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 import { sharingViewOf } from '#modules/access-point/sharing/access_point_sharing_view'
 import { redactCatalogForGuest } from '#modules/access-point/sharing/access_point_guest_redaction'
+import { whereVisibleTo } from '#modules/access-point/sharing/access_point_visibility'
 
 export default class AccessPointService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -74,9 +75,7 @@ export default class AccessPointService {
               scope.whereRaw('1 = 0')
               return
             }
-            scope
-              .where('business_unit_id', filters.businessUnitId)
-              .orWhereIn('access_point_id', sharedIds)
+            whereVisibleTo(scope, [filters.businessUnitId], sharedIds)
           })
           .whereNull('access_point_deleted_at')
           .if(filters.search, (query) => {

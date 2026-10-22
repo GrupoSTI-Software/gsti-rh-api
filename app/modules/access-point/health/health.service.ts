@@ -5,6 +5,10 @@ import AccessPoint from '#models/access_point'
 import { TenantContext } from '#utils/tenant_context'
 import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import {
+  ownsAccessPoint,
+  whereVisibleTo,
+} from '#modules/access-point/sharing/access_point_visibility'
 import { redactHealthForGuest } from '#modules/access-point/sharing/access_point_guest_redaction'
 import { getBusinessTimeZone } from '#utils/business_date'
 import AccessPointProfile from '#models/access_point_profile'
@@ -91,17 +95,13 @@ export default class HealthService {
    */
   async listFor(businessUnitIds: number[], now: DateTime): Promise<AccessPointHealthDto[]> {
     if (businessUnitIds.length === 0) return []
-    const shared = await Promise.all(businessUnitIds.map((id) => this.scope.sharedWith(id)))
-    const sharedIds = [...new Set(shared.flat())]
+    const sharedIds = await this.scope.sharedWithAny(businessUnitIds)
     // La responsable del compartido no esta en el alcance: se lee sin scope y se
     // cierra la consulta dentro del bypass (M12).
     const accessPoints = await TenantContext.runUnscoped(
       () =>
         AccessPoint.query()
-          .where((visible) => {
-            visible.whereIn('business_unit_id', businessUnitIds)
-            if (sharedIds.length > 0) visible.orWhereIn('access_point_id', sharedIds)
-          })
+          .where((visible) => whereVisibleTo(visible, businessUnitIds, sharedIds))
           .whereNull('access_point_deleted_at')
           .orderBy('access_point_name', 'asc')
           .exec(),
@@ -116,7 +116,9 @@ export default class HealthService {
       )
       const row = await TenantContext.run(deviceScope, () => this.buildFor(accessPoint, now))
       rows.push(
-        businessUnitIds.includes(accessPoint.businessUnitId) ? row : redactHealthForGuest(row)
+        ownsAccessPoint(accessPoint.businessUnitId, businessUnitIds)
+          ? row
+          : redactHealthForGuest(row)
       )
     }
     return rows
