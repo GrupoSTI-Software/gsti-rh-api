@@ -185,6 +185,8 @@
   "employee_termination_active_change_detail": "La fecha, la modalidad y el tipo de baja de un colaborador activo se programan en la sección Expediente de salida de su ficha. No se guardó ningún cambio.",
   "employee_termination_clear_forbidden_title": "La baja no se puede quitar desde la ficha",
   "employee_termination_clear_forbidden_detail": "El colaborador está dado de baja y su fecha de baja no puede quedar vacía. Para volver a activarlo usa Reactivar. No se guardó ningún cambio.",
+  "employee_termination_open_case_title": "Baja programada en el expediente",
+  "employee_termination_open_case_detail": "El colaborador tiene un expediente de salida en curso. Para quitar la baja, cancélala en la sección Expediente de salida de su ficha. No se guardó ningún cambio.",
   "employee_import_val_file_title": "Archivo inválido",
   "employee_import_val_file_message": "El archivo debe ser un Excel válido (.xlsx o .xls).",
   "employee_import_val_file_missing_message": "Falta el archivo en multipart/form-data. Envíe un Excel en el campo «file» (.xlsx, .xls).",

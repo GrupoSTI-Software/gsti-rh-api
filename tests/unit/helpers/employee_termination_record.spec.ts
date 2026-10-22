@@ -270,7 +270,51 @@ test.group('resolveTerminationRecordUpdate (VLRH-H1792172889566)', () => {
     }
   })
 
-  test('activo: poner, cambiar o vaciar se rechaza (regla 1)', ({ assert }) => {
+  test('activo con fecha guardada que la vacía: válvula clear-legacy (VLRH-H1792361735984)', ({
+    assert,
+  }) => {
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: false,
+        current: base,
+        next: noRecord,
+        presence: { date: true, modality: false, type: false },
+      }),
+      { action: 'clear-legacy' }
+    )
+    // Con las tres llaves presentes y vacías también es la válvula
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: false,
+        current: base,
+        next: noRecord,
+        presence: all,
+      }),
+      { action: 'clear-legacy' }
+    )
+    // Sin fecha guardada no hay nada que quitar: igual → keep
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: false,
+        current: noRecord,
+        next: noRecord,
+        presence: { date: true, modality: false, type: false },
+      }),
+      { action: 'keep' }
+    )
+    // Un dado de baja que vacía sigue siendo rechazo, no válvula
+    assert.deepEqual(
+      resolveTerminationRecordUpdate({
+        employeeIsDeleted: true,
+        current: base,
+        next: noRecord,
+        presence: all,
+      }),
+      { action: 'reject-clear-deleted' }
+    )
+  })
+
+  test('activo: poner o cambiar se rechaza (regla 1)', ({ assert }) => {
     assert.deepEqual(
       resolveTerminationRecordUpdate({
         employeeIsDeleted: false,
@@ -285,15 +329,6 @@ test.group('resolveTerminationRecordUpdate (VLRH-H1792172889566)', () => {
         employeeIsDeleted: false,
         current: base,
         next: changedDate,
-        presence: { date: true, modality: false, type: false },
-      }),
-      { action: 'reject-active' }
-    )
-    assert.deepEqual(
-      resolveTerminationRecordUpdate({
-        employeeIsDeleted: false,
-        current: base,
-        next: noRecord,
         presence: { date: true, modality: false, type: false },
       }),
       { action: 'reject-active' }

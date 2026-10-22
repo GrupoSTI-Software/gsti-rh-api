@@ -105,6 +105,7 @@ import {
   type TerminationRecordUpdateDecision,
 } from '#helpers/employee_termination_record'
 import { EmployeeTerminationRecordError } from '#exceptions/employee_termination_record_error'
+import OffboardingsRepositoryMysql from '#modules/employee-offboarding/offboardings/offboardings.repository.mysql'
 import { resolveEmployeeTerminationRecordApiError } from '#helpers/employee_termination_record_api_error'
 import type { PersonReleaseContext } from '#helpers/person_release_guard'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
@@ -1357,9 +1358,11 @@ export default class EmployeeController {
    *                 format: date
    *                 description: >-
    *                   Fecha de baja (YYYY-MM-DD). Opcional; llave ausente = no se toca (VLRH-H1792172889566).
-   *                   En un colaborador activo solo se acepta el valor guardado (se ignora): poner, cambiar o
-   *                   vaciar la baja se hace en el expediente de salida. En un dado de baja se corrige con
-   *                   employees:delete; vaciar la fecha se rechaza.
+   *                   En un colaborador activo solo se acepta el valor guardado (se ignora): poner o cambiar
+   *                   la baja se hace en el expediente de salida. En un activo con baja guardada, la fecha
+   *                   vacía la quita junto con modalidad y tipo si hay employees:delete, cupo en la empresa
+   *                   resultante y ningún expediente de salida en curso (VLRH-H1792361735984). En un dado
+   *                   de baja se corrige con employees:delete; vaciar la fecha se rechaza.
    *                 required: false
    *               employeeTerminationModality:
    *                 type: string
@@ -1452,6 +1455,13 @@ export default class EmployeeController {
    *           La cuenta de acceso del empleado no pertenece a las empresas del actor (USR.MAIL.005). Nada se guardó.
    *           Si el correo cambia la credencial y falta el permiso propio, responde {"title":"Sin permiso","detail":"No tienes permiso para realizar esta operación.","key":"PERM.DENIED"}.
    *           Corregir la baja de un colaborador dado de baja sin `employees:delete` responde el mismo PERM.DENIED (VLRH-H1792172889566).
+   *           Quitar la baja antigua de un activo sin `employees:delete` responde el mismo PERM.DENIED (VLRH-H1792361735984).
+   *       '409':
+   *         description: |
+   *           Quitar la baja antigua de un activo (VLRH-H1792361735984): con expediente de salida en curso,
+   *           `{ type: warning, title, message, detail, key: baja-programada-en-el-expediente, code: EMP.TERMINATION.OPEN_CASE }`
+   *           sin `data`; sin cupo en la empresa resultante, el sobre de cupo de Reactivar con `code`
+   *           `EMP.QUOTA.EXCEEDED` o `EMP.QUOTA.NO_PLAN`. En ambos el guardado completo se rechaza.
    *       '422':
    *         description: Nivel de puesto rechazado — no pertenece a los niveles configurados del puesto del payload, o está inactivo para una asignación nueva
    *         content:
@@ -1651,6 +1661,18 @@ export default class EmployeeController {
           i18n
         )
       }
+      // Válvula de la baja antigua (VLRH-H1792361735984, regla 3a): el permiso
+      // de dar de baja se exige ANTES de abrir la transacción; cupo y
+      // expediente se verifican dentro, con candados.
+      if (terminationDecision.action === 'clear-legacy') {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          EMPLOYEES_TERMINATION_RECORD_PERMISSION
+        )
+        if (!allowed) {
+          return
+        }
+      }
       if (terminationDecision.action === 'correct-deleted') {
         const { employeeTerminationModality: modality, employeeTerminationType: terminationType } =
           terminationDecision.record
@@ -1684,6 +1706,12 @@ export default class EmployeeController {
       }
       const terminationKeysPresent =
         terminationPresence.date || terminationPresence.modality || terminationPresence.type
+      // Empresa resultante (VLRH-H1792361735984, regla 3b): la que `ES#update` deja escrita
+      const requestedBusinessUnitId = Number(employee.businessUnitId)
+      const targetBusinessUnitId =
+        Number.isInteger(requestedBusinessUnitId) && requestedBusinessUnitId > 0
+          ? requestedBusinessUnitId
+          : currentEmployee.businessUnitId
 
       const employeeService = new EmployeeService(i18n)
       const data = await request.validateUsing(updateEmployeeValidator, {
@@ -1792,6 +1820,12 @@ export default class EmployeeController {
         // aquí se lanza para que el guardado completo haga rollback; el trío
         // solo se escribe si la decisión previa (con el permiso ya verificado)
         // y la bloqueada coinciden en corregir la baja de un dado de baja.
+        // Válvula (VLRH-H1792361735984, regla 3b): el cupo de la empresa
+        // resultante es la PRIMERA sentencia de la transacción, con el candado
+        // de cupo antes de cualquier lectura (mismo orden que Reactivar).
+        if (terminationDecision.action === 'clear-legacy') {
+          await employeeService.verifyEmployeeLimit(targetBusinessUnitId, trx)
+        }
         if (terminationKeysPresent) {
           const lockedForTermination = await Employee.query({ client: trx })
             .withTrashed()
@@ -1821,6 +1855,24 @@ export default class EmployeeController {
             employee.employeeTerminatedDate = lockedDecision.record.employeeTerminatedDate
             employee.employeeTerminationModality = lockedDecision.record.employeeTerminationModality
             employee.employeeTerminationType = lockedDecision.record.employeeTerminationType
+          }
+          // Válvula (VLRH-H1792361735984, regla 3c): con permiso y cupo ya
+          // verificados, un expediente en curso bloquea; sin él, el trío se
+          // escribe en NULL. Si la previa no fue la válvula no se escribe nada.
+          if (
+            lockedDecision.action === 'clear-legacy' &&
+            terminationDecision.action === 'clear-legacy'
+          ) {
+            const openCase = await new OffboardingsRepositoryMysql().lockOpenByEmployee(
+              lockedForTermination.employeeId,
+              trx
+            )
+            if (openCase) {
+              throw EmployeeTerminationRecordError.openCase()
+            }
+            employee.employeeTerminatedDate = null
+            employee.employeeTerminationModality = null
+            employee.employeeTerminationType = null
           }
         }
         const before = await Employee.query({ client: trx })
@@ -1894,6 +1946,10 @@ export default class EmployeeController {
       if (error instanceof EmployeeTerminationRecordError) {
         response.status(error.httpStatus)
         return this.terminationRecordErrorResponse(error, i18n)
+      }
+      // Sin cupo al quitar la baja antigua (VLRH-H1792361735984): mismo sobre que el alta y Reactivar
+      if (error instanceof EmployeeQuotaError) {
+        return this.employeeQuotaErrorResponse(error, response, i18n)
       }
       if (error instanceof EmployeePositionLevelError) {
         const resolved = resolveEmployeePositionLevelApiError(error, error.httpStatus, i18n)

@@ -14,6 +14,7 @@ import Employee from '#models/employee'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import EmployeeQuotaService from '#services/employee_quota_service'
 import EmployeeService from '#services/employee_service'
 import OffboardingsService from '#modules/employee-offboarding/offboardings/offboardings.service'
 import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
@@ -632,29 +633,40 @@ test.group(
       assert.equal(row.employee_termination_type, TERMINATION_TYPE)
     })
 
-    test('CA-9: la edición con la fecha vacía ya no quita el registro de baja de un activo (400)', async ({
+    test('CA-9: la edición con la fecha vacía quita la baja antigua de un activo con cupo y sin expediente (válvula)', async ({
       client,
       assert,
+      cleanup,
     }) => {
-      // VLRH-H1792172889566, regla 1: vaciar la fecha de un activo se rechaza igual que cambiarla
-      const fixture = await track(() => createEmployee(unit, 'EdicionVacia'))
-      await setTermination(fixture.employee.employeeId, {
-        date: D,
-        modality: MODALITY,
-        type: TERMINATION_TYPE,
+      // VLRH-H1792361735984: fecha presente y vacía sobre un activo con fecha guardada,
+      // con employees:delete (root), cupo y sin expediente en curso → 201 y trío en NULL
+      const originalQuota = EmployeeQuotaService.prototype.resolveQuota
+      cleanup(() => {
+        EmployeeQuotaService.prototype.resolveQuota = originalQuota
       })
+      EmployeeQuotaService.prototype.resolveQuota = async function (businessUnitId, trx) {
+        return {
+          limit: (await this.countActiveEmployees(businessUnitId, trx)) + 5,
+          source: 'legacy',
+        }
+      }
+      const fixture = await track(() => createEmployee(unit, 'EdicionVacia'))
       for (const value of [null, '', '   ']) {
+        await setTermination(fixture.employee.employeeId, {
+          date: D,
+          modality: MODALITY,
+          type: TERMINATION_TYPE,
+        })
         const response = await put(client, root, fixture, {
           employeeTerminatedDate: value,
           employeeTerminationModality: null,
           employeeTerminationType: null,
         })
-        response.assertStatus(400)
-        assert.equal(response.body().key, 'baja-solo-desde-el-expediente')
+        response.assertStatus(201)
         const row = await employeeRow(fixture.employee.employeeId)
-        assert.equal(row.terminated_date, `${D} 00:00:00`)
-        assert.equal(row.employee_termination_modality, MODALITY)
-        assert.equal(row.employee_termination_type, TERMINATION_TYPE)
+        assert.isNull(row.terminated_date)
+        assert.isNull(row.employee_termination_modality)
+        assert.isNull(row.employee_termination_type)
       }
     })
 

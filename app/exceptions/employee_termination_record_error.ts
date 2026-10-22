@@ -16,11 +16,16 @@ export class EmployeeTerminationRecordError extends Error {
   readonly httpStatus: number
   readonly key: string
 
-  constructor(message: string, errorCode: EmployeeTerminationRecordErrorCode, key: string) {
+  constructor(
+    message: string,
+    errorCode: EmployeeTerminationRecordErrorCode,
+    key: string,
+    httpStatus: number = 400
+  ) {
     super(message)
     this.name = 'EmployeeTerminationRecordError'
     this.errorCode = errorCode
-    this.httpStatus = 400
+    this.httpStatus = httpStatus
     this.key = key
   }
 
@@ -39,6 +44,20 @@ export class EmployeeTerminationRecordError extends Error {
       'El colaborador está dado de baja y su fecha de baja no puede quedar vacía. Para volver a activarlo usa Reactivar. No se guardó ningún cambio.',
       EMPLOYEE_TERMINATION_RECORD_ERROR_CODES.CLEAR_FORBIDDEN,
       'la-baja-no-se-puede-quitar-desde-la-ficha'
+    )
+  }
+
+  /**
+   * VLRH-H1792361735984, regla 3c: la baja antigua de un activo con expediente
+   * de salida en curso no se quita desde la ficha; se cancela en el expediente.
+   * 409: conflicto con el estado del expediente, misma familia que el cupo.
+   */
+  static openCase(): EmployeeTerminationRecordError {
+    return new EmployeeTerminationRecordError(
+      'El colaborador tiene un expediente de salida en curso. Para quitar la baja, cancélala en la sección Expediente de salida de su ficha. No se guardó ningún cambio.',
+      EMPLOYEE_TERMINATION_RECORD_ERROR_CODES.OPEN_CASE,
+      'baja-programada-en-el-expediente',
+      409
     )
   }
 }

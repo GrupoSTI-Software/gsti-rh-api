@@ -735,8 +735,9 @@ test.group(
         )
         actors.push(actor)
 
-        // Colaborador ACTIVO con fecha de baja antigua: quitarla desde la ficha se
-        // rechaza antes del permiso (VLRH-H1792172889566, regla 1): 400, nunca 403
+        // Colaborador ACTIVO con fecha de baja antigua: quitarla desde la ficha es
+        // la válvula de VLRH-H1792361735984 y exige employees:delete; el permiso
+        // de reactivar no la relaja: 403 del gate y la fecha sigue
         const scheduled = await track(() =>
           createEmployee(unit, 'Programada', `PR-${stamp()}`, {
             date: '2026-12-31',
@@ -756,8 +757,8 @@ test.group(
               employeeTerminationType: null,
             })
           )
-        denied.assertStatus(400)
-        assert.equal(denied.body().key, 'baja-solo-desde-el-expediente')
+        denied.assertStatus(403)
+        assert.equal(denied.body().key, 'PERM.DENIED')
         assert.deepEqual(await employeeRow(scheduled.employee.employeeId), before)
 
         // Con el mismo rol, reactivar a otro colaborador dado de baja sí pasa

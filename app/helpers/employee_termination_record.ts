@@ -116,13 +116,17 @@ export type TerminationRecordUpdateDecision =
   | { action: 'keep' }
   | { action: 'reject-active' }
   | { action: 'reject-clear-deleted' }
+  /** Quitar la baja antigua de un activo (VLRH-H1792361735984): el controller escribe el trío en `NULL`. */
+  | { action: 'clear-legacy' }
   | { action: 'correct-deleted'; record: EmployeeTerminationRecord }
 
 /**
  * Qué hace `PUT /api/employees/:employeeId` con fecha, modalidad y tipo de baja
  * (VLRH-H1792172889566). En orden: sin ninguna llave → `keep` (regla 3); igual
- * a lo guardado tras normalizar → `keep` (regla 2); colaborador activo →
- * `reject-active`, también al vaciar (regla 1); dado de baja sin fecha →
+ * a lo guardado tras normalizar → `keep` (regla 2); activo con fecha guardada
+ * que la vacía → `clear-legacy` (válvula de VLRH-H1792361735984: permiso de dar
+ * de baja, cupo y sin expediente en curso los exige el controller); cualquier
+ * otro cambio en un activo → `reject-active` (regla 1); dado de baja sin fecha →
  * `reject-clear-deleted` (regla 4); si no → `correct-deleted` con el registro
  * a escribir. Función pura: sin I/O; el llamador la evalúa sobre la fila leída
  * y otra vez sobre la fila bloqueada (regla 5).
@@ -133,7 +137,12 @@ export function resolveTerminationRecordUpdate(
   const { presence } = input
   if (!presence.date && !presence.modality && !presence.type) return { action: 'keep' }
   if (!isEmployeeTerminationRecordChanged(input.current, input.next)) return { action: 'keep' }
-  if (!input.employeeIsDeleted) return { action: 'reject-active' }
+  if (!input.employeeIsDeleted) {
+    const clearsSavedDate =
+      normalizeEmployeeTerminatedDate(input.next.employeeTerminatedDate) === null &&
+      normalizeEmployeeTerminatedDate(input.current.employeeTerminatedDate) !== null
+    return clearsSavedDate ? { action: 'clear-legacy' } : { action: 'reject-active' }
+  }
   if (normalizeEmployeeTerminatedDate(input.next.employeeTerminatedDate) === null) {
     return { action: 'reject-clear-deleted' }
   }

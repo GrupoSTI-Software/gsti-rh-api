@@ -184,6 +184,8 @@
   "employee_termination_active_change_detail": "The termination date, modality and type of an active employee are scheduled in the Offboarding file section of their profile. No changes were saved.",
   "employee_termination_clear_forbidden_title": "The termination cannot be removed from the profile",
   "employee_termination_clear_forbidden_detail": "The employee is terminated and the termination date cannot be empty. To bring them back, use Reactivate. No changes were saved.",
+  "employee_termination_open_case_title": "Termination scheduled in the offboarding file",
+  "employee_termination_open_case_detail": "The employee has an offboarding file in progress. To remove the termination, cancel it in the Offboarding file section of their profile. No changes were saved.",
   "employee_badge_unexpected_error_message": "An unexpected error occurred while processing the employee badge.",
   "employee_import_val_file_title": "Invalid file",
   "employee_import_val_file_message": "The file must be a valid Excel workbook (.xlsx or .xls).",

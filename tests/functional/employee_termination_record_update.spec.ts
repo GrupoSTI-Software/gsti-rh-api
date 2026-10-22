@@ -2,6 +2,10 @@ import { test } from '@japa/runner'
 import type { ApiClient, ApiResponse } from '@japa/api-client'
 import type { Assert } from '@japa/assert'
 import db from '@adonisjs/lucid/services/db'
+import { DateTime } from 'luxon'
+import BillingPlan from '#models/billing_plan'
+import BillingPlanPrice from '#models/billing_plan_price'
+import BillingSubscription from '#models/billing_subscription'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
@@ -13,6 +17,7 @@ import SystemPermission from '#models/system_permission'
 import User from '#models/user'
 import EmployeeQuotaService from '#services/employee_quota_service'
 import EmployeeService from '#services/employee_service'
+import OffboardingsRepositoryMysql from '#modules/employee-offboarding/offboardings/offboardings.repository.mysql'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 
@@ -36,6 +41,9 @@ const CLEAR_FORBIDDEN = {
   code: 'EMP.TERMINATION.CLEAR_FORBIDDEN',
 }
 const INVALID_DATE_KEY = 'fecha-de-baja-invalida'
+const OPEN_CASE = { key: 'baja-programada-en-el-expediente', code: 'EMP.TERMINATION.OPEN_CASE' }
+const QUOTA_EXCEEDED = { key: 'cupo-empleados-agotado', code: 'EMP.QUOTA.EXCEEDED' }
+const QUOTA_NO_PLAN = { key: 'sin-plan-contratado', code: 'EMP.QUOTA.NO_PLAN' }
 
 function asFixture<T>(build: () => Promise<T>): Promise<T> {
   return TenantContext.runUnscoped(build, TENANT_UNSCOPED_REASON.TEST_FIXTURE)
@@ -254,8 +262,19 @@ test.group(
   (group) => {
     let unit: BusinessUnit
     let foreignUnit: BusinessUnit
+    /** Segunda empresa en el alcance de root (CA7 de la válvula). */
+    let unitA2: BusinessUnit
     let root: Actor
     let editor: Actor
+    /** Edita y da de baja: el que puede quitar la baja antigua (VLRH-H1792361735984). */
+    let deleter: Actor
+    /**
+     * Suscripción viva de A: el candado de cupo (`assertWithinQuota`) serializa
+     * con `FOR UPDATE` sobre esta fila como PRIMERA sentencia de la trx. Sin
+     * ella, el camino legacy lee la empresa antes de bloquear y el snapshot RR
+     * deja pasar dos válvulas simultáneas (hallazgo preexistente, afecta a Reactivar).
+     */
+    let billingRows: { planId: number; priceId: number; subscriptionId: number } | null = null
     let employeesModule: SystemModule
     let enforcementBefore: boolean
     const fixtures: EmployeeFixture[] = []
@@ -324,15 +343,68 @@ test.group(
       await asFixture(async () => {
         unit = await createUnit('empresa')
         foreignUnit = await createUnit('ajena')
-        root = await createRootActor([unit, foreignUnit])
+        unitA2 = await createUnit('segunda')
+        root = await createRootActor([unit, foreignUnit, unitA2])
         editor = await createTenantActor(unit, ['tab-trabajo-write'])
-        actors.push(root, editor)
+        deleter = await createTenantActor(unit, ['tab-trabajo-write', 'delete'])
+        actors.push(root, editor, deleter)
+
+        const plan = await BillingPlan.create({
+          billingPlanName: `Plan baja ficha ${stamp()}`,
+          billingPlanDescription: 'fixture VLRH-H1792361735984',
+        })
+        const price = await BillingPlanPrice.create({
+          billingPlanId: plan.billingPlanId,
+          billingPlanPriceAmount: 79,
+          billingPlanPriceCurrency: 'MXN',
+          billingPlanPriceTaxRate: 0.16,
+          billingPlanPriceTrialDays: 0,
+          billingPlanPriceEffectiveFrom: '2025-01-01',
+          billingPlanPriceStripePriceId: null,
+          billingPlanPriceProvider: 'manual',
+        })
+        const now = DateTime.now()
+        const subscription = await BillingSubscription.create({
+          businessUnitId: unit.businessUnitId,
+          billingPlanId: plan.billingPlanId,
+          billingPlanPriceId: price.billingPlanPriceId,
+          billingSubscriptionProvider: 'manual',
+          billingSubscriptionStatus: 'active',
+          billingSubscriptionContractedUnitAmount: 79,
+          billingSubscriptionContractedEmployees: 500,
+          billingSubscriptionDiscountPercent: 0,
+          billingSubscriptionContractedTrialDays: 0,
+          billingSubscriptionContractedCurrency: 'MXN',
+          billingSubscriptionContractedTaxRate: 0.16,
+          billingSubscriptionContractedSubtotal: 790,
+          billingSubscriptionContractedTaxAmount: 126.4,
+          billingSubscriptionContractedTotal: 916.4,
+          billingSubscriptionCreditBalanceCents: 0,
+          billingSubscriptionContractedEffectiveFrom: now,
+          billingSubscriptionSubscribedAt: now,
+        })
+        billingRows = {
+          planId: plan.billingPlanId,
+          priceId: price.billingPlanPriceId,
+          subscriptionId: subscription.billingSubscriptionId,
+        }
       })
     })
 
     group.teardown(async () => {
       try {
-        await asFixture(() => destroyFixtures(fixtures, actors, [unit, foreignUnit]))
+        if (billingRows) {
+          await db
+            .from('billing_subscriptions')
+            .where('billing_subscription_id', billingRows.subscriptionId)
+            .delete()
+          await db
+            .from('billing_plan_prices')
+            .where('billing_plan_price_id', billingRows.priceId)
+            .delete()
+          await db.from('billing_plans').where('billing_plan_id', billingRows.planId).delete()
+        }
+        await asFixture(() => destroyFixtures(fixtures, actors, [unit, foreignUnit, unitA2]))
       } finally {
         employeesModule.systemModulePermissionEnforcementActive = enforcementBefore
         await employeesModule.save()
@@ -404,19 +476,20 @@ test.group(
       assert.equal(await activeCount(), countBefore)
     })
 
-    test('CA4: vaciar la fecha de un activo con baja antigua responde el mismo 400', async ({
+    test('CA4: vaciar la fecha de un activo con baja antigua pasa a la válvula: con cupo, 201 y el trío en NULL (VLRH-H1792361735984)', async ({
       client,
       assert,
     }) => {
       const act1 = await track('Act1Vaciar', { termination: RECORDED })
-      const before = await employeeRow(act1.employee.employeeId)
       const countBefore = await activeCount()
-      for (const value of [null, '', '   ']) {
-        const response = await put(client, root, act1, { employeeTerminatedDate: value })
-        assertTerminationError(assert, response, ACTIVE_FORBIDDEN)
-        assert.deepEqual(await employeeRow(act1.employee.employeeId), before)
-      }
-      assert.equal(await activeCount(), countBefore)
+      const response = await put(client, root, act1, { employeeTerminatedDate: null })
+      response.assertStatus(201)
+      const row = await terminationRow(act1.employee.employeeId)
+      assert.isNull(row.terminated_date)
+      assert.isNull(row.employee_termination_modality)
+      assert.isNull(row.employee_termination_type)
+      assert.isNull(row.employee_deleted_at)
+      assert.equal(await activeCount(), countBefore + 1)
     })
 
     test('CA5: el rechazo del activo no depende del permiso: sin employees:delete es 400, nunca 403', async ({
@@ -430,11 +503,10 @@ test.group(
         await put(client, editor, act1, trio('2024-02-15')),
         ACTIVE_FORBIDDEN
       )
-      assertTerminationError(
-        assert,
-        await put(client, editor, act1, { employeeTerminatedDate: null }),
-        ACTIVE_FORBIDDEN
-      )
+      // Vaciar la fecha es la válvula (VLRH-H1792361735984): sin employees:delete, 403 del gate
+      const denied = await put(client, editor, act1, { employeeTerminatedDate: null })
+      denied.assertStatus(403)
+      assert.equal(denied.body().key, 'PERM.DENIED')
       assert.deepEqual(await employeeRow(act1.employee.employeeId), before)
     })
 
@@ -556,6 +628,387 @@ test.group(
           assert.deepEqual(await employeeRow(fixture.employee.employeeId), before)
         }
       }
+    })
+    // ------------------------------------------------------------------
+    // Válvula de la baja antigua (VLRH-H1792361735984): fecha presente y vacía
+    // sobre un activo con fecha guardada, con employees:delete, cupo en la
+    // empresa resultante y sin expediente en curso.
+    // ------------------------------------------------------------------
+
+    /** Cupo fijado relativo al conteo real de cada empresa; `extra` por empresa. */
+    const withQuota = (
+      cleanup: (fn: () => void) => void,
+      extraByUnit: (businessUnitId: number) => number | 'no_plan'
+    ) => {
+      const original = EmployeeQuotaService.prototype.resolveQuota
+      cleanup(() => {
+        EmployeeQuotaService.prototype.resolveQuota = original
+      })
+      EmployeeQuotaService.prototype.resolveQuota = async function (businessUnitId, trx) {
+        const extra = extraByUnit(businessUnitId)
+        if (extra === 'no_plan') return { limit: 0, source: 'no_plan' }
+        return {
+          limit: (await this.countActiveEmployees(businessUnitId, trx)) + extra,
+          source: 'legacy',
+        }
+      }
+    }
+
+    const insertOpenCase = async (employeeId: number, status = 'open'): Promise<number> => {
+      const [id] = await db.table('employee_offboardings').insert({
+        employee_id: employeeId,
+        business_unit_id: unit.businessUnitId,
+        employee_offboarding_planned_date: RECORDED.date,
+        employee_offboarding_status: status,
+        employee_offboarding_origin: 'scheduled',
+        employee_offboarding_cancelled_at: status === 'cancelled' ? new Date() : null,
+        employee_offboarding_created_at: new Date(),
+      })
+      return Number(id)
+    }
+
+    const clear = (
+      client: ApiClient,
+      actor: Actor,
+      fixture: EmployeeFixture,
+      value: unknown = null
+    ) => put(client, actor, fixture, { employeeTerminatedDate: value })
+
+    test('V-CA1: con cupo, deleter quita fecha, modalidad y tipo; el conteo sube en 1', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      withQuota(cleanup, () => 5)
+      for (const value of [null, '']) {
+        const act1 = await track(`Act1Valvula${value === null ? 'Null' : 'Vacia'}`, {
+          termination: RECORDED,
+        })
+        const countBefore = await activeCount()
+        const response = await clear(client, deleter, act1, value)
+        response.assertStatus(201)
+        const row = await terminationRow(act1.employee.employeeId)
+        assert.isNull(row.terminated_date)
+        assert.isNull(row.employee_termination_modality)
+        assert.isNull(row.employee_termination_type)
+        assert.isNull(row.employee_deleted_at)
+        assert.equal(await activeCount(), countBefore + 1)
+      }
+    })
+
+    test('V-CA2: ida y vuelta del show: solo cambia el trío', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      withQuota(cleanup, () => 5)
+      const act1 = await track('Act1Show', { termination: RECORDED })
+      const shown = await client
+        .get(`/api/employees/${act1.employee.employeeId}`)
+        .loginAs(root.user)
+        .header('X-Business-Unit-Id', unit.businessUnitPublicId)
+      shown.assertStatus(200)
+      const before = await employeeRow(act1.employee.employeeId)
+      const body = {
+        ...shown.body().data.employee,
+        employeeTerminatedDate: null,
+        employeeTerminationModality: null,
+        employeeTerminationType: null,
+      }
+      const response = await client
+        .put(`/api/employees/${act1.employee.employeeId}`)
+        .loginAs(root.user)
+        .header('X-Business-Unit-Id', unit.businessUnitPublicId)
+        .json(body)
+      response.assertStatus(201)
+      const after = await employeeRow(act1.employee.employeeId)
+      const ignore = new Set([
+        'employee_terminated_date',
+        'employee_termination_modality',
+        'employee_termination_type',
+        'employee_updated_at',
+      ])
+      for (const column of Object.keys(before)) {
+        if (ignore.has(column)) continue
+        assert.deepEqual(after[column], before[column], column)
+      }
+      assert.isNull(after.employee_terminated_date)
+      assert.isNull(after.employee_termination_modality)
+      assert.isNull(after.employee_termination_type)
+    })
+
+    test('V-CA3: sin employees:delete es 403 y el cupo no se consulta', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      const act1 = await track('Act1SinDelete', { termination: RECORDED })
+      const before = await employeeRow(act1.employee.employeeId)
+      const original = EmployeeQuotaService.prototype.assertWithinQuota
+      let quotaCalls = 0
+      cleanup(() => {
+        EmployeeQuotaService.prototype.assertWithinQuota = original
+      })
+      EmployeeQuotaService.prototype.assertWithinQuota = async function (...args) {
+        quotaCalls += 1
+        return original.apply(this, args)
+      }
+      const response = await clear(client, editor, act1)
+      response.assertStatus(403)
+      assert.equal(response.body().key, 'PERM.DENIED')
+      assert.equal(quotaCalls, 0)
+      assert.deepEqual(await employeeRow(act1.employee.employeeId), before)
+    })
+
+    test('V-CA4 y V-CA12: con expediente en curso, 409 propio sin data; en inglés, key en español', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      withQuota(cleanup, () => 5)
+      const act1 = await track('Act1Expediente', { termination: RECORDED })
+      const caseId = await insertOpenCase(act1.employee.employeeId)
+      const before = await employeeRow(act1.employee.employeeId)
+      const caseBefore = await db
+        .from('employee_offboardings')
+        .where('employee_offboarding_id', caseId)
+        .first()
+      const countBefore = await activeCount()
+
+      const response = await clear(client, deleter, act1)
+      response.assertStatus(409)
+      const body = response.body()
+      assert.equal(body.type, 'warning')
+      assert.equal(body.key, OPEN_CASE.key)
+      assert.equal(body.code, OPEN_CASE.code)
+      assert.equal(body.message, body.detail)
+      assert.notProperty(body, 'data')
+      assert.notProperty(body, 'error')
+      assert.deepEqual(await employeeRow(act1.employee.employeeId), before)
+      assert.deepEqual(
+        await db.from('employee_offboardings').where('employee_offboarding_id', caseId).first(),
+        caseBefore
+      )
+      assert.equal(await activeCount(), countBefore)
+
+      const english = await put(client, deleter, act1, { employeeTerminatedDate: null }, 'en')
+      english.assertStatus(409)
+      assert.equal(english.body().key, OPEN_CASE.key)
+      assert.equal(english.body().title, 'Termination scheduled in the offboarding file')
+      assert.include(english.body().detail, 'Offboarding file')
+    })
+
+    test('V-CA5: un expediente cancelado no bloquea la válvula (R8)', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      withQuota(cleanup, () => 5)
+      const act1 = await track('Act1Cancelado', { termination: RECORDED })
+      await insertOpenCase(act1.employee.employeeId, 'cancelled')
+      const response = await clear(client, deleter, act1)
+      response.assertStatus(201)
+      const cancelledRow = await terminationRow(act1.employee.employeeId)
+      assert.isNull(cancelledRow.terminated_date)
+    })
+
+    test('V-CA6: sin cupo o sin plan, 409 con el sobre de cupo y fila intacta', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      const act1 = await track('Act1SinCupo', { termination: RECORDED })
+      const before = await employeeRow(act1.employee.employeeId)
+
+      withQuota(cleanup, () => 0)
+      const exceeded = await clear(client, deleter, act1)
+      exceeded.assertStatus(409)
+      assert.equal(exceeded.body().type, 'error')
+      assert.equal(exceeded.body().key, QUOTA_EXCEEDED.key)
+      assert.equal(exceeded.body().code, QUOTA_EXCEEDED.code)
+      assert.notProperty(exceeded.body(), 'error')
+      assert.deepEqual(await employeeRow(act1.employee.employeeId), before)
+
+      withQuota(cleanup, () => 'no_plan')
+      const noPlan = await clear(client, deleter, act1)
+      noPlan.assertStatus(409)
+      assert.equal(noPlan.body().key, QUOTA_NO_PLAN.key)
+      assert.equal(noPlan.body().code, QUOTA_NO_PLAN.code)
+      assert.deepEqual(await employeeRow(act1.employee.employeeId), before)
+    })
+
+    test('V-CA7: el cupo se revisa contra la empresa resultante', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      const act1 = await track('Act1Mover', { termination: RECORDED })
+      const before = await employeeRow(act1.employee.employeeId)
+      const moveBody = {
+        employeeTerminatedDate: null,
+        businessUnitId: unitA2.businessUnitId,
+        departmentId: null,
+        positionId: null,
+      }
+
+      // A con cupo, A2 sin cupo: se rechaza por A2
+      withQuota(cleanup, (bu) => (bu === unitA2.businessUnitId ? 0 : 5))
+      const rejected = await put(client, root, act1, moveBody)
+      rejected.assertStatus(409)
+      assert.equal(rejected.body().code, QUOTA_EXCEEDED.code)
+      assert.deepEqual(await employeeRow(act1.employee.employeeId), before)
+
+      // A sin cupo, A2 con cupo: procede y el colaborador queda en A2
+      const quotaService = new EmployeeQuotaService()
+      const a2Before = await quotaService.countActiveEmployees(unitA2.businessUnitId)
+      withQuota(cleanup, (bu) => (bu === unitA2.businessUnitId ? 5 : 0))
+      const moved = await put(client, root, act1, moveBody)
+      moved.assertStatus(201)
+      const row = await employeeRow(act1.employee.employeeId)
+      assert.equal(row.business_unit_id, unitA2.businessUnitId)
+      assert.isNull(row.employee_terminated_date)
+      assert.equal(await quotaService.countActiveEmployees(unitA2.businessUnitId), a2Before + 1)
+    })
+
+    test('V-CA8: estado al confirmar: dado de baja a medio guardado → 400; repetir no vuelve a sumar', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      withQuota(cleanup, () => 5)
+      const act1 = await track('Act1CarreraValvula', { termination: RECORDED })
+      const employeeId = act1.employee.employeeId
+      const original = EmployeeService.prototype.verifyInfoExist
+      cleanup(() => {
+        EmployeeService.prototype.verifyInfoExist = original
+      })
+      let fired = false
+      EmployeeService.prototype.verifyInfoExist = async function (employee) {
+        if (!fired) {
+          fired = true
+          await db
+            .from('employees')
+            .where('employee_id', employeeId)
+            .update({ employee_deleted_at: new Date() })
+        }
+        return original.call(this, employee)
+      }
+      const raced = await clear(client, deleter, act1)
+      assert.isTrue(fired)
+      assertTerminationError(assert, raced, CLEAR_FORBIDDEN)
+      const row = await terminationRow(employeeId)
+      assert.equal(row.terminated_date, `${RECORDED.date} 00:00:00`)
+      assert.isNotNull(row.employee_deleted_at)
+      EmployeeService.prototype.verifyInfoExist = original
+
+      // Reintento: el mismo cuerpo dos veces sobre otro activo suma exactamente 1
+      const act2 = await track('Act2Repetir', { termination: RECORDED })
+      const countBefore = await activeCount()
+      const first = await clear(client, deleter, act2)
+      first.assertStatus(201)
+      const second = await clear(client, deleter, act2)
+      assert.include([201, 409], second.status())
+      const act2Row = await terminationRow(act2.employee.employeeId)
+      assert.isNull(act2Row.terminated_date)
+      assert.equal(await activeCount(), countBefore + 1)
+    })
+
+    test('V-CA9: dos válvulas simultáneas con un solo lugar: una 201 y otra 409, el conteo sube en 1', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      const act1 = await track('Act1Simultanea', { termination: RECORDED })
+      const act2 = await track('Act2Simultanea', { termination: RECORDED })
+      const countBefore = await activeCount()
+      // Un solo lugar libre, relativo al conteo real al momento de cada lectura
+      withQuota(cleanup, () => 0)
+      EmployeeQuotaService.prototype.resolveQuota = async () => ({
+        limit: countBefore + 1,
+        source: 'legacy',
+      })
+      const [first, second] = await Promise.all([
+        clear(client, deleter, act1),
+        clear(client, deleter, act2),
+      ])
+      const statuses = [first.status(), second.status()].sort()
+      assert.deepEqual(statuses, [201, 409])
+      const rejected = first.status() === 409 ? first : second
+      assert.equal(rejected.body().code, QUOTA_EXCEEDED.code)
+      assert.equal(await activeCount(), countBefore + 1)
+    })
+
+    test('V-CA10: orden de candados: cupo con la trx antes que el expediente con la misma trx', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      withQuota(cleanup, () => 5)
+      const act1 = await track('Act1Orden', { termination: RECORDED })
+      const calls: Array<{ name: string; args: unknown[] }> = []
+      const originalQuota = EmployeeQuotaService.prototype.assertWithinQuota
+      const originalLock = OffboardingsRepositoryMysql.prototype.lockOpenByEmployee
+      cleanup(() => {
+        EmployeeQuotaService.prototype.assertWithinQuota = originalQuota
+        OffboardingsRepositoryMysql.prototype.lockOpenByEmployee = originalLock
+      })
+      EmployeeQuotaService.prototype.assertWithinQuota = async function (...args) {
+        calls.push({ name: 'quota', args })
+        return originalQuota.apply(this, args)
+      }
+      OffboardingsRepositoryMysql.prototype.lockOpenByEmployee = async function (...args) {
+        calls.push({ name: 'lockOpenByEmployee', args })
+        return originalLock.apply(this, args)
+      }
+      const response = await clear(client, deleter, act1)
+      response.assertStatus(201)
+      const quotaCall = calls.find((call) => call.name === 'quota')
+      const lockCall = calls.find((call) => call.name === 'lockOpenByEmployee')
+      assert.exists(quotaCall)
+      assert.exists(lockCall)
+      assert.isBelow(calls.indexOf(quotaCall!), calls.indexOf(lockCall!))
+      assert.equal(quotaCall!.args[0], unit.businessUnitId)
+      assert.exists(quotaCall!.args[2], 'el cupo recibe la trx')
+      assert.equal(lockCall!.args[0], act1.employee.employeeId)
+      assert.strictEqual(lockCall!.args[1], quotaCall!.args[2], 'misma trx')
+    })
+
+    test('V-CA11: lo demás no cambia: ACT0 con fecha null sigue 201 sin escribir; BAJ con null sigue 400', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      withQuota(cleanup, () => 5)
+      const act0 = await track('Act0Valvula')
+      const countBefore = await activeCount()
+      const response = await clear(client, deleter, act0)
+      response.assertStatus(201)
+      const act0Row = await terminationRow(act0.employee.employeeId)
+      assert.isNull(act0Row.terminated_date)
+      assert.equal(await activeCount(), countBefore)
+
+      const baj = await track('BajValvula', { termination: RECORDED, deleted: true })
+      assertTerminationError(assert, await clear(client, deleter, baj), CLEAR_FORBIDDEN)
+    })
+
+    test('V-CA12: otra empresa responde el 404 vigente y el cupo no se consulta', async ({
+      client,
+      assert,
+      cleanup,
+    }) => {
+      const ext = await track('ExtValvula', { termination: RECORDED }, foreignUnit)
+      const original = EmployeeQuotaService.prototype.assertWithinQuota
+      let quotaCalls = 0
+      cleanup(() => {
+        EmployeeQuotaService.prototype.assertWithinQuota = original
+      })
+      EmployeeQuotaService.prototype.assertWithinQuota = async function (...args) {
+        quotaCalls += 1
+        return original.apply(this, args)
+      }
+      const response = await clear(client, root, ext)
+      response.assertStatus(404)
+      assert.equal(quotaCalls, 0)
     })
   }
 )
