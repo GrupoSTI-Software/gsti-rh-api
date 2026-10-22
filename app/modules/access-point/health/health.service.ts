@@ -5,6 +5,11 @@ import AccessPoint from '#models/access_point'
 import { TenantContext } from '#utils/tenant_context'
 import type { AccessPointScopePort } from '#modules/access-point/sharing/access_point_scope.port'
 import AccessPointScopeRepositoryMysql from '#modules/access-point/sharing/access_point_scope.repository.mysql'
+import {
+  ownsAccessPoint,
+  whereVisibleTo,
+} from '#modules/access-point/sharing/access_point_visibility'
+import { redactHealthForGuest } from '#modules/access-point/sharing/access_point_guest_redaction'
 import { getBusinessTimeZone } from '#utils/business_date'
 import AccessPointProfile from '#models/access_point_profile'
 import AccessPointEmployee, {
@@ -39,30 +44,6 @@ import type {
   OccupancySlot,
   QueueHealth,
 } from './health.dto.js'
-
-/**
- * La salud del checador compartido vista por la invitada (VLRH-P0065, 6).
- *
- * Sin IP, MAC ni la ultima IP desde la que reporto el aparato: son datos de
- * red del aparato y de quien lo administra. Tampoco agregados del personal de
- * la responsable: el padron (`enrollment`) y los avisos abiertos se calculan
- * sobre todo el aparato y salen `null`; del ultimo fallo de la cola se quita
- * el texto de error, que puede ser de un colaborador ajeno.
- */
-export function forGuest(row: AccessPointHealthDto): AccessPointHealthDto {
-  return {
-    ...row,
-    ip: null,
-    mac: null,
-    enrollment: null,
-    openIncidents: null,
-    queue: {
-      ...row.queue,
-      lastFailure: row.queue.lastFailure ? { ...row.queue.lastFailure, error: null } : null,
-    },
-    hardening: { ...row.hardening, lastIpSeen: null, lastIpSeenAt: null },
-  }
-}
 
 /** Estados del pivote en los que el equipo todavia no confirmo el movimiento. */
 const UNCONFIRMED_SYNC_STATUSES = [
@@ -110,21 +91,16 @@ export default class HealthService {
    * Salud de todos los equipos del alcance: los propios y los compartidos con
    * alguna empresa de el (VLRH-P0065, 6). Cada equipo se arma en su propio
    * scope, igual que la ficha individual: sus agregados son del aparato. Al
-   * compartido le salen sin IP ni MAC (`forGuest`).
+   * compartido le salen sin IP ni MAC (`redactHealthForGuest`).
    */
   async listFor(businessUnitIds: number[], now: DateTime): Promise<AccessPointHealthDto[]> {
     if (businessUnitIds.length === 0) return []
-    const shared = await Promise.all(businessUnitIds.map((id) => this.scope.sharedWith(id)))
-    const sharedIds = [...new Set(shared.flat())]
+    const sharedIds = await this.scope.sharedWithAny(businessUnitIds)
     // La responsable del compartido no esta en el alcance: se lee sin scope y se
     // cierra la consulta dentro del bypass (M12).
     const accessPoints = await TenantContext.runUnscoped(
       () =>
-        AccessPoint.query()
-          .where((visible) => {
-            visible.whereIn('business_unit_id', businessUnitIds)
-            if (sharedIds.length > 0) visible.orWhereIn('access_point_id', sharedIds)
-          })
+        whereVisibleTo(AccessPoint.query(), businessUnitIds, sharedIds)
           .whereNull('access_point_deleted_at')
           .orderBy('access_point_name', 'asc')
           .exec(),
@@ -138,7 +114,11 @@ export default class HealthService {
         accessPoint.businessUnitId
       )
       const row = await TenantContext.run(deviceScope, () => this.buildFor(accessPoint, now))
-      rows.push(businessUnitIds.includes(accessPoint.businessUnitId) ? row : forGuest(row))
+      rows.push(
+        ownsAccessPoint(accessPoint.businessUnitId, businessUnitIds)
+          ? row
+          : redactHealthForGuest(row)
+      )
     }
     return rows
   }

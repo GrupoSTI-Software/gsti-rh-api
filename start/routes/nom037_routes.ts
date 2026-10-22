@@ -121,3 +121,44 @@ router
   .prefix('/api')
   .use(middleware.auth())
   .use(middleware.businessScope())
+
+// VLRH-H1791306079310 — aviso de privacidad de la evidencia fotográfica del
+// puesto (NOM-037): plantilla base, estado/borrador de la empresa, publicación
+// de versiones inmutables e historial de versiones. Grupo al final para no
+// tocar el montaje de los grupos existentes. Sin `permissionGate`: el permiso
+// del módulo de teletrabajo se valida en el controller (§8). Las rutas de app
+// (`/current`, `/acknowledgements`) son de VLRH-H1791311160825 y no viven aquí.
+router
+  .group(() => {
+    router.get(
+      '/nom037/telework-photo-notice',
+      '#modules/telework-photo-notice/telework_photo_notice.controller.getState'
+    )
+    router.get(
+      '/nom037/telework-photo-notice/template',
+      '#modules/telework-photo-notice/telework_photo_notice.controller.getTemplate'
+    )
+    router.post(
+      '/nom037/telework-photo-notice/draft',
+      '#modules/telework-photo-notice/telework_photo_notice.controller.createDraft'
+    )
+    router.put(
+      '/nom037/telework-photo-notice/draft',
+      '#modules/telework-photo-notice/telework_photo_notice.controller.updateDraft'
+    )
+    router.delete(
+      '/nom037/telework-photo-notice/draft',
+      '#modules/telework-photo-notice/telework_photo_notice.controller.discardDraft'
+    )
+    router.post(
+      '/nom037/telework-photo-notice/publish',
+      '#modules/telework-photo-notice/telework_photo_notice.controller.publish'
+    )
+    router.get(
+      '/nom037/telework-photo-notice/versions',
+      '#modules/telework-photo-notice/telework_photo_notice.controller.listVersions'
+    )
+  })
+  .prefix('/api')
+  .use(middleware.auth())
+  .use(middleware.businessScope())
