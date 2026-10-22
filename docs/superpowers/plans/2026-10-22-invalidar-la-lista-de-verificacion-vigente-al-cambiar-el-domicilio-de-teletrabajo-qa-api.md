@@ -160,7 +160,7 @@ Cuerpo (`appliedAt` es la fecha de hoy en la zona de la Ciudad de México, en fo
 }
 ```
 
-Guarda el `applicationId` que devuelve: se usa en los escenarios siguientes.
+Guarda el `applicationId` que devuelve: lo usan los Pasos 4 y 5 de este escenario.
 
 **Response exacto:** `201`
 
@@ -367,7 +367,7 @@ Objetivo: comprobar que reescribir el domicilio del lugar verificado con otras m
 
 Paso 1 — registra otra visita:
 
-repite el Escenario 1, Paso 1, mismo cuerpo (mismo lugar) → devuelve `201`, con un `applicationId` nuevo y `"status": "vigente"`.
+repite el Escenario 1, Paso 1, mismo cuerpo (mismo lugar) → devuelve `201`, con un `applicationId` nuevo y `"status": "vigente"`. Guarda ese `applicationId`: lo usa el Paso 5 de este escenario.
 
 Paso 2 — vuelve a guardar el lugar escribiendo el mismo domicilio de otra forma (mayúsculas, espacios de más y el código postal vacío donde estaba en `null`):
 
@@ -624,7 +624,7 @@ Cuerpo:
 }
 ```
 
-Guarda el `employeeTeleworkLocationId` del lugar nuevo: se usa en los escenarios siguientes.
+Guarda el `employeeTeleworkLocationId` del lugar nuevo: lo usan el Escenario 5, Paso 11; el Escenario 6, Paso 1; el Escenario 7, Pasos 3 y 5; el Escenario 8, Pasos 1, 2 y 4; y el Escenario 9, Pasos 4 y 5.
 
 **Response exacto:** `201`
 
@@ -956,6 +956,8 @@ Cuerpo:
 }
 ```
 
+Guarda el `employeeTeleworkLocationId` del lugar secundario nuevo: lo usan los Pasos 3 y 4 de este escenario.
+
 Paso 3 — edita ese lugar secundario, cambiando solo su calle:
 
 **Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar secundario nuevo>`
@@ -1051,7 +1053,7 @@ Resultado: `0`: nunca tuvo lista (Rosa es presencial y el sistema no le admite l
 
 Paso 3 — registra una visita de Pedro sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`):
 
-repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`. Guarda ese `applicationId`.
+repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`. Guarda ese `applicationId`: lo usan los Pasos 4 y 6 de este escenario.
 
 Paso 4 — adelanta por la base el vencimiento de esa lista a ayer:
 
@@ -1098,7 +1100,7 @@ Objetivo: comprobar que, una vez anulada la lista, otro cambio del mismo lugar s
 
 Paso 1 — registra la visita sobre el lugar creado en el Escenario 4, Paso 2 (`Calle QA TWC Pedro Coworking`):
 
-repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`.
+repite el Escenario 1, Paso 1, cambiando solo `teleworkLocationId` por el id de ese lugar → devuelve `201`, con `"status": "vigente"`. Guarda ese `applicationId`: lo usan los Pasos 3 y 5 de este escenario.
 
 Paso 2 — cambia la calle de ese lugar:
 
