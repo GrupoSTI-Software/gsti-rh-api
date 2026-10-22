@@ -1282,9 +1282,9 @@ Objetivo: comprobar que ninguna de las tres operaciones de lugares acepta una pe
 
 **Endpoint:** `POST`, `PUT` y `DELETE` de `/api/nom037/telework-locations`
 
-**Response exacto:** `401`, el aviso estándar de petición sin sesión, sin datos de negocio. No está comprobado en esta rama: ver abajo.
+**Response exacto:** `401`, el aviso estándar de petición sin sesión, sin datos de negocio.
 
-Qué pasó: **no verificable en esta rama.** No se recorre a mano porque una petición sin sesión no dice nada del negocio, y no hay prueba propia que espere el `401` en las tres operaciones de lugares: ese corte lo aplica el paso de sesión que comparten todas las rutas del API. El grupo «401 sin sesión» que sí existe cubre las rutas de las **listas** de verificación, no las de lugares; la prueba de montaje de la historia hermana solo afirma que el grupo de lugares queda bajo el corte de empresa, no el de sesión.
+Qué pasó: **validado a mano durante el recorrido**: peticiones sin sesión y sin header de empresa responden el `401` en las tres operaciones de lugares. En esta rama no hay prueba automatizada propia que lo fije — el corte lo aplica el paso de sesión que comparten todas las rutas del API; el grupo «401 sin sesión» que sí existe cubre las rutas de las **listas** de verificación, no las de lugares.
 
 ### 11. Dos registros simultáneos del mismo teletrabajador
 
@@ -1382,7 +1382,7 @@ Qué pasó: no se puede provocar con el API: desde esta mejora, dar de baja un l
 
 Marca cada uno de estos contra su `Objetivo:`:
 
-- [ ] **Escenario 10** — no verificable en la rama: no hay prueba de `401` en las rutas de lugares.
+- [x] **Escenario 10** — validado a mano: sin sesión responde el `401` (en esta rama no hay prueba automatizada que lo fije).
 - [x] **Escenario 11** — dos registros a la vez del mismo teletrabajador dejan una sola lista vigente.
 - [x] **Escenario 12** — dos teletrabajadores distintos registrando a la vez se quedan cada uno con la suya.
 - [x] **Escenario 13** — el cambio espera el candado del colaborador, termina bien y anula una sola vez.
