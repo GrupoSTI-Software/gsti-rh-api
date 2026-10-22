@@ -6,23 +6,11 @@
 
 Ejemplo: es como la revisión de la instalación de gas de la casa. Si te mudas, la revisión que tenías ya no sirve para la casa nueva: queda tachada como anulada y hay que pedir otra para el domicilio nuevo.
 
-## Glosario
-
-- **Lista de verificación**: la revisión de las condiciones del lugar de teletrabajo, punto por punto.
-- **Vigente**: la lista que rige hoy para el teletrabajador.
-- **Invalidada**: la lista que dejó de valer por un cambio; ya no rige y no vuelve a regir.
-- **Lugar verificado**: el lugar de teletrabajo sobre el que se levantó la lista vigente.
-- **Lugar fijo pactado**: el lugar que la empresa y la persona acordaron como su sitio fijo de trabajo.
-- **Lugar ligado**: el caso en que la lista vigente apunta a un lugar verificado. Si no apunta a ninguno, manda el fijo pactado.
-- **Domicilio**: calle, número exterior, número interior, colonia, ciudad, estado, país y código postal. Son los ocho datos que cuentan como domicilio.
-- **Cambio de domicilio**: cualquiera de esos ocho datos con otro contenido. Escribir lo mismo con otras mayúsculas, con otros acentos o con espacios de más **no** es un cambio.
-- **Autor**: la persona con sesión que provocó la invalidación.
-
 Se prueba con un cliente de API (Postman, Insomnia, Bruno).
 
 ## Preparar
 
-Prerrequisito de ambiente: la base de pruebas (`sae_pruebas`) al día, es decir, con las migraciones y las semillas oficiales ya corridas (`NODE_ENV=test DB_DATABASE=sae_pruebas node ace migration:fresh --seed`). Eso deja los siete puntos de la lista y el módulo declarados en el catálogo. Sin eso, el registro de la visita sale con la lista de puntos vacía.
+Prerrequisito de ambiente: la base de pruebas (`sae_pruebas`) al día, es decir, con las migraciones y las semillas oficiales ya corridas. Eso deja los siete puntos de la lista y el módulo declarados en el catálogo. Sin eso, el registro de la visita sale con la lista de puntos vacía.
 
 Ejecutar el seeder compartido **contra la misma base del API local de pruebas**:
 
@@ -129,7 +117,7 @@ Resultado: 1 fila.
 Cuerpo (el correo es el de la cuenta del manual):
 
 ```json
-{ "userEmail": "qa-twc-full@gsti-tests.local", "userPassword": "@@QA-CLAVE@@" }
+{ "userEmail": "qa-twc-full@gsti-tests.local", "userPassword": "password" }
 ```
 
 El token sale en `data.token` y se envía en `Authorization: Bearer <token>`. La cuenta de este manual entra por el backoffice.
@@ -301,12 +289,48 @@ Paso 4 — comprueba que las respuestas de la lista siguen ahí:
 
 **Endpoint:** `GET /api/nom037/telework-checklists/<applicationId del Paso 1>`
 
-**Response exacto:** `200`, con los mismos datos del Paso 1 (`status` ya en `invalidada`, `invalidatedAt` con fecha e `invalidationReason` en `cambio_de_domicilio`) y sus siete respuestas completas, cada una con `itemId`, `code`, `label`, `result` y `observation`. Las respuestas no se tocan al anularse la lista.
+**Response exacto:** `200`
+
+```json
+{
+  "type": "success",
+  "title": "Listas de verificación de teletrabajo",
+  "message": "Aplicación de la lista de verificación obtenida correctamente.",
+  "data": {
+    "applicationId": <applicationId del Paso 1>,
+    "mode": "visita_csh",
+    "status": "invalidada",
+    "overallResult": "aprobada",
+    "appliedAt": "<hoy>",
+    "expiresAt": "<hoy + 12 meses>",
+    "revalidationPeriodMonths": 12,
+    "appliedByUserId": <id de la cuenta A>,
+    "invalidatedAt": "<fecha y hora del Paso 2>",
+    "invalidationReason": "cambio_de_domicilio",
+    "employeeId": <id de Pedro>,
+    "teleworkLocationId": <id del lugar vivo de Pedro>,
+    "inspectorName": "Lic. Marta Solis",
+    "notes": null,
+    "answers": [
+      { "itemId": <id de iluminacion>, "code": "iluminacion", "label": "Iluminación suficiente del área de trabajo", "result": "cumple", "observation": null },
+      { "itemId": <id de ventilacion_temperatura>, "code": "ventilacion_temperatura", "label": "Ventilación y temperatura adecuadas", "result": "cumple", "observation": null },
+      { "itemId": <id de mobiliario>, "code": "mobiliario", "label": "Silla y mesa adecuadas", "result": "cumple", "observation": null },
+      { "itemId": <id de instalacion_electrica>, "code": "instalacion_electrica", "label": "Instalación eléctrica sin riesgos visibles", "result": "cumple", "observation": null },
+      { "itemId": <id de orden_y_limpieza>, "code": "orden_y_limpieza", "label": "Espacio ordenado y libre de obstáculos", "result": "cumple", "observation": null },
+      { "itemId": <id de ruido>, "code": "ruido", "label": "Nivel de ruido que permite trabajar", "result": "cumple", "observation": null },
+      { "itemId": <id de primeros_auxilios_emergencia>, "code": "primeros_auxilios_emergencia", "label": "Medios para atender una emergencia", "result": "cumple", "observation": null }
+    ]
+  }
+}
+```
+
+Las respuestas no se tocan al anularse la lista: siguen completas, cada una con `itemId`, `code`, `label`, `result` y `observation`.
 
 Qué significa cada dato:
 
 - `type`: cómo salió la petición. En las que funcionan vale `success`; las que se rechazan traen `warning` o `error` y se explican en su escenario.
 - `title` / `message`: el encabezado y la frase de la respuesta.
+- Lista de verificación: la revisión de las condiciones del lugar de teletrabajo, punto por punto, que deja registrada cada visita de la Comisión.
 - `data.teleworkLocation`: el lugar ya guardado. `employeeTeleworkLocationId`: su número interno. `employeeTeleworkLocationStreet` / `...ExternalNumber` / `...InternalNumber` / `...Settlement` / `...City` / `...State` / `...Country` / `...Zipcode`: los ocho datos del domicilio (los que están en `null` no se capturaron). `employeeTeleworkLocationType`: qué clase de lugar es; puede valer `home` (la casa de la persona), `coworking` (un espacio compartido) u `other` (otro sitio). `employeeTeleworkLocationIsFixedAgreed`: puede valer `true` (sí es el sitio fijo pactado con la empresa) o `false` (no lo es). `employeeTeleworkLocationHasInternet` / `...HasAdequateEquipment`: `true` o `false` según lo declarado. `employeeTeleworkLocationConnectivityNotes`: las notas libres de conectividad, `null` si no hay. `employeeTeleworkLocationActive`: puede valer `true` (el lugar sigue vivo) o `false` (se dio de baja). `employeeTeleworkLocationCreatedAt` / `...UpdatedAt`: cuándo se registró y cuándo se guardó por última vez. `deletedAt`: `null` mientras el lugar está vivo; con fecha, cuando se dio de baja (el registro no se borra, se conserva).
 - `data.teleworkChecklistInvalidated`: si **esa** petición anuló la lista vigente. Puede valer `true` (sí: había una lista vigente y este cambio la anuló) o `false` (no: no había lista vigente, ya estaba anulada o el cambio no toca el domicilio verificado). Viene siempre en los éxitos; en los errores no aparece.
 - `status`: la vigencia de la lista. Puede valer `vigente` (rige hoy), `vencida` (pasó su fecha de revalidación y nadie la sustituyó), `invalidada` (se anuló, por ejemplo por un cambio de domicilio) o `reemplazada` (una lista más nueva la sustituyó).
@@ -360,9 +384,25 @@ Cuerpo (solo cambian la forma de la calle y el código postal; el resto igual):
   "data": {
     "teleworkLocation": {
       "employeeTeleworkLocationId": <id del lugar vivo de Pedro>,
-      "...": "los demás datos del lugar, como en el Escenario 1",
-      "employeeTeleworkLocationStreet": "CALLE QA twc Pedro Vivo 25",
-      "employeeTeleworkLocationZipcode": null
+      "employeeId": <id de Pedro>,
+      "businessUnitId": <id interno de la empresa A>,
+      "employeeTeleworkLocationType": "home",
+      "employeeTeleworkLocationStreet": "CALLE  QA  twc Pedro Vivo  25",
+      "employeeTeleworkLocationExternalNumber": null,
+      "employeeTeleworkLocationInternalNumber": null,
+      "employeeTeleworkLocationSettlement": null,
+      "employeeTeleworkLocationCity": "Ciudad de Mexico",
+      "employeeTeleworkLocationState": "Ciudad de Mexico",
+      "employeeTeleworkLocationCountry": "México",
+      "employeeTeleworkLocationZipcode": "",
+      "employeeTeleworkLocationIsFixedAgreed": true,
+      "employeeTeleworkLocationHasInternet": false,
+      "employeeTeleworkLocationHasAdequateEquipment": false,
+      "employeeTeleworkLocationConnectivityNotes": null,
+      "employeeTeleworkLocationActive": true,
+      "employeeTeleworkLocationCreatedAt": "<fecha y hora>",
+      "employeeTeleworkLocationUpdatedAt": "<fecha y hora>",
+      "deletedAt": null
     },
     "teleworkChecklistInvalidated": false
   }
@@ -377,8 +417,8 @@ En la respuesta, `current` ya no es `null`: trae el `applicationId` del Paso 1 c
 
 Qué significa lo nuevo aquí:
 
-- `employeeTeleworkLocationZipcode` con `null`: el código postal que se mandó vacío (`""`) se guarda como sin dato; vacío y sin dato son el mismo domicilio.
-- `employeeTeleworkChecklistInvalidated`… perdón, `teleworkChecklistInvalidated` con `false`: la petición no anuló nada.
+- `employeeTeleworkLocationStreet` / `...Zipcode`: se guardan **solo recortados en los extremos**, no «limpios». La comparación con el domicilio verificado ignora los espacios repetidos, las mayúsculas y el vacío, pero lo guardado no: la calle conserva sus espacios dobles y el código postal queda en `""` (vacío capturado), no en `null`. Por eso el domicilio sigue siendo el mismo y la lista no se anula, aunque el valor guardado no se vea ordenado.
+- `teleworkChecklistInvalidated`: el dato ya explicado en el Escenario 1; aquí vale `false` porque esta petición no anuló nada.
 - `current` con datos: el teletrabajador tiene lista vigente; es la que se registró en el Paso 1.
 
 ### 3. Dar de baja el lugar verificado anula la lista vigente
@@ -401,8 +441,24 @@ Paso 2 — da de baja ese lugar:
   "data": {
     "teleworkLocation": {
       "employeeTeleworkLocationId": <id del lugar secundario de Pedro>,
-      "...": "los demás datos del lugar, como en el Escenario 1",
+      "employeeId": <id de Pedro>,
+      "businessUnitId": <id interno de la empresa A>,
+      "employeeTeleworkLocationType": "home",
+      "employeeTeleworkLocationStreet": "Calle QA TWC Pedro Secundaria",
+      "employeeTeleworkLocationExternalNumber": null,
+      "employeeTeleworkLocationInternalNumber": null,
+      "employeeTeleworkLocationSettlement": null,
+      "employeeTeleworkLocationCity": "Ciudad de Mexico",
+      "employeeTeleworkLocationState": "Ciudad de Mexico",
+      "employeeTeleworkLocationCountry": "México",
+      "employeeTeleworkLocationZipcode": null,
+      "employeeTeleworkLocationIsFixedAgreed": false,
+      "employeeTeleworkLocationHasInternet": false,
+      "employeeTeleworkLocationHasAdequateEquipment": false,
+      "employeeTeleworkLocationConnectivityNotes": null,
       "employeeTeleworkLocationActive": false,
+      "employeeTeleworkLocationCreatedAt": "<fecha y hora de la siembra>",
+      "employeeTeleworkLocationUpdatedAt": "<fecha y hora de la baja>",
       "deletedAt": "<fecha y hora de la baja>"
     },
     "teleworkChecklistInvalidated": true
@@ -477,10 +533,21 @@ Guarda el `employeeTeleworkLocationId` del lugar nuevo: se usa en los escenarios
       "businessUnitId": <id interno de la empresa A>,
       "employeeTeleworkLocationType": "coworking",
       "employeeTeleworkLocationStreet": "Calle QA TWC Pedro Coworking",
+      "employeeTeleworkLocationExternalNumber": null,
+      "employeeTeleworkLocationInternalNumber": null,
+      "employeeTeleworkLocationSettlement": null,
+      "employeeTeleworkLocationCity": "Ciudad de Mexico",
+      "employeeTeleworkLocationState": "Ciudad de Mexico",
+      "employeeTeleworkLocationCountry": "México",
+      "employeeTeleworkLocationZipcode": null,
       "employeeTeleworkLocationIsFixedAgreed": true,
+      "employeeTeleworkLocationHasInternet": true,
+      "employeeTeleworkLocationHasAdequateEquipment": true,
+      "employeeTeleworkLocationConnectivityNotes": null,
       "employeeTeleworkLocationActive": true,
-      "deletedAt": null,
-      "...": "los demás datos del lugar, como en el Escenario 1"
+      "employeeTeleworkLocationCreatedAt": "<fecha y hora del alta>",
+      "employeeTeleworkLocationUpdatedAt": "<fecha y hora del alta>",
+      "deletedAt": null
     },
     "teleworkChecklistInvalidated": true
   }
@@ -495,25 +562,70 @@ Paso 5 — registra un segundo lugar ya marcado como fijo pactado, ahora con **e
 
 **Endpoint:** `POST /api/nom037/telework-locations`
 
-Cuerpo: el del Paso 2 cambiando solo la calle y el tipo de lugar:
+Cuerpo:
 
 ```json
 {
   "employeeId": <id de Pedro>,
   "employeeTeleworkLocationType": "home",
   "employeeTeleworkLocationStreet": "  calle qa twc pedro vivo 25 ",
-  "...": "los demás datos del lugar, como en el Paso 2"
+  "employeeTeleworkLocationExternalNumber": null,
+  "employeeTeleworkLocationInternalNumber": null,
+  "employeeTeleworkLocationSettlement": null,
+  "employeeTeleworkLocationCity": "Ciudad de Mexico",
+  "employeeTeleworkLocationState": "Ciudad de Mexico",
+  "employeeTeleworkLocationCountry": "México",
+  "employeeTeleworkLocationZipcode": null,
+  "employeeTeleworkLocationIsFixedAgreed": true,
+  "employeeTeleworkLocationHasInternet": true,
+  "employeeTeleworkLocationHasAdequateEquipment": true,
+  "employeeTeleworkLocationConnectivityNotes": null
 }
 ```
 
-**Response exacto:** `201`, con `"teleworkChecklistInvalidated": false` y el lugar nuevo con la calle guardada tal como se escribió.
+**Response exacto:** `201`
+
+```json
+{
+  "type": "success",
+  "title": "Lugar de teletrabajo",
+  "message": "El lugar de teletrabajo se registró correctamente.",
+  "data": {
+    "teleworkLocation": {
+      "employeeTeleworkLocationId": <id del segundo lugar nuevo>,
+      "employeeId": <id de Pedro>,
+      "businessUnitId": <id interno de la empresa A>,
+      "employeeTeleworkLocationType": "home",
+      "employeeTeleworkLocationStreet": "calle qa twc pedro vivo 25",
+      "employeeTeleworkLocationExternalNumber": null,
+      "employeeTeleworkLocationInternalNumber": null,
+      "employeeTeleworkLocationSettlement": null,
+      "employeeTeleworkLocationCity": "Ciudad de Mexico",
+      "employeeTeleworkLocationState": "Ciudad de Mexico",
+      "employeeTeleworkLocationCountry": "México",
+      "employeeTeleworkLocationZipcode": null,
+      "employeeTeleworkLocationIsFixedAgreed": true,
+      "employeeTeleworkLocationHasInternet": true,
+      "employeeTeleworkLocationHasAdequateEquipment": true,
+      "employeeTeleworkLocationConnectivityNotes": null,
+      "employeeTeleworkLocationActive": true,
+      "employeeTeleworkLocationCreatedAt": "<fecha y hora del alta>",
+      "employeeTeleworkLocationUpdatedAt": "<fecha y hora del alta>",
+      "deletedAt": null
+    },
+    "teleworkChecklistInvalidated": false
+  }
+}
+```
+
+La calle queda guardada recortada en los extremos (`calle qa twc pedro vivo 25`): los espacios de más se ignoran al comparar, no al guardar.
 
 Paso 6 — comprueba la lista: `GET /api/nom037/telework-checklists/employees/<id de Pedro>` → `200`, con `current` con la lista del Paso 4 en `"status": "vigente"`.
 
 Qué significa lo nuevo aquí:
 
 - `employeeTeleworkLocationIsFixedAgreed` en `true` en el cuerpo: se está pidiendo que ese lugar quede como el sitio fijo pactado. El sistema deja como fijo pactado a un solo lugar del colaborador: al marcarlo, desmarca el que estuviera marcado.
-- `teleworkChecklistInvalidated` con `true` en el Paso 2 y `false` en el Paso 5: el domicilio del nuevo fijo decide. Distinto al verificado, anula; el mismo domicilio escrito de otra forma, no.
+- `teleworkChecklistInvalidated`: el dato ya explicado en el Escenario 1; aquí vale `true` en el Paso 2 y `false` en el Paso 5, porque el domicilio del nuevo fijo es el que decide.
 
 ### 5. El fijo pactado manda cuando la lista no tiene lugar ligado
 
@@ -548,7 +660,7 @@ Comprueba la lista: `GET /api/nom037/telework-checklists/employees/<id de Pedro>
 Qué significa lo nuevo aquí:
 
 - `teleworkLocationId` con `null` en la lista: la visita se registró sin lugar, así que la referencia es el **fijo pactado** del colaborador.
-- `teleworkChecklistInvalidated` con `false` en el Paso 7: marcar el primer fijo cuando no había ninguno no anula nada; la lista no cambia de referencia porque antes no tenía.
+- `teleworkChecklistInvalidated`: el dato ya explicado en el Escenario 1; en el Paso 7 vale `false` porque marcar el primer fijo, cuando no había ninguno, no cambia la referencia de la lista.
 - (Los demás datos son los ya explicados en el Escenario 1.)
 
 ### 6. Un lugar secundario que no es el verificado no anula nada
@@ -561,15 +673,24 @@ Paso 2 — registra un lugar secundario, sin la marca de fijo pactado:
 
 **Endpoint:** `POST /api/nom037/telework-locations`
 
-Cuerpo: el del Escenario 4 (Paso 2) cambiando la calle y dejando `"employeeTeleworkLocationIsFixedAgreed": false`:
+Cuerpo:
 
 ```json
 {
   "employeeId": <id de Pedro>,
   "employeeTeleworkLocationType": "coworking",
   "employeeTeleworkLocationStreet": "Calle QA TWC Pedro Secundario Dos",
-  "...": "los demás datos del lugar, como en el Escenario 4",
-  "employeeTeleworkLocationIsFixedAgreed": false
+  "employeeTeleworkLocationExternalNumber": null,
+  "employeeTeleworkLocationInternalNumber": null,
+  "employeeTeleworkLocationSettlement": null,
+  "employeeTeleworkLocationCity": "Ciudad de Mexico",
+  "employeeTeleworkLocationState": "Ciudad de Mexico",
+  "employeeTeleworkLocationCountry": "México",
+  "employeeTeleworkLocationZipcode": null,
+  "employeeTeleworkLocationIsFixedAgreed": false,
+  "employeeTeleworkLocationHasInternet": true,
+  "employeeTeleworkLocationHasAdequateEquipment": true,
+  "employeeTeleworkLocationConnectivityNotes": null
 }
 ```
 
@@ -583,11 +704,25 @@ Cuerpo: el del Escenario 4 (Paso 2) cambiando la calle y dejando `"employeeTelew
   "data": {
     "teleworkLocation": {
       "employeeTeleworkLocationId": <id del lugar secundario nuevo>,
+      "employeeId": <id de Pedro>,
+      "businessUnitId": <id interno de la empresa A>,
+      "employeeTeleworkLocationType": "coworking",
       "employeeTeleworkLocationStreet": "Calle QA TWC Pedro Secundario Dos",
+      "employeeTeleworkLocationExternalNumber": null,
+      "employeeTeleworkLocationInternalNumber": null,
+      "employeeTeleworkLocationSettlement": null,
+      "employeeTeleworkLocationCity": "Ciudad de Mexico",
+      "employeeTeleworkLocationState": "Ciudad de Mexico",
+      "employeeTeleworkLocationCountry": "México",
+      "employeeTeleworkLocationZipcode": null,
       "employeeTeleworkLocationIsFixedAgreed": false,
+      "employeeTeleworkLocationHasInternet": true,
+      "employeeTeleworkLocationHasAdequateEquipment": true,
+      "employeeTeleworkLocationConnectivityNotes": null,
       "employeeTeleworkLocationActive": true,
-      "deletedAt": null,
-      "...": "los demás datos del lugar, como en el Escenario 1"
+      "employeeTeleworkLocationCreatedAt": "<fecha y hora del alta>",
+      "employeeTeleworkLocationUpdatedAt": "<fecha y hora del alta>",
+      "deletedAt": null
     },
     "teleworkChecklistInvalidated": false
   }
@@ -598,7 +733,7 @@ Paso 3 — comprueba la lista: `GET /api/nom037/telework-checklists/employees/<i
 
 Qué significa lo nuevo aquí:
 
-- `teleworkChecklistInvalidated` con `false`: el lugar nuevo no es el verificado ni quedó como fijo pactado, así que la lista vigente sigue sobre el mismo domicilio de siempre.
+- `teleworkChecklistInvalidated`: el dato ya explicado en el Escenario 1; aquí vale `false` porque el lugar nuevo no es el verificado ni quedó como fijo pactado, así que la lista sigue sobre el mismo domicilio de siempre.
 - (Los demás datos son los ya explicados en el Escenario 1.)
 
 ### 7. Sin lista vigente —o con la última ya vencida— el cambio se guarda igual
@@ -653,8 +788,8 @@ Paso 7 — pide el historial: `GET /api/nom037/telework-checklists/employees/<id
 
 Qué significa lo nuevo aquí:
 
-- `teleworkChecklistInvalidated` con `false` en los dos cambios: solo se anula la lista **vigente**; sin vigente (o con la última ya vencida) el lugar se guarda normal.
-- `status` con `vencida`: la lista pasó su fecha de revalidación y nadie la sustituyó; por eso no cuenta como la vigente.
+- `teleworkChecklistInvalidated`: el dato ya explicado en el Escenario 1; en los dos cambios vale `false` porque solo se anula la lista **vigente** y aquí no la hay.
+- `status` con `vencida`: el valor ya explicado en el Escenario 1; por eso esta lista no cuenta como la vigente.
 - La anulación no aparece: ni fecha ni motivo en la lista del Paso 3.
 
 ### 8. Un segundo cambio no vuelve a anular ni cambia la fecha ni el autor
@@ -695,11 +830,9 @@ Objetivo: comprobar que la cuenta de la empresa A, aun con todos sus permisos, n
 
 Usuario: **A**. Todas las peticiones de este escenario llevan el header `X-Business-Unit-Id` con el **código público de la empresa A**.
 
-Paso 1 — edita el lugar de la empresa B:
+Paso 1 — edita el lugar de la empresa B (el que tiene la calle `Calle QA TWC Bruno Viva`) mandando el cuerpo del Escenario 1, Paso 2, tal cual: un `PUT` no lleva `employeeId`.
 
-**Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar de Bruno>` (el lugar de la empresa B cuya calle es `Calle QA TWC Bruno Viva`), con el cuerpo del Escenario 1 pero `"employeeId"` no se manda en un `PUT`):
-
-Usa el cuerpo del Escenario 1 (el lugar no es el de Pedro; aquí solo se prueba el corte).
+**Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar de Bruno>`
 
 **Response exacto:** `404`
 
@@ -768,37 +901,59 @@ Lo que no se puede provocar a mano con un cliente de API lo resolvieron las prue
 
 Objetivo: comprobar que ninguna de las tres operaciones de lugares acepta una petición sin sesión, ni con el header de la empresa.
 
-**Response exacto:** `401` (el aviso estándar de petición sin sesión; no trae datos de negocio).
+**Endpoint:** `POST`, `PUT` y `DELETE` de `/api/nom037/telework-locations`
 
-Qué pasó: no se recorre a mano porque una petición sin sesión no dice nada del negocio. Lo cubren las pruebas automáticas del módulo: el grupo «401 sin sesión» de los endpoints de la lista comprueba ese corte en la lista, y la prueba de montaje de rutas comprueba que el grupo de lugares de teletrabajo queda bajo la exigencia de sesión.
+**Response exacto:** `401`, el aviso estándar de petición sin sesión, sin datos de negocio. No está comprobado en esta rama: ver abajo.
+
+Qué pasó: **no verificable en esta rama.** No se recorre a mano porque una petición sin sesión no dice nada del negocio, y no hay prueba propia que espere el `401` en las tres operaciones de lugares: ese corte lo aplica el paso de sesión que comparten todas las rutas del API. El grupo «401 sin sesión» que sí existe cubre las rutas de las **listas** de verificación, no las de lugares; la prueba de montaje de la historia hermana solo afirma que el grupo de lugares queda bajo el corte de empresa, no el de sesión.
 
 ### 11. Dos registros simultáneos del mismo teletrabajador
 
 Objetivo: comprobar que dos visitas registradas a la vez para el mismo colaborador nunca dejan dos listas vigentes: la base admite una sola por colaborador.
 
-**Response exacto:** una de las dos peticiones devuelve `201` con su lista y la otra no deja una segunda vigente (el rechazo por choque simultáneo); nunca quedan dos.
+**Endpoint:** `POST /api/nom037/telework-checklists` (las dos peticiones, a la vez)
 
-Qué pasó: no se puede provocar de forma fiable desde un cliente HTTP a mano. Lo cubre la prueba automática de concurrencia «dos registros simultáneos del mismo empleado dejan una sola vigente»: la garantía la da la regla de la base de a lo sumo una lista vigente por colaborador.
+**Response exacto:** una de las dos devuelve `201` con el cuerpo del Escenario 1, Paso 1 (la lista vigente de ese colaborador); la otra devuelve `409`
+
+```json
+{
+  "type": "error",
+  "title": "Aplicación concurrente",
+  "detail": "Otra persona está registrando la lista de este colaborador; inténtalo de nuevo.",
+  "key": "aplicacion-concurrente",
+  "code": "TWC.CONF.002"
+}
+```
+
+Nunca quedan dos vigentes.
+
+Qué pasó: no se puede provocar de forma fiable desde un cliente HTTP a mano. Lo cubre la prueba automática CA-11 «dos POST simultáneos del mismo empleado dejan una sola vigente»: la garantía la da la regla de la base de a lo sumo una lista vigente por colaborador.
 
 ### 12. Dos registros simultáneos de teletrabajadores distintos
 
 Objetivo: comprobar que el tope de una lista vigente por colaborador no estorba a los demás: dos teletrabajadores distintos registrando a la vez se quedan cada uno con la suya.
 
-**Response exacto:** `201` en las dos peticiones, cada una con la lista vigente de su colaborador.
+**Endpoint:** `POST /api/nom037/telework-checklists` (las dos peticiones, a la vez, una por colaborador)
 
-Qué pasó: no se puede provocar de forma fiable a mano. Lo cubre la prueba automática de concurrencia «dos registros simultáneos de empleados distintos dejan dos vigentes».
+**Response exacto:** `201` en las dos, cada una con el cuerpo del Escenario 1, Paso 1 y el `employeeId` de su propio colaborador.
+
+Qué pasó: no se puede provocar de forma fiable a mano. Lo cubre la prueba automática Review Focus 4 «dos POST simultáneos de empleados distintos dejan dos vigentes».
 
 ### 13. El candado del colaborador (un cambio de lugar que espera)
 
 Objetivo: comprobar que el cambio de un lugar se pone en fila si otro proceso tiene tomado al colaborador, y que al liberarse termina bien: anula la lista una sola vez y sin trabarse.
 
-**Response exacto:** mientras el colaborador está tomado, la respuesta no llega; al liberarlo, `200` con `"teleworkChecklistInvalidated": true`, la lista anulada una sola vez y sin error de bloqueo.
+**Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar vivo de Pedro>`
+
+**Response exacto:** mientras el colaborador está tomado, la respuesta no llega; al liberarlo, `200` con el cuerpo del Escenario 1, Paso 2 (el lugar con la calle cambiada) y `"teleworkChecklistInvalidated": true`, la lista anulada una sola vez y sin error de bloqueo.
 
 Qué pasó: no se puede provocar a mano (haría falta retener a propósito la operación sobre el colaborador). Lo cubre la prueba automática CA-17 «el PUT espera el candado del colaborador y completa sin deadlock».
 
 ### 14. Un fallo dentro de la operación (500, y nada a medias)
 
 Objetivo: comprobar que si la anulación de la lista falla por dentro, no queda nada a medias: el domicilio conserva su valor anterior, el fijo pactado anterior sigue igual y la lista sigue vigente, y quien probó recibe el aviso de error inesperado.
+
+**Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar vivo de Pedro>`
 
 **Response exacto:** `500`
 
@@ -817,15 +972,28 @@ Qué pasó: no se puede provocar a mano (habría que hacer fallar por dentro la 
 
 ### 15. Lo que queda registrado del error
 
-Objetivo: comprobar que el registro del error no deja escapar el domicilio: solo ids (colaborador, lugar, empresa) y el nombre del error, nunca el cuerpo enviado, la calle, los números, la colonia, la ciudad, el estado, el país, el código postal ni el texto del error original.
+Objetivo: comprobar que el registro del error no deja escapar el domicilio: solo ids (lugar y empresa; el del colaborador solo cuando la operación lo conoce), el nombre del error y un texto fijo, nunca el cuerpo enviado, la calle, los números, la colonia, la ciudad, el estado, el país, el código postal ni el texto del error original.
 
-**Qué debe verse:** en el registro del error aparecen solo el id del colaborador, el del lugar, el de la empresa y el nombre del error; ningún dato del domicilio. La respuesta al cliente es el `500` ya escrito en el Escenario 14.
+**Endpoint:** `PUT /api/nom037/telework-locations/<id del lugar vivo de Pedro>` (el que hace fallar la anulación)
 
-Qué pasó: no se recorre a mano. Lo cubre la prueba automática CA-18 «el log del 500 lleva solo ids y nombre del error, sin domicilio».
+**Response exacto:** `500`
+
+```json
+{
+  "type": "error",
+  "title": "Lugar de teletrabajo",
+  "message": "Ocurrió un error inesperado al procesar el lugar de teletrabajo.",
+  "key": "error-inesperado",
+  "code": "TWL.SYS.001",
+  "data": null
+}
+```
+
+Qué pasó: no se recorre a mano. Lo cubre la prueba automática CA-18 «el log del 500 lleva solo ids y nombre del error, sin domicilio»: en el camino del `PUT` el registro lleva el id del lugar, el de la empresa y el nombre del error, con el id del colaborador en `null` (esa operación no lo conoce de antemano), y ningún dato del domicilio ni el texto del error original.
 
 Marca cada uno de estos contra su `Objetivo:`:
 
-- [ ] **Escenario 10** — sin sesión, ninguna de las tres operaciones contesta datos.
+- [ ] **Escenario 10** — no verificable en la rama: no hay prueba de `401` en las rutas de lugares.
 - [ ] **Escenario 11** — dos registros a la vez del mismo teletrabajador dejan una sola lista vigente.
 - [ ] **Escenario 12** — dos teletrabajadores distintos registrando a la vez se quedan cada uno con la suya.
 - [ ] **Escenario 13** — el cambio espera el candado del colaborador, termina bien y anula una sola vez.
