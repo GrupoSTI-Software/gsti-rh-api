@@ -29,23 +29,33 @@ export function accessPointRoleOf(
   return deviceScope.some((id) => requestScope.includes(id)) ? 'guest' : null
 }
 
+/** El grupo entre parentesis donde vive el `OR` del predicado. */
+export interface VisibilityGroup {
+  whereIn(column: string, values: number[]): unknown
+  orWhereIn(column: string, values: number[]): unknown
+}
+
 /** Lo minimo que `whereVisibleTo` necesita de un query builder. */
 export interface VisibilityQuery {
-  whereIn: (column: string, values: number[]) => unknown
-  orWhereIn: (column: string, values: number[]) => unknown
+  where(group: (query: VisibilityGroup) => void): unknown
 }
 
 /**
  * Predicado de las listas: las filas de las empresas propias y las de los
- * aparatos compartidos con ellas. Va dentro de un `where(...)` agrupado para
- * que el `OR` no escape del resto de los filtros. Cada lista decide su alcance
- * de entrada y corta antes si viene vacio.
+ * aparatos compartidos con ellas. Siempre va en su propio grupo entre
+ * parentesis: el `OR` no puede escapar del resto de los filtros aunque el
+ * llamador encadene otros `where`, que dentro de `runUnscoped` seria una fuga
+ * entre empresas. Devuelve la misma consulta para seguir encadenando. Cada
+ * lista decide su alcance de entrada y corta antes si viene vacio.
  */
-export function whereVisibleTo(
-  query: VisibilityQuery,
+export function whereVisibleTo<Q extends VisibilityQuery>(
+  query: Q,
   ownedScope: number[],
   sharedIds: number[]
-): void {
-  query.whereIn('business_unit_id', ownedScope)
-  if (sharedIds.length > 0) query.orWhereIn('access_point_id', sharedIds)
+): Q {
+  query.where((group) => {
+    group.whereIn('business_unit_id', ownedScope)
+    if (sharedIds.length > 0) group.orWhereIn('access_point_id', sharedIds)
+  })
+  return query
 }

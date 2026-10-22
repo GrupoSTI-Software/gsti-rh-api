@@ -69,14 +69,10 @@ export default class AccessPointService {
     const sharedIds = visible ? await this.scope.sharedWith(filters.businessUnitId) : []
     return TenantContext.runUnscoped(
       () =>
-        AccessPoint.query()
-          .where((scope) => {
-            if (!visible) {
-              scope.whereRaw('1 = 0')
-              return
-            }
-            whereVisibleTo(scope, [filters.businessUnitId], sharedIds)
-          })
+        (visible
+          ? whereVisibleTo(AccessPoint.query(), [filters.businessUnitId], sharedIds)
+          : AccessPoint.query().whereRaw('1 = 0')
+        )
           .whereNull('access_point_deleted_at')
           .if(filters.search, (query) => {
             query.whereRaw('UPPER(access_point_name) LIKE ?', [

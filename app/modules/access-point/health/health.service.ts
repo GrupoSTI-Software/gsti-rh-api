@@ -100,8 +100,7 @@ export default class HealthService {
     // cierra la consulta dentro del bypass (M12).
     const accessPoints = await TenantContext.runUnscoped(
       () =>
-        AccessPoint.query()
-          .where((visible) => whereVisibleTo(visible, businessUnitIds, sharedIds))
+        whereVisibleTo(AccessPoint.query(), businessUnitIds, sharedIds)
           .whereNull('access_point_deleted_at')
           .orderBy('access_point_name', 'asc')
           .exec(),

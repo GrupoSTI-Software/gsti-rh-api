@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import db from '@adonisjs/lucid/services/db'
 import {
   accessPointRoleOf,
   ownsAccessPoint,
@@ -46,30 +47,27 @@ test.group('accessPointRoleOf', () => {
   })
 })
 
+/**
+ * SQL que arma el builder de Lucid, sin ejecutarlo: el `OR` queda en su propio
+ * grupo aunque el llamador encadene otro filtro despues (W4 de la r1).
+ */
 test.group('whereVisibleTo', () => {
-  const recorder = () => {
-    const calls: Array<[string, string, number[]]> = []
-    return {
-      calls,
-      query: {
-        whereIn: (column: string, values: number[]) => calls.push(['whereIn', column, values]),
-        orWhereIn: (column: string, values: number[]) => calls.push(['orWhereIn', column, values]),
-      },
-    }
-  }
+  const sqlOf = (ownedScope: number[], sharedIds: number[]) =>
+    whereVisibleTo(db.from('access_points'), ownedScope, sharedIds)
+      .whereNull('access_point_deleted_at')
+      .toQuery()
 
-  test('propios y compartidos', ({ assert }) => {
-    const { calls, query } = recorder()
-    whereVisibleTo(query, [OWNER], [7, 8])
-    assert.deepEqual(calls, [
-      ['whereIn', 'business_unit_id', [OWNER]],
-      ['orWhereIn', 'access_point_id', [7, 8]],
-    ])
+  test('propios y compartidos, con el OR agrupado', ({ assert }) => {
+    assert.equal(
+      sqlOf([OWNER], [7, 8]),
+      'select * from `access_points` where (`business_unit_id` in (10) or `access_point_id` in (7, 8)) and `access_point_deleted_at` is null'
+    )
   })
 
   test('sin compartidos no agrega el OR', ({ assert }) => {
-    const { calls, query } = recorder()
-    whereVisibleTo(query, [OWNER, GUEST], [])
-    assert.deepEqual(calls, [['whereIn', 'business_unit_id', [OWNER, GUEST]]])
+    assert.equal(
+      sqlOf([OWNER, GUEST], []),
+      'select * from `access_points` where (`business_unit_id` in (10, 20)) and `access_point_deleted_at` is null'
+    )
   })
 })

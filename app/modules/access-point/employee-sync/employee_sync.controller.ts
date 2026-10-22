@@ -640,8 +640,7 @@ async function availableFor(
    * incluye a sus responsables.
    */
   const sharedIds = await sharing.sharedWith(employeeBusinessUnitId)
-  const accessPoints = await AccessPoint.query()
-    .where((scope) => whereVisibleTo(scope, businessUnitIds, sharedIds))
+  const accessPoints = await whereVisibleTo(AccessPoint.query(), businessUnitIds, sharedIds)
     .where('access_point_active', 1)
     .orderBy('access_point_name', 'asc')
 

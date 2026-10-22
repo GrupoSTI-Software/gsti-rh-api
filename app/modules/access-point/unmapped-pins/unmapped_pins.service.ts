@@ -105,8 +105,7 @@ export default class UnmappedPinsService {
     sharedIds: number[],
     status?: string
   ): Promise<UnmappedPinRow[]> {
-    const rows = await AdmsUnmappedPin.query()
-      .where((visible) => whereVisibleTo(visible, businessUnitIds, sharedIds))
+    const rows = await whereVisibleTo(AdmsUnmappedPin.query(), businessUnitIds, sharedIds)
       .if(status !== undefined, (query) =>
         query.where('adms_unmapped_pin_status', status as string)
       )
@@ -485,10 +484,11 @@ export default class UnmappedPinsService {
         ? null
         : await TenantContext.runUnscoped(
             () =>
-              AdmsUnmappedPin.query()
-                .where('adms_unmapped_pin_id', unmappedPinId)
-                .where((visible) => whereVisibleTo(visible, businessUnitIds, sharedIds))
-                .first(),
+              whereVisibleTo(
+                AdmsUnmappedPin.query().where('adms_unmapped_pin_id', unmappedPinId),
+                businessUnitIds,
+                sharedIds
+              ).first(),
             TENANT_UNSCOPED_REASON.ACCESS_POINT_SHARING
           )
     if (row) return row
