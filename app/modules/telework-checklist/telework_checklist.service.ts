@@ -26,6 +26,7 @@ import type {
   AnswerInput,
   ApplicationDetailDto,
   ApplicationSummaryDto,
+  CurrentApplicationLocationRef,
   EmployeeApplicationsDto,
   TeleworkChecklistRegistrationInput,
 } from './dto/telework_checklist.dto.js'
@@ -229,6 +230,35 @@ export default class TeleworkChecklistService {
 
     if (trx) return run(trx)
     return db.transaction(run)
+  }
+
+  /**
+   * Vigente efectiva del colaborador con el lugar que verificó, dentro del `trx`
+   * recibido. Toma el candado del colaborador (`FOR UPDATE`) y vuelve a leer la
+   * fila bajo ese candado, para que la decisión de quien llama sea consistente
+   * con lo que escribe en la misma transacción. `trx` es obligatorio: quien llama
+   * ya abrió la transacción y tomó el candado en el orden correcto (empleado →
+   * lugar → lista). No materializa `vencida`: si la fila persistida ya venció por
+   * fecha, devuelve `null` sin escribir nada.
+   */
+  async findCurrentEffective(
+    businessUnitId: number,
+    employeeId: number,
+    trx: TransactionClientContract
+  ): Promise<CurrentApplicationLocationRef | null> {
+    this.assertScopeResolved(businessUnitId)
+
+    await this.repository.lockEmployeeRow(businessUnitId, employeeId, trx)
+
+    const current = await this.repository.findCurrentPersisted(businessUnitId, employeeId, trx)
+    if (!current) return null
+
+    if (!this.isCurrentEffective(current, this.today())) return null
+
+    return {
+      applicationId: current.applicationId,
+      teleworkLocationId: current.teleworkLocationId,
+    }
   }
 
   /**

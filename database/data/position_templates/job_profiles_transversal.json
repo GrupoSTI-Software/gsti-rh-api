@@ -1,0 +1,3339 @@
+{
+  "version_formato": 1,
+  "idioma": "es",
+  "descripcion": "Puestos tipo transversales, comunes a cualquier giro, en revisión (VLRH-H1792026439608).",
+  "puestos": [
+    {
+      "codigo": "pt-trv-director-general",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Director general",
+      "codigo_sinco": "1122",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Dirige la empresa en su conjunto: define el rumbo, aprueba los planes de cada área y responde ante los socios por los resultados operativos y financieros.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "1122",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que la empresa cumpla sus metas de crecimiento, rentabilidad y servicio de forma sostenible y dentro de la ley.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Licenciatura en administración, ingeniería o carrera afín; experiencia de varios años al frente de áreas o unidades de negocio.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Definir el plan estratégico y las metas anuales de la empresa",
+          "frecuencia": "Anual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-1011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Aprobar el presupuesto anual y dar seguimiento a su ejercicio",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-1011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Revisar con cada gerencia los indicadores de su área y acordar acciones",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-1011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Informar a los socios o al consejo sobre los resultados de la empresa",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "1122",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Autorizar las inversiones, contratos y gastos que superan el límite de cada gerencia",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Representar a la empresa ante clientes clave, autoridades y organismos del sector",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "1122",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Designar a los responsables de cada área y evaluar su desempeño",
+          "frecuencia": "Anual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-1011.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Liderazgo",
+          "tipo": "functional",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-1011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Pensamiento estratégico",
+          "tipo": "functional",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-1011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Toma de decisiones",
+          "tipo": "functional",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-1011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Negociación",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-1011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Interpretación de estados financieros",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-1011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Comunicación efectiva",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora portátil",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Teléfono celular de la empresa",
+          "tipo_activo_sugerido": {
+            "nombre": "Teléfono celular"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-gerente-administracion-finanzas",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Gerente de administración y finanzas",
+      "codigo_sinco": "1212",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Dirige la contabilidad, la tesorería, el presupuesto y los servicios administrativos de la empresa, y vigila su situación financiera.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "1212",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que la empresa tenga finanzas sanas, información financiera confiable y oportuna, y cumpla sus obligaciones fiscales.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Licenciatura en contaduría, finanzas o administración; experiencia en dirección de áreas contables o financieras.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Coordinar la elaboración del presupuesto anual con las demás áreas",
+          "frecuencia": "Anual",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "1212",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Revisar los estados financieros mensuales y explicar sus variaciones a la dirección",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3031.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Programar los pagos a proveedores y vigilar el flujo de efectivo",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3031.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Supervisar el cumplimiento de las obligaciones fiscales y de seguridad social",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Negociar con bancos las líneas de crédito y los servicios financieros",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3031.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Coordinar las auditorías internas y externas, y dar seguimiento a sus observaciones",
+          "frecuencia": "Anual",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "1212",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Establecer los controles internos sobre gastos, compras e inventarios",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Liderazgo",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3031.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Interpretación de estados financieros",
+          "tipo": "technical",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3031.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Elaboración y control de presupuestos",
+          "tipo": "technical",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3031.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Legislación fiscal mexicana",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Toma de decisiones",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3031.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Pensamiento analítico",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3031.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora portátil",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Sistema de planeación de recursos empresariales (ERP)",
+          "tipo_activo_sugerido": {
+            "nombre": "Licencia de software"
+          },
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3031.00",
+            "adaptado": true
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-asistente-direccion",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Asistente de dirección",
+      "codigo_sinco": "3111",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Apoya a la dirección en su agenda, correspondencia, documentos y comunicación con el resto de la empresa y con terceros.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "3111",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que la dirección tenga su agenda, documentos y pendientes en orden para dedicarse a decidir.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Bachillerato o carrera técnica en administración o secretariado; manejo de paquetería de oficina.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Organizar la agenda de la dirección y confirmar sus citas y reuniones",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "3111",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Atender llamadas y correos dirigidos a la dirección y canalizarlos a quien corresponda",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "3111",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Redactar oficios, minutas y comunicados por encargo de la dirección",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-6011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Preparar la documentación y las salas para juntas",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-6011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Dar seguimiento a los acuerdos de las juntas con cada responsable",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Organizar viajes, traslados y viáticos de la dirección",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-6011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Mantener el archivo físico y digital de la dirección",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "3111",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Organización y planeación",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-6011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Manejo de información confidencial",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Redacción de documentos",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-6011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Manejo de paquetería de oficina",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-6011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Comunicación efectiva",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-6011.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora de escritorio",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Silla de oficina",
+          "tipo_activo_sugerido": {
+            "nombre": "Silla ergonómica",
+            "categoria_teletrabajo": "ergonomic_chair"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Teléfono de oficina",
+          "tipo_activo_sugerido": {
+            "nombre": "Teléfono fijo",
+            "categoria_teletrabajo": "accessory"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-auxiliar-administrativo",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Auxiliar administrativo",
+      "codigo_sinco": "3115",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Realiza tareas de apoyo administrativo en general: archivo, captura, trámites sencillos y atención de llamadas, sin especializarse en un área.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "3115",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que los trámites y documentos del área estén completos, capturados y al día.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Bachillerato; manejo básico de computadora y hojas de cálculo.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Capturar información en los sistemas de la empresa",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "3115",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Integrar y archivar expedientes y documentos del área",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "3115",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Atender llamadas y correos, y tomar recados",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-9061.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Realizar trámites administrativos sencillos ante proveedores, bancos o dependencias",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "3115",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Controlar la papelería y los insumos de oficina",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-9061.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Recibir, registrar y repartir la correspondencia",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-9061.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Atención al detalle",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-9061.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Manejo de hojas de cálculo",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-9061.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Manejo de paquetería de oficina",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-9061.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Organización y planeación",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Orientación al servicio",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora de escritorio",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Silla de oficina",
+          "tipo_activo_sugerido": {
+            "nombre": "Silla ergonómica",
+            "categoria_teletrabajo": "ergonomic_chair"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-comprador",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Comprador",
+      "codigo_sinco": "2511",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Adquiere los bienes y servicios que la empresa necesita para operar, buscando proveedores confiables, buen precio y entrega a tiempo.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "2511",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que la empresa reciba lo que necesita, con la calidad pedida, al mejor costo y en el plazo acordado.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Licenciatura o carrera técnica en administración, comercio o afín; experiencia en compras.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Solicitar y comparar cotizaciones de proveedores",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1023.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Elaborar las órdenes de compra autorizadas y darles seguimiento hasta su entrega",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1023.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Negociar precios, plazos de pago y condiciones de entrega con los proveedores",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1023.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Dar de alta y evaluar a los proveedores según su cumplimiento",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Resolver con el proveedor faltantes, devoluciones o productos fuera de especificación",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1023.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Mantener actualizado el padrón de proveedores y sus precios",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2511",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Negociación",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1023.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Gestión de proveedores",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1023.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Manejo de hojas de cálculo",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1023.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Pensamiento analítico",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1023.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Organización y planeación",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora de escritorio",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Silla de oficina",
+          "tipo_activo_sugerido": {
+            "nombre": "Silla ergonómica",
+            "categoria_teletrabajo": "ergonomic_chair"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Teléfono celular de la empresa",
+          "tipo_activo_sugerido": {
+            "nombre": "Teléfono celular"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-almacenista",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Almacenista",
+      "codigo_sinco": "3132",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Recibe, resguarda y entrega los materiales e insumos del almacén, y lleva el registro de entradas, salidas e inventario.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "3132",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que el inventario físico coincida con el registrado y que cada área reciba a tiempo lo que pide.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Secundaria o bachillerato; experiencia en manejo de almacén e inventarios.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Recibir la mercancía y cotejarla contra la orden de compra y la factura",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "3132",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Acomodar los materiales en su ubicación y mantener el almacén ordenado",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "3132",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Entregar materiales a las áreas contra vale o requisición autorizada",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-5071.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Registrar entradas y salidas en el sistema de inventarios",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-5071.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Realizar conteos cíclicos e informar las diferencias encontradas",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-5071.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Avisar a compras cuando un artículo llega a su punto de reorden",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Control de inventarios",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-5071.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Atención al detalle",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-5071.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Responsabilidad",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Organización y planeación",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora de escritorio",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Lector de código de barras",
+          "tipo_activo_sugerido": {
+            "nombre": "Lector de código de barras"
+          },
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-5071.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Diablito de carga",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de carga manual"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-gerente-recursos-humanos",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Gerente de recursos humanos",
+      "codigo_sinco": "1211",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Dirige la administración del personal de la empresa: reclutamiento, contratación, nómina, capacitación, relaciones laborales y clima organizacional.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "1211",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que la empresa tenga a las personas que necesita, bien pagadas, capacitadas y en cumplimiento de la ley laboral.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Licenciatura en administración, relaciones industriales o afín; experiencia dirigiendo áreas de recursos humanos.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Definir las políticas de personal y vigilar su cumplimiento",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "1211",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Autorizar la contratación de personal conforme a la plantilla aprobada",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3121.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Supervisar el cálculo y pago de la nómina y de las cuotas de seguridad social",
+          "frecuencia": "Quincenal",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Atender los conflictos laborales y representar a la empresa ante las autoridades del trabajo",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3121.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Aprobar el programa anual de capacitación",
+          "frecuencia": "Anual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3121.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Diseñar el tabulador de sueldos y prestaciones con la dirección",
+          "frecuencia": "Anual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3121.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Medir la rotación y el clima laboral, y proponer acciones de mejora",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Liderazgo",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3121.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Legislación laboral mexicana",
+          "tipo": "technical",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Manejo de conflictos",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3121.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Negociación",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3121.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Manejo de información confidencial",
+          "tipo": "functional",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Administración de sueldos y prestaciones",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3121.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora portátil",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Teléfono celular de la empresa",
+          "tipo_activo_sugerido": {
+            "nombre": "Teléfono celular"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-generalista-recursos-humanos",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Generalista de recursos humanos",
+      "codigo_sinco": "2111",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Opera los procesos de recursos humanos de punta a punta: reclutamiento y selección, contratación, inducción, capacitación y atención al personal.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "2111",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que las vacantes se cubran a tiempo con personas adecuadas y que el personal reciba respuesta a sus asuntos laborales.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Licenciatura en administración, relaciones industriales o afín; experiencia en reclutamiento y administración de personal.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Publicar las vacantes y filtrar a los candidatos según el perfil del puesto",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1071.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Entrevistar a los candidatos y coordinar sus evaluaciones de selección",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1071.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Integrar el expediente y elaborar el contrato de cada nuevo ingreso",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Dar la inducción a la empresa al personal de nuevo ingreso",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1071.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Organizar los cursos del programa de capacitación y registrar las constancias",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Mantener actualizadas las descripciones de puesto",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2111",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Atender dudas y solicitudes del personal sobre prestaciones, permisos y vacaciones",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1071.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Reclutamiento y selección de personal",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1071.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Legislación laboral mexicana",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Comunicación efectiva",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1071.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Manejo de información confidencial",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Orientación al servicio",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1071.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora de escritorio",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Silla de oficina",
+          "tipo_activo_sugerido": {
+            "nombre": "Silla ergonómica",
+            "categoria_teletrabajo": "ergonomic_chair"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-auxiliar-recursos-humanos",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Auxiliar de recursos humanos",
+      "codigo_sinco": "2511",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Lleva el control administrativo del personal: expedientes, altas y bajas ante la seguridad social, vacaciones, incidencias y trámites.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "2511",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que los expedientes y los movimientos del personal estén completos, correctos y a tiempo.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Bachillerato o carrera técnica en administración; conocimiento básico de trámites ante el IMSS.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Integrar y mantener al día los expedientes del personal",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2511",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Tramitar las altas, bajas y modificaciones de salario ante el IMSS",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2511",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Registrar vacaciones, permisos, incapacidades y faltas del personal",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-4161.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Elaborar constancias laborales y cartas que pide el personal",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-4161.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Apoyar en la publicación de vacantes y la citación de candidatos",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-4161.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Entregar a nómina las incidencias del periodo",
+          "frecuencia": "Quincenal",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Trámites de seguridad social",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Atención al detalle",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-4161.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Manejo de información confidencial",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Manejo de paquetería de oficina",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-4161.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Orientación al servicio",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-4161.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora de escritorio",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Silla de oficina",
+          "tipo_activo_sugerido": {
+            "nombre": "Silla ergonómica",
+            "categoria_teletrabajo": "ergonomic_chair"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-analista-nomina",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Analista de nómina",
+      "codigo_sinco": "2512",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Calcula y paga la nómina del personal, con sus percepciones, deducciones, impuestos y cuotas, y emite los recibos de pago.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "2512",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que cada persona reciba su pago correcto y a tiempo, y que la empresa cumpla sus obligaciones fiscales y de seguridad social por la nómina.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Licenciatura o carrera técnica en contaduría o administración; experiencia en cálculo de nómina.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Capturar las incidencias del periodo: faltas, horas extra, incapacidades y bonos",
+          "frecuencia": "Quincenal",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-3051.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Calcular la nómina con sus percepciones, deducciones e impuesto retenido",
+          "frecuencia": "Quincenal",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2512",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Timbrar los recibos de nómina y enviarlos al personal",
+          "frecuencia": "Quincenal",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Calcular finiquitos, liquidaciones, aguinaldo y reparto de utilidades",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Determinar las cuotas obrero-patronales y las aportaciones de vivienda",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Aclarar con el personal las dudas sobre su recibo de pago",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-3051.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Conciliar la nómina pagada con la contabilidad",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-3051.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Cálculo de nómina",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Legislación laboral mexicana",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Legislación fiscal mexicana",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Atención al detalle",
+          "tipo": "functional",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-3051.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Manejo de información confidencial",
+          "tipo": "functional",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Manejo de hojas de cálculo",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-3051.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora de escritorio",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Silla de oficina",
+          "tipo_activo_sugerido": {
+            "nombre": "Silla ergonómica",
+            "categoria_teletrabajo": "ergonomic_chair"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Sistema de nómina",
+          "tipo_activo_sugerido": {
+            "nombre": "Licencia de software"
+          },
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-3051.00",
+            "adaptado": true
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-contador-general",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Contador general",
+      "codigo_sinco": "2121",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Organiza y supervisa la contabilidad de la empresa, prepara sus estados financieros y cumple sus obligaciones fiscales.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "2121",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que la contabilidad refleje fielmente las operaciones de la empresa y que las declaraciones fiscales se presenten correctas y a tiempo.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Licenciatura en contaduría pública con cédula profesional; experiencia en contabilidad general y fiscal.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Revisar los registros contables y las conciliaciones bancarias",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2121",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Elaborar los estados financieros mensuales",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-2011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Calcular y presentar las declaraciones de impuestos",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2121",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Enviar la contabilidad electrónica al SAT",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Supervisar el trabajo del personal auxiliar de contabilidad",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2121",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Atender los requerimientos de las autoridades fiscales y de los auditores",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-2011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Preparar la declaración anual y el cierre del ejercicio",
+          "frecuencia": "Anual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-2011.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Contabilidad general",
+          "tipo": "technical",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-2011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Legislación fiscal mexicana",
+          "tipo": "technical",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Interpretación de estados financieros",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-2011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Atención al detalle",
+          "tipo": "functional",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-2011.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Liderazgo",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora de escritorio",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Silla de oficina",
+          "tipo_activo_sugerido": {
+            "nombre": "Silla ergonómica",
+            "categoria_teletrabajo": "ergonomic_chair"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Sistema de contabilidad",
+          "tipo_activo_sugerido": {
+            "nombre": "Licencia de software"
+          },
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-2011.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "certificaciones": [
+        {
+          "nombre": "Cédula profesional de contador público",
+          "categoria": "administrativo",
+          "emisor": "SEP",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-auxiliar-contable",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Auxiliar contable",
+      "codigo_sinco": "2512",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Registra las operaciones contables de la empresa a partir de sus comprobantes y apoya en las conciliaciones y en los pagos.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "2512",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que cada operación quede registrada con su comprobante fiscal y que las cuentas a su cargo estén conciliadas.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Carrera técnica o licenciatura en contaduría en curso o terminada; manejo de un sistema contable.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Registrar pólizas de ingresos, egresos y diario con su comprobante",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2512",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Validar los comprobantes fiscales de proveedores antes de su pago",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Elaborar las conciliaciones bancarias",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-3031.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Preparar los pagos a proveedores programados",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2512",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Emitir las facturas a clientes y registrar los cobros",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Archivar los documentos fuente de las operaciones",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2512",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Contabilidad general",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-3031.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Facturación electrónica",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Manejo de hojas de cálculo",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-3031.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Atención al detalle",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-3031.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora de escritorio",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Silla de oficina",
+          "tipo_activo_sugerido": {
+            "nombre": "Silla ergonómica",
+            "categoria_teletrabajo": "ergonomic_chair"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Sistema de contabilidad",
+          "tipo_activo_sugerido": {
+            "nombre": "Licencia de software"
+          },
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "43-3031.00",
+            "adaptado": true
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-gerente-comercial",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Gerente comercial",
+      "codigo_sinco": "1411",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Dirige las ventas de la empresa: fija metas, organiza al equipo de ventas, atiende a los clientes clave y vigila los precios y márgenes.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "1411",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que la empresa alcance sus metas de venta con clientes satisfechos y márgenes rentables.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Licenciatura en administración, mercadotecnia o afín; experiencia dirigiendo equipos de ventas.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Fijar las metas de venta por vendedor, cliente o línea de servicio",
+          "frecuencia": "Anual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-2022.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Revisar el avance de ventas y la cartera de oportunidades con el equipo",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-2022.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Autorizar precios especiales, descuentos y condiciones de crédito a clientes",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "1411",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Atender personalmente a los clientes clave y las negociaciones mayores",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-2022.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Analizar las ventas por cliente, producto y periodo",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-2022.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Seleccionar, capacitar y evaluar al personal de ventas",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "1411",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Liderazgo",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-2022.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Negociación",
+          "tipo": "functional",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-2022.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Planeación comercial",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-2022.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Orientación a resultados",
+          "tipo": "functional",
+          "nivel_esperado": 5,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Comunicación efectiva",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-2022.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora portátil",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Teléfono celular de la empresa",
+          "tipo_activo_sugerido": {
+            "nombre": "Teléfono celular"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-ejecutivo-ventas",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Ejecutivo de ventas",
+      "codigo_sinco": "4221",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Busca y atiende clientes, presenta los servicios o productos de la empresa, cotiza y cierra ventas, y da seguimiento a la satisfacción del cliente.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "4221",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que cumpla su meta de ventas y conserve a sus clientes satisfechos.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Bachillerato o licenciatura en áreas comerciales; experiencia en ventas.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Identificar y contactar clientes potenciales",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "4221",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Presentar los servicios o productos de la empresa a los clientes",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "41-3091.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Elaborar cotizaciones y propuestas comerciales",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "41-3091.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Negociar y cerrar las ventas dentro de las políticas de precio",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "41-3091.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Registrar sus oportunidades y actividades en el sistema de clientes",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Dar seguimiento a los clientes después de la venta y atender sus inconformidades",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "4221",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Negociación",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "41-3091.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Técnicas de venta",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "41-3091.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Orientación al servicio",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "41-3091.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Comunicación efectiva",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "41-3091.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Orientación a resultados",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora portátil",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Teléfono celular de la empresa",
+          "tipo_activo_sugerido": {
+            "nombre": "Teléfono celular"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Sistema de gestión de clientes (CRM)",
+          "tipo_activo_sugerido": {
+            "nombre": "Licencia de software"
+          },
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "41-3091.00",
+            "adaptado": true
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-coordinador-mercadotecnia",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Coordinador de mercadotecnia",
+      "codigo_sinco": "2112",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Planea y ejecuta las acciones de mercadotecnia y publicidad de la empresa, en medios digitales y tradicionales, y mide sus resultados.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "2112",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que la marca sea conocida por su mercado y que las campañas generen clientes y ventas medibles.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Licenciatura en mercadotecnia, comunicación o afín; experiencia en mercadotecnia digital.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Elaborar el plan anual de mercadotecnia y su presupuesto",
+          "frecuencia": "Anual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1161.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Planear y publicar contenidos en redes sociales y en el sitio web",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Coordinar campañas de publicidad y promociones",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2112",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Analizar la competencia y las tendencias del mercado",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2112",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Medir los resultados de las campañas e informarlos a la dirección",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1161.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Coordinar a las agencias y proveedores de diseño y publicidad",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Mercadotecnia digital",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Análisis de mercado",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1161.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Comunicación efectiva",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1161.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Pensamiento analítico",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "13-1161.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Organización y planeación",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora portátil",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-jefe-sistemas",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Jefe de sistemas",
+      "codigo_sinco": "1621",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Coordina la infraestructura de cómputo, las redes, los sistemas y la seguridad de la información de la empresa, y al personal de soporte.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "1621",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que los sistemas y equipos de la empresa estén disponibles, seguros y respondan a lo que la operación necesita.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Licenciatura en sistemas, informática o afín; experiencia en administración de infraestructura y sistemas.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Planear las compras y renovaciones de equipo, licencias y servicios de tecnología",
+          "frecuencia": "Anual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3021.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Supervisar la operación de redes, servidores y servicios en la nube",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "1621",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Definir y vigilar las políticas de respaldo, accesos y seguridad de la información",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3021.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Evaluar y contratar proveedores de tecnología",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3021.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Coordinar la implantación de sistemas nuevos con las áreas usuarias",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "1621",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Dar seguimiento a los incidentes de soporte y a su tiempo de atención",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Administración de redes",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3021.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Seguridad de la información",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3021.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Liderazgo",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3021.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Gestión de proveedores",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Resolución de problemas",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "11-3021.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora portátil",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Teléfono celular de la empresa",
+          "tipo_activo_sugerido": {
+            "nombre": "Teléfono celular"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-tecnico-soporte",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Técnico de soporte",
+      "codigo_sinco": "2651",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Instala, configura y repara el equipo de cómputo, la red y los programas de la empresa, y atiende las solicitudes de soporte del personal.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "2651",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que el personal tenga su equipo y sus sistemas funcionando y resuelva sus fallas en el menor tiempo.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Carrera técnica o licenciatura en sistemas o informática; experiencia en soporte a usuarios.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Atender y registrar las solicitudes de soporte del personal",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "15-1232.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Instalar y configurar equipos de cómputo, impresoras y programas",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2651",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Diagnosticar y reparar fallas de equipo, red e internet",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2651",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Dar mantenimiento preventivo a los equipos de cómputo",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Dar de alta y de baja cuentas de correo y accesos a sistemas",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "15-1232.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Llevar el inventario de equipo de cómputo y su asignación",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Soporte a usuarios",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "15-1232.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Administración de redes",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2651",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Resolución de problemas",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "15-1232.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Orientación al servicio",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "15-1232.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora portátil",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Juego de herramientas para cómputo",
+          "tipo_activo_sugerido": {
+            "nombre": "Herramienta manual"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-vigilante",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Vigilante",
+      "codigo_sinco": "5313",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Vigila las instalaciones de la empresa, controla el acceso de personas y vehículos, y protege los bienes contra robos, daños o incendios.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "5313",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que en las instalaciones solo entre quien está autorizado y que las personas y los bienes estén protegidos.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Secundaria terminada; capacitación en vigilancia y primeros auxilios.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Controlar y registrar la entrada y salida de personas, vehículos y materiales",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "5313",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Recorrer las instalaciones para detectar riesgos o situaciones fuera de lo normal",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "33-9032.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Revisar las cámaras de vigilancia",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "33-9032.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Reportar en la bitácora los incidentes del turno",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "33-9032.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Actuar conforme al protocolo ante emergencias y apoyar la evacuación",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Pedir apoyo a las autoridades cuando ocurre un delito o una emergencia",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "5313",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Capacidad de observación",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "33-9032.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Responsabilidad",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Primeros auxilios",
+          "tipo": "technical",
+          "nivel_esperado": 2,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Comunicación efectiva",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "33-9032.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Radio de comunicación",
+          "tipo_activo_sugerido": {
+            "nombre": "Radio portátil"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Lámpara de mano",
+          "tipo_activo_sugerido": {
+            "nombre": "Lámpara"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "certificaciones": [
+        {
+          "nombre": "Constancia de capacitación en primeros auxilios",
+          "categoria": "seguridad",
+          "emisor": "STPS",
+          "atribucion": {
+            "fuente": "stps_dc3",
+            "id_en_fuente": "dc-3-primeros-auxilios",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-chofer",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Chofer",
+      "codigo_sinco": "8342",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Conduce los vehículos de la empresa para trasladar a personal, clientes o directivos, y cuida que el vehículo esté en buen estado.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "8342",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que los traslados se hagan a tiempo, con seguridad y con el vehículo en condiciones.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Secundaria terminada; licencia de conducir vigente del tipo que pide el vehículo; experiencia comprobable manejando.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Trasladar al personal, clientes o directivos a los destinos programados",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "8342",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Revisar el vehículo antes de salir: llantas, niveles, luces y documentos",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "53-3053.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Respetar las rutas, horarios y reglamentos de tránsito",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "53-3053.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Registrar kilometraje, cargas de combustible e incidentes en la bitácora",
+          "frecuencia": "Diaria",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Llevar el vehículo a su servicio y reportar las fallas",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "53-3053.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Realizar entregas y recolecciones de documentos o paquetes",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Manejo defensivo",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "53-3053.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Responsabilidad",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Orientación al servicio",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "53-3053.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Conocimiento de rutas",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "53-3053.00",
+            "adaptado": true
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Teléfono celular de la empresa",
+          "tipo_activo_sugerido": {
+            "nombre": "Teléfono celular"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "certificaciones": [
+        {
+          "nombre": "Licencia de conducir de chofer",
+          "categoria": "operacion",
+          "emisor": "Autoridad estatal de movilidad",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ]
+    },
+    {
+      "codigo": "pt-trv-encargado-seguridad-higiene",
+      "version": 1,
+      "estado": "en_revision",
+      "nombre": "Encargado de seguridad e higiene",
+      "codigo_sinco": "2825",
+      "alcance": "transversal",
+      "descripcion": {
+        "texto": "Vigila que el centro de trabajo cumpla las normas de seguridad y salud en el trabajo, identifica riesgos, investiga accidentes y coordina la comisión y las brigadas.",
+        "atribucion": {
+          "fuente": "sinco_2019",
+          "id_en_fuente": "2825",
+          "adaptado": true
+        }
+      },
+      "objetivo": {
+        "texto": "Que el personal trabaje en condiciones seguras, sin accidentes, y que la empresa cumpla las normas de la STPS y de protección civil.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "requisitos": {
+        "texto": "Carrera técnica o licenciatura en seguridad industrial, ingeniería o afín; conocimiento de las normas oficiales mexicanas de la STPS.",
+        "atribucion": {
+          "fuente": "propio",
+          "adaptado": false
+        }
+      },
+      "funciones": [
+        {
+          "nombre": "Realizar recorridos para identificar actos y condiciones inseguras",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2825",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Coordinar los recorridos de la comisión de seguridad e higiene y levantar sus actas",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Investigar los accidentes de trabajo y dar seguimiento a las acciones correctivas",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "19-5012.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Verificar la entrega y el uso del equipo de protección personal",
+          "frecuencia": "Semanal",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "19-5012.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Organizar las brigadas de emergencia y los simulacros",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Impartir pláticas de seguridad al personal",
+          "frecuencia": "Mensual",
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "19-5012.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Integrar la evidencia de cumplimiento de las normas oficiales mexicanas aplicables",
+          "frecuencia": "Por evento",
+          "atribucion": {
+            "fuente": "sinco_2019",
+            "id_en_fuente": "2825",
+            "adaptado": true
+          }
+        }
+      ],
+      "competencias": [
+        {
+          "nombre": "Normatividad de seguridad y salud en el trabajo",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Identificación de riesgos",
+          "tipo": "technical",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "19-5012.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Capacidad de observación",
+          "tipo": "functional",
+          "nivel_esperado": 4,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "19-5012.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Comunicación efectiva",
+          "tipo": "functional",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "onet",
+            "id_en_fuente": "19-5012.00",
+            "adaptado": true
+          }
+        },
+        {
+          "nombre": "Primeros auxilios",
+          "tipo": "technical",
+          "nivel_esperado": 3,
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "herramientas": [
+        {
+          "nombre": "Computadora portátil",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de cómputo",
+            "categoria_teletrabajo": "computing_equipment"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        },
+        {
+          "nombre": "Chaleco y casco de seguridad",
+          "tipo_activo_sugerido": {
+            "nombre": "Equipo de protección personal"
+          },
+          "atribucion": {
+            "fuente": "propio",
+            "adaptado": false
+          }
+        }
+      ],
+      "certificaciones": [
+        {
+          "nombre": "Constancia de capacitación en seguridad y salud en el trabajo",
+          "categoria": "seguridad",
+          "emisor": "STPS",
+          "atribucion": {
+            "fuente": "stps_dc3",
+            "id_en_fuente": "dc-3-seguridad-salud-trabajo",
+            "adaptado": false
+          }
+        }
+      ]
+    }
+  ]
+}

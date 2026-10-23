@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import EmployeeTeleworkLocationService from '#services/employee_telework_location_service'
 import {
   createEmployeeTeleworkLocationValidator,
@@ -7,11 +8,30 @@ import {
 import { TWL_ERROR_CODES, type TwlErrorCode } from '#constants/employee_telework_location_error_codes'
 
 /**
+ * Contexto del log de una falla inesperada. Solo ids y el nombre del error:
+ * el domicilio es dato personal (LFPDPPP) y `err.message` puede citar valores de
+ * la dirección, así que ninguno se registra. El id que la petición no conoce de
+ * antemano (`employeeId` en `update`/`destroy`) viaja como `null` para que la
+ * forma del log sea la misma en los tres métodos.
+ */
+interface UnexpectedFailureContext {
+  employeeId?: number | null
+  locationId?: number | null
+  businessUnitId?: number | null
+}
+
+/**
  * Controlador del lugar de teletrabajo (NOM-037 5.1 / 5.1.1 / 5.1.2).
  *
  * Ref: USRH1782792802405 — Capturar el lugar de teletrabajo con fijeza y
  * conectividad. Todas las rutas van bajo `auth()` + `businessScope()`;
  * la empresa se resuelve del header `X-Business-Unit-Id` (anti-IDOR).
+ *
+ * Ref: VLRH-H1791306078668 — Guardar un lugar puede invalidar la lista de
+ * verificación vigente. Las tres operaciones responden
+ * `data.teleworkChecklistInvalidated` (booleano, siempre presente en el éxito y
+ * nunca en los errores) y cualquier falla dentro de la transacción responde 500
+ * `error-inesperado` (`TWL.SYS.001`) con un log de solo ids.
  */
 export default class EmployeeTeleworkLocationController {
   /**
@@ -69,6 +89,32 @@ export default class EmployeeTeleworkLocationController {
           },
         }
     }
+  }
+
+  /**
+   * Registra una falla inesperada de `store`/`update`/`destroy` con ids y el
+   * nombre del error, jamás el payload, el domicilio ni `err.message`.
+   */
+  private logUnexpectedFailure(context: UnexpectedFailureContext, error: unknown): void {
+    logger.error(
+      {
+        employeeId: context.employeeId ?? null,
+        locationId: context.locationId ?? null,
+        businessUnitId: context.businessUnitId ?? null,
+        errorName: error instanceof Error ? error.name : 'desconocido',
+      },
+      'Falla inesperada al guardar el lugar de teletrabajo'
+    )
+  }
+
+  /**
+   * Respuesta viva del 500 (`default` de `buildErrorResponse`: `error-inesperado`
+   * con `TWL.SYS.001`). El `trx` del servicio ya revirtió lugar, fijos y lista.
+   */
+  private respondUnexpectedFailure(response: HttpContext['response'], i18n: HttpContext['i18n']) {
+    const failure = this.buildErrorResponse(TWL_ERROR_CODES.SYS_UNHANDLED, i18n)
+    response.status(failure.status)
+    return failure.body
   }
 
   /**
@@ -146,16 +192,53 @@ export default class EmployeeTeleworkLocationController {
    *     responses:
    *       '201':
    *         description: Lugar registrado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     teleworkLocation:
+   *                       $ref: '#/components/schemas/EmployeeTeleworkLocation'
+   *                     teleworkChecklistInvalidated:
+   *                       type: boolean
+   *                       description: >-
+   *                         `true` solo si esta petición pasó la lista de
+   *                         verificación vigente del colaborador de `vigente` a
+   *                         `invalidada`. Siempre presente en el 201.
+   *       '400':
+   *         description: Payload inválido (code TWL.VAL.001)
    *       '404':
-   *         description: Empleado inexistente o fuera del tenant
+   *         description: Empleado inexistente o fuera del tenant (code TWL.NF.EMP.001)
    *       '422':
    *         description: El empleado no es teletrabajador (code TWL.VAL.GATING.001)
+   *       '500':
+   *         description: >-
+   *           Falla inesperada dentro de la transacción; el lugar no se guarda y
+   *           RH recibe `error-inesperado` con `TWL.SYS.001`
    */
-  async store({ request, response, i18n, businessUnitScope }: HttpContext) {
+  async store({ request, response, i18n, businessUnitScope, auth }: HttpContext) {
+    let employeeId: number | undefined
+
     try {
       const payload = await request.validateUsing(createEmployeeTeleworkLocationValidator)
+      employeeId = payload.employeeId
       const service = new EmployeeTeleworkLocationService()
-      const result = await service.create(payload.employeeId, payload, businessUnitScope ?? [])
+      const result = await service.create(
+        payload.employeeId,
+        payload,
+        businessUnitScope ?? [],
+        auth.user!.userId
+      )
 
       if (!result.ok) {
         const error = this.buildErrorResponse(result.code!, i18n)
@@ -168,7 +251,10 @@ export default class EmployeeTeleworkLocationController {
         type: 'success',
         title: i18n.formatMessage('telework_location_title'),
         message: i18n.formatMessage('telework_location_created'),
-        data: { teleworkLocation: result.location },
+        data: {
+          teleworkLocation: result.location,
+          teleworkChecklistInvalidated: result.teleworkChecklistInvalidated,
+        },
       }
     } catch (error) {
       if (error?.messages) {
@@ -182,7 +268,8 @@ export default class EmployeeTeleworkLocationController {
           data: { errors: error.messages },
         }
       }
-      throw error
+      this.logUnexpectedFailure({ employeeId, businessUnitId: businessUnitScope?.[0] }, error)
+      return this.respondUnexpectedFailure(response, i18n)
     }
   }
 
@@ -204,14 +291,50 @@ export default class EmployeeTeleworkLocationController {
    *     responses:
    *       '200':
    *         description: Lugar actualizado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     teleworkLocation:
+   *                       $ref: '#/components/schemas/EmployeeTeleworkLocation'
+   *                     teleworkChecklistInvalidated:
+   *                       type: boolean
+   *                       description: >-
+   *                         `true` solo si esta petición pasó la lista de
+   *                         verificación vigente del colaborador de `vigente` a
+   *                         `invalidada`. Siempre presente en el 200.
+   *       '400':
+   *         description: Payload inválido (code TWL.VAL.001)
    *       '404':
-   *         description: Lugar inexistente o fuera del tenant
+   *         description: Lugar inexistente o fuera del tenant (code TWL.NF.LOC.001)
+   *       '500':
+   *         description: >-
+   *           Falla inesperada dentro de la transacción; el lugar y la lista
+   *           revierten y RH recibe `error-inesperado` con `TWL.SYS.001`
    */
-  async update({ params, request, response, i18n, businessUnitScope }: HttpContext) {
+  async update({ params, request, response, i18n, businessUnitScope, auth }: HttpContext) {
+    const locationId = Number(params.id)
+
     try {
       const payload = await request.validateUsing(updateEmployeeTeleworkLocationValidator)
       const service = new EmployeeTeleworkLocationService()
-      const result = await service.update(Number(params.id), payload, businessUnitScope ?? [])
+      const result = await service.update(
+        locationId,
+        payload,
+        businessUnitScope ?? [],
+        auth.user!.userId
+      )
 
       if (!result.ok) {
         const error = this.buildErrorResponse(result.code!, i18n)
@@ -224,7 +347,10 @@ export default class EmployeeTeleworkLocationController {
         type: 'success',
         title: i18n.formatMessage('telework_location_title'),
         message: i18n.formatMessage('telework_location_updated'),
-        data: { teleworkLocation: result.location },
+        data: {
+          teleworkLocation: result.location,
+          teleworkChecklistInvalidated: result.teleworkChecklistInvalidated,
+        },
       }
     } catch (error) {
       if (error?.messages) {
@@ -238,7 +364,8 @@ export default class EmployeeTeleworkLocationController {
           data: { errors: error.messages },
         }
       }
-      throw error
+      this.logUnexpectedFailure({ locationId, businessUnitId: businessUnitScope?.[0] }, error)
+      return this.respondUnexpectedFailure(response, i18n)
     }
   }
 
@@ -260,25 +387,66 @@ export default class EmployeeTeleworkLocationController {
    *     responses:
    *       '200':
    *         description: Lugar dado de baja lógicamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     teleworkLocation:
+   *                       $ref: '#/components/schemas/EmployeeTeleworkLocation'
+   *                     teleworkChecklistInvalidated:
+   *                       type: boolean
+   *                       description: >-
+   *                         `true` solo si esta petición pasó la lista de
+   *                         verificación vigente del colaborador de `vigente` a
+   *                         `invalidada`. Siempre presente en el 200.
    *       '404':
-   *         description: Lugar inexistente o fuera del tenant
+   *         description: Lugar inexistente, ajeno o ya dado de baja (code TWL.NF.LOC.001)
+   *       '500':
+   *         description: >-
+   *           Falla inesperada dentro de la transacción; el lugar y la lista
+   *           revierten y RH recibe `error-inesperado` con `TWL.SYS.001`
    */
-  async destroy({ params, response, i18n, businessUnitScope }: HttpContext) {
-    const service = new EmployeeTeleworkLocationService()
-    const result = await service.softDelete(Number(params.id), businessUnitScope ?? [])
+  async destroy({ params, response, i18n, businessUnitScope, auth }: HttpContext) {
+    const locationId = Number(params.id)
 
-    if (!result.ok) {
-      const error = this.buildErrorResponse(result.code!, i18n)
-      response.status(error.status)
-      return error.body
-    }
+    try {
+      const service = new EmployeeTeleworkLocationService()
+      const result = await service.softDelete(
+        locationId,
+        businessUnitScope ?? [],
+        auth.user!.userId
+      )
 
-    response.status(200)
-    return {
-      type: 'success',
-      title: i18n.formatMessage('telework_location_title'),
-      message: i18n.formatMessage('telework_location_deleted'),
-      data: { teleworkLocation: result.location },
+      if (!result.ok) {
+        const error = this.buildErrorResponse(result.code!, i18n)
+        response.status(error.status)
+        return error.body
+      }
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: i18n.formatMessage('telework_location_title'),
+        message: i18n.formatMessage('telework_location_deleted'),
+        data: {
+          teleworkLocation: result.location,
+          teleworkChecklistInvalidated: result.teleworkChecklistInvalidated,
+        },
+      }
+    } catch (error) {
+      this.logUnexpectedFailure({ locationId, businessUnitId: businessUnitScope?.[0] }, error)
+      return this.respondUnexpectedFailure(response, i18n)
     }
   }
 }
