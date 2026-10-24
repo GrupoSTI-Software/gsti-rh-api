@@ -101,3 +101,12 @@ export function assertMinimumContractedEmployees(
     throw employeesBelowActiveHeadcountError(activeEmployees, minimum)
   }
 }
+
+/** Días de gracia por omisión mientras no exista ninguna fila en `platform_billing_settings` (VLRH-C0178 R2). */
+export const BILLING_GRACE_DAYS_DEFAULT = 10
+
+/** Mínimo de días de gracia aceptado por el ajuste de plataforma (VLRH-C0178 R2). */
+export const BILLING_GRACE_DAYS_MIN = 1
+
+/** Máximo de días de gracia aceptado por el ajuste de plataforma (VLRH-C0178 R2). */
+export const BILLING_GRACE_DAYS_MAX = 30

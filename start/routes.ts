@@ -268,6 +268,7 @@ import './routes/sat_catalog_routes.js'
 import './routes/complaint_routes.js'
 import './routes/complaint_category_routes.js'
 import './routes/pii_reveal_routes.js'
+import './routes/platform_billing_setting_routes.js'
 
 router
   .get('/', async ({ view }) => {
